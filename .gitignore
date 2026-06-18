@@ -1,0 +1,41 @@
+# === Abaqus : sorties lourdes & binaires ===
+*.odb
+*.odb_f
+*.sta
+*.dat
+*.msg
+*.fil
+*.lck
+
+# === Abaqus : temporaires (cf. cleanup.py) ===
+*.abq
+*.cid
+*.com
+*.ipm
+*.log
+*.mdl
+*.pac
+*.prt
+*.res
+*.sel
+*.simlog
+*.stt
+*.env
+*.rec
+*.rpy
+*.rpy.*
+*.exception
+
+# === Dossiers générés à l'exécution ===
+runs/
+SimDataOutputs/
+material_parameters/
+
+# === Python ===
+__pycache__/
+*.pyc
+
+# === OS / éditeur ===
+.DS_Store
+.vscode/
+.idea/

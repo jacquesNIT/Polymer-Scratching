@@ -1,0 +1,19 @@
+Hourglass energy is too high in too many cases 
+-> run a thinely meshed mass_scale convergence to assess the importance of the issue
+-> Test DEFAULT
+
+Etotal is always constant
+-> do the sum of all energies available and ensure that the Etotal is calculated on the right part 
+
+DONE
+sampling of D1 has to be set accoridng to C01 and C10 values 
+-> need to adjust the rest of the code for when I will use it
+
+Still partitionning issues, is it necessary ? influence on symmetry ?
+
+Extraction of U is done on the very last frame, unable to capture true deformation for eps verifier
+
+Results_verifier :
+indenter area value for Hertz force is for a spheric indenter, only true for <0.1mm depth, be careful
+
+recovery calculation seems to be failing for progressive load scratch

@@ -1,0 +1,142 @@
+Results Verification Criteria
+
+
+A. Numerical Quality
+
+1. Quasi-static Control (KE/IE)
+
+    Description: Ensures that inertial forces remain negligible compared to internal deformation forces.
+
+    Ratio = ALLKE(t) / ALLIE(t) x 100% < 5%
+
+    Dependencies: Directly proportional to the mass scaling factor (alpha) and to the square of the scratch velocity (v^2).
+                  Independent of mesh size and material stiffness.
+
+2. Hourglass Energy (AE/IE)
+
+    Description: Controls the artificial energy introduced by restoring forces to counter the zero-energy deformation modes of C3D8R elements.
+
+    Ratio = ALLAE(t_final) / ALLIE(t_final) x 100% < 10%
+
+    Dependencies: Inversely proportional to mesh density. Strongly depends on the chosen control method (ENHANCED, RELAX STIFFNESS, DEFAULT).
+                  Sensitive to near-incompressibility. Independent of mass scaling and velocity.
+
+3. Total Energy Conservation (ETOTAL)
+
+    Description: Detects numerical instabilities (distorted elements, irregular contact).
+
+    Drift = |ETOTAL(t_f) - ETOTAL(t_i)| / max(|ETOTAL|, |ALLIE|) x 100% < 1%
+
+    Dependencies: Closely linked to contact stability and element distortion.
+                  Independent of the material model.
+
+
+B. Material Consistency (Mooney-Rivlin)
+
+4. D1 Validity (K/mu Window)
+
+    Description: Prevents artificial compressibility if the ratio is too low,
+                 or single-precision numerical noise accompanied by a drop in the time increment if D1 is too small.
+
+    Criterion: K/mu in [10, 100]
+
+    Derived formulas: mu_0 = 2(C10 + C01)
+                      K_0  = 2/D1
+                      E_0  = 9*K*mu / (3K + mu)
+                      nu_0 = (3K - 2mu) / (2(3K + mu))
+
+    Dependencies: Defined by the parameters C10, C01, and D1.
+
+5. Force Magnitude (Hertz Estimate)
+
+    Description: Order-of-magnitude verification of the maximum normal force RF2 against the Hertz analytical model
+                 to detect potential unit or calibration errors.
+
+    Formulas: F_Hertz = (4/3) * E* * sqrt(R) * delta^(3/2)
+              E*      = E_0 / (1 - nu_0^2)
+
+              Implied depth: delta_implied = (RF2_peak / ((4/3) * E* * sqrt(R)))^(2/3) < R
+
+              A x10 tolerance is applied.
+
+    Dependencies: Depends on C10, C01, D1, tip radius R, and depth delta.
+                  Based on the assumptions of small strain, frictionless, normal contact.
+
+6. Strain Level and Strain Rate
+
+    Description: Ensures the characteristic strain remains within the validity range of the Mooney-Rivlin model.
+
+    Formulas (Tabor): a         = sqrt(delta * R)             [contact radius]
+                      eps_char  = 0.2 * a / R < 1.0          [100% strain limit]
+                      v         = scratch_length / scratch_time
+                      t_contact = 2a / v
+                      eps_dot   = eps_char / t_contact
+
+
+C. Physical Consistency
+
+7. Symmetry (RF1/RF2)
+
+    Description: Ensures the model symmetry is respected.
+
+    Formula: Ratio = max(|RF1|) / max(|RF2|) x 100% < 1%
+
+    Dependencies: Sensitive to mass-scaling-induced oscillations, mesh symmetry quality, and indenter centering.
+
+8. Friction Physics (SCOF)
+
+    Description: Validates the consistency of the apparent friction coefficient, which combines
+                 the input adhesive friction and the ploughing resistance.
+
+    Formulas & Conditions: SCOF = |RF3| / |RF2|
+
+        (a) SCOF >= mu_input
+        (b) SCOF <= mu_input + 0.5    (with mu_p ~ (2/pi)(a/R))
+        (c) std/mean < 30%
+
+    Dependencies: Linked to mu_input, delta, R, and mass scaling.
+                  Restricted to zones where |RF2| > 10% of the peak force.
+
+9. Full Recovery
+
+    Description: Since the Mooney-Rivlin model is hyperelastic and dissipation-free, the material must
+                 fully return to its initial state (zero residual depth) after unloading.
+
+    Residual depth = |min(y_deformed, 0)|
+    Relative       = residual_depth / scratch_depth x 100% < 5%
+
+    Dependencies: Highly sensitive to excessive mass scaling.
+
+
+Annexes
+
+Symbols and Units (SI mm system)
+
+    C10, C01     Mooney-Rivlin material constants                    [MPa]
+    D1           Compressibility parameter (= 2/K)                   [1/MPa]
+    mu_0         Initial shear modulus = 2(C10 + C01)                [MPa]
+    K_0          Initial bulk modulus = 2/D1                         [MPa]
+    E_0          Initial Young's modulus = 9*K*mu/(3K+mu)            [MPa]
+    nu_0         Initial Poisson's ratio = (3K-2mu)/(6K+2mu)         [-]
+    rho          Density                                             [t/mm^3]
+    R            Indenter tip radius                                 [mm]
+    delta        Scratch (penetration) depth                         [mm]
+    a            Contact radius = sqrt(delta*R)                      [mm]
+    E*           Reduced modulus = E_0/(1-nu^2)                      [MPa]
+    c_d          Dilatational wave speed = sqrt((K+4mu/3)/rho)       [mm/s]
+    dt           Stable time increment = L_min / c_d                 [s]
+    alpha        Mass scaling factor                                 [-]
+    ALLKE        Total kinetic energy of the substrate               [mJ]
+    ALLIE        Total internal (strain) energy of the substrate     [mJ]
+    ALLAE        Total artificial (hourglass) energy                 [mJ]
+    ETOTAL       Total energy of the whole model                     [mJ]
+    ALLPW        Total contact penalty work                          [mJ]
+    ALLFD        Total frictional dissipation                        [mJ]
+    RF1          Reaction force, transverse (x) direction            [N]
+    RF2          Reaction force, normal (y) direction                [N]
+    RF3          Reaction force, scratch (z) direction               [N]
+    SCOF         Apparent scratch coefficient of friction            [-]
+    mu_a         Adhesive (interfacial) friction coefficient         [-]
+    mu_p         Ploughing friction coefficient                      [-]
+    eps_char     Tabor characteristic strain = 0.2*a/R               [-]
+    eps_dot      Mean strain rate = eps_char / t_contact             [1/s]
