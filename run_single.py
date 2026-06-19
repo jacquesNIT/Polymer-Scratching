@@ -9,7 +9,6 @@ except NameError:
 
 from abaqus import *
 from abaqusConstants import *
-import shutil
 
 from ScratchSimulation.AbaqusModel.Configuration import Simulation_Config
 from ScratchSimulation.AbaqusModel.Simulation import build_scratch_model

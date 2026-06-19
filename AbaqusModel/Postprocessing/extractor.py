@@ -28,10 +28,6 @@ def post_process(job_name, file_name, cfg):
         os.makedirs(output_folder)
     output_path = os.path.join(output_folder, file_name + "_Results.csv")
 
-    print("Available surfaces in ODB:")
-    for sname in odb.rootAssembly.surfaces.keys():
-        print("  '%s'" % sname)
-    
     #  Surface node coordinates (undeformed)
     all_contact_nodes = odb.rootAssembly.surfaces[
         names.slave_surface.upper()
@@ -79,23 +75,9 @@ def post_process(job_name, file_name, cfg):
         d = displacements.get(label, np.array([0.0, 0.0, 0.0]))
         deformed.append((label, x + d[0], y + d[1], z + d[2]))
 
-
-    #  Locate the history regions.
-    #
-    #  DUAL SCOPE — two distinct energy regions are kept on purpose:
-    #    * substrate region   -> ALLKE/ALLIE/ALLAE of the DEFORMABLE body only,
-    #                            used by the quasi-static (KE/IE) and hourglass
-    #                            (AE/IE) diagnostics. The rigid driver must NOT
-    #                            pollute these.
-    #    * whole-model region -> full energy balance incl. ETOTAL. Here the
-    #                            driver's kinetic energy legitimately appears
-    #                            (constant scratch velocity -> ~constant KE
-    #                            baseline), so it is written under WM_* names.
-    #  The whole-model region is the one carrying ETOTAL; the substrate region
-    #  is an ALL*-region WITHOUT ETOTAL.
     indenter_region = None
     substrate_region = None
-    whole_model_region = None
+    whole_model_region = None     # Needed for Etotal drift calculations
     history_step = None
 
     for sname in odb.steps.keys():

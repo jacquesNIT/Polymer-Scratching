@@ -1,5 +1,4 @@
 # Substrate material creation and assignment for polymer scratch simulation.
-# For now, only Mooney-Rivlin
 
 from part import *
 from material import *
@@ -15,8 +14,6 @@ from sketch import *
 from visualization import *
 from connectorBehavior import *
 from odbAccess import *
-import numpy as np
-
 
 class SubstrateMaterialAssignment:
 

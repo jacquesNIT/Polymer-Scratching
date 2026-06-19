@@ -15,7 +15,6 @@ class Indenter_Config:
         self.indenter_type = indenter_type
         self.tip_radius = tip_radius
         self.cone_angle = cone_angle
-        self.rigid = rigid
 
     def Rockwell_coords(self):
     # Returns a dictionnary with the Indenter coordinates
@@ -386,9 +385,9 @@ class Simulation_Config:
                 dpo_x=0.24, dpo_y=0.06, dpo_z=0.25,
             ),
             mesh=Mesh_Config(
-                fine_size_x=0.030,       
-                fine_size_y=0.030,
-                fine_size_z=0.030,
+                fine_size_x=0.060,       
+                fine_size_y=0.060,
+                fine_size_z=0.060,
                 coarse_size_0=0.08,
                 coarse_size_1=0.15,
                 coarse_size_2=0.30,
@@ -412,9 +411,9 @@ class Simulation_Config:
                 ),
             ),
             solver=Solver_Config(
-                mass_scale=200,    
+                mass_scale=1000,    
                 target_time_increment=0.0,
-                use_ALE=True,
+                use_ALE=False,
                 num_cpus=20,
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,

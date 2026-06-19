@@ -22,15 +22,12 @@ import sys
 #  Thresholds
 KE_IE_THRESHOLD = 5.0            # [%]  ALLKE/ALLIE quasi-static limit
 AE_IE_THRESHOLD = 10.0           # [%]  ALLAE/ALLIE hourglass limit
-ETOTAL_DRIFT_THRESHOLD  = 1.0    # [%] dérive de conservation, normalisée par l'énergie INTERNE
-ETOTAL_OFFSET_THRESHOLD = 5.0    # [%] |ETOTAL(0)| vs pic ALLIE — un vrai bilan part de ~0
+ETOTAL_DRIFT_THRESHOLD  = 1.0    # [%]  Etotal drift limit
 K_MU_MIN = 10.0                  # min K/mu (below: too compressible)
 K_MU_MAX = 100.0                 # max K/mu (above: noise risk)
 HERTZ_TOLERANCE_FACTOR = 10.0    # RF2 must be within x10 of Hertz estimate
 MR_STRAIN_VALIDITY = 1.0         # MR validity limit (~100-150%)
 RESIDUAL_DEPTH_TOLERANCE = 0.05  # residual depth < 5% of scratch depth
-
-
 
 #  CSV Parser
 def parse_results_csv(filepath):
@@ -262,7 +259,7 @@ def check_energy_total(timeseries):
     if et is None and ie_sub is None:
         return {"status": "SKIP", "message": "Neither ETOTAL nor ALLIE present in outputs."}
 
-    # Physical energy scale, driver KE is deliberately excluded.
+    # Physical energy scale, driver KE excluded.
     e_ref = max(_peak(ie_sub), _peak(wk))
     if e_ref < 1e-20:
         return {"status": "SKIP", "message": "No physical energy yet."}
@@ -270,7 +267,7 @@ def check_energy_total(timeseries):
     # Legacy failure mode: ETOTAL identically zero (requested on a set).
     if et is not None and _peak(et) < 1e-30:
         return {"status": "FAIL",
-                "message": ("ETOTAL identically zero while physical energy = %.3e, Maybe ETOTAL was requested on an element set instead of the whole model.")}
+                "message": ("ETOTAL identically zero while physical energy = %.3e, Maybe ETOTAL was requested on an element set instead of the whole model." % e_ref)}
 
     # Reconstruct the balance from whole-model components when available.
     have_wm = all(timeseries.get(k) is not None for k in WM_BALANCE_TERMS)
@@ -409,7 +406,7 @@ def check_force_magnitude(timeseries, metadata, nodes):
                 "message": "No penetration depth available (need IndenterU2 or "
                            "scratch_depth in the Simulation Parameters header)."}
 
-    f_hertz = (4.0 / 3.0) * E_star * np.sqrt(R) * depth ** 1.5
+    f_hertz = (4.0 / 3.0) * E_star * np.sqrt(R) * depth ** 1.5 / 2.0   # /2 for  half model
     ratio = rf2_peak / f_hertz if f_hertz > 0 else float("inf")
     ok = (1.0 / HERTZ_TOLERANCE_FACTOR) < ratio < HERTZ_TOLERANCE_FACTOR
 

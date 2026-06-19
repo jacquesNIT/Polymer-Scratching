@@ -1,19 +1,40 @@
-Hourglass energy is too high in too many cases 
+Hourglass control :
+AE is too high in too many cases 
 -> run a thinely meshed mass_scale convergence to assess the importance of the issue
 -> Test DEFAULT
 
+Partionninbg :
+Still issues for implementation, is it necessary ? influence on symmetry ?
+
+Indenter :
+The current rockwell indenter is only spherical for depth up to 27um, change of regime after that
+Does the indenter mass has any impact ( cf KE, mass scaling)
+
+Mesh size :
+Push the mesh convergence to get a Force convergence ( invisible for size > 0.02)
+about 4 elements in contact area for thinest mesh, need more
+
+Implement the force driven test
+
+Do tests for constant scratch depth
+
+Sampling :
+Probably go back to a linked sampling for parameters, individual one not useful anymore for C10, r, r_K
+
+
+
+
+
+
+
+
+DONE
+Extraction of U is done on the very last frame, unable to capture true deformation for eps verifier
+
+DONE
 Etotal is always constant
 -> do the sum of all energies available and ensure that the Etotal is calculated on the right part 
 
 DONE
 sampling of D1 has to be set accoridng to C01 and C10 values 
 -> need to adjust the rest of the code for when I will use it
-
-Still partitionning issues, is it necessary ? influence on symmetry ?
-
-Extraction of U is done on the very last frame, unable to capture true deformation for eps verifier
-
-Results_verifier :
-indenter area value for Hertz force is for a spheric indenter, only true for <0.1mm depth, be careful
-
-recovery calculation seems to be failing for progressive load scratch
