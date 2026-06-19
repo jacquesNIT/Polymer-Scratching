@@ -18,8 +18,7 @@ Implement the force driven test
 
 Do tests for constant scratch depth
 
-Sampling :
-Probably go back to a linked sampling for parameters, individual one not useful anymore for C10, r, r_K
+
 
 
 
@@ -41,3 +40,6 @@ sampling of D1 has to be set accoridng to C01 and C10 values
 
 DONE
 shear peak was at the dpo_y limit, increased it
+
+DONE
+Probably go back to a linked sampling for parameters, individual one not useful anymore for C10, r, r_K

@@ -382,15 +382,15 @@ class Simulation_Config:
             substrate=Substrate_Config(
                 xs1=0.0, ys1=0.0, zs1=0.0,             
                 xs2=0.6, ys2=0.5, zs2=3.0,             
-                dpo_x=0.24, dpo_y=0.06, dpo_z=0.25, # Change y to 0.18 after ALE simulation
+                dpo_x=0.24, dpo_y=0.18, dpo_z=0.25, # Changed y to 0.18
             ),
             mesh=Mesh_Config(
                 fine_size_x=0.030,       
                 fine_size_y=0.030,
-                fine_size_z=0.030,
-                coarse_size_0=0.08,
-                coarse_size_1=0.15,
-                coarse_size_2=0.30,
+                fine_size_z=0.030,    
+                coarse_size_0=0.06,     # *2
+                coarse_size_1=0.12,     # *2
+                coarse_size_2=0.24,     # *2
                 hourglass_control="RELAX STIFFNESS",      # RELAX STIFFNESS Might be innacurate but only one usable for now
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
@@ -411,7 +411,7 @@ class Simulation_Config:
                 ),
             ),
             solver=Solver_Config(
-                mass_scale=1000,    
+                mass_scale=500,    
                 target_time_increment=0.0,
                 use_ALE=False,
                 num_cpus=20,
@@ -423,7 +423,7 @@ class Simulation_Config:
                 ale_smoothing_algorithm="GEOMETRY_ENHANCED",
             ),
             scratch=Scratch_Config(
-                depth_mode=Scratch_Config.PROGRESSIVE,
+                depth_mode=Scratch_Config.CONSTANT,
                 scratch_length=2.0,
                 scratch_depth=-40e-3,
                 scratch_time=2.0,
