@@ -386,9 +386,9 @@ class Simulation_Config:
                 dpo_x=0.24, dpo_y=0.06, dpo_z=0.25,
             ),
             mesh=Mesh_Config(
-                fine_size_x=0.0150,       
-                fine_size_y=0.0150,
-                fine_size_z=0.0150,
+                fine_size_x=0.030,       
+                fine_size_y=0.030,
+                fine_size_z=0.030,
                 coarse_size_0=0.08,
                 coarse_size_1=0.15,
                 coarse_size_2=0.30,
@@ -400,7 +400,7 @@ class Simulation_Config:
             ),
             material=Material_Config(
                 rho=1.2e-9,
-                hyperelastic=HE_Model_Config(C10=400.0, C01=40.0, D1=0.00059),
+                hyperelastic=HE_Model_Config(C10=1.0, C01=0.1, D1=0.018),
                 viscoelastic=None,
                 plasticity=None,
                 damage=None,

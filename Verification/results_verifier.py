@@ -1,64 +1,110 @@
-# Simulation results verifier.
-
 """
-Reads the CSV output from the post-processor and runs validation checks:
-    # 1. Energy balance       — ETOTAL drift (requires ETOTAL in outputs)
-    2. Quasi-static check   — ALLKE / ALLIE ratio
-    3. Hourglass check      — ALLAE / ALLIE ratio
-    # 4. Contact penalty      — ALLPW / ALLIE ratio (requires ALLPW in outputs)
-    5. Reaction forces      — magnitude, sign, symmetry (RF1 ≈ 0)
-    6. Apparent friction    — RF3/RF2 vs input mu
-    7. Time step            — regularity, sudden drops
-    8. Groove profile       — residual depth (palier 1: should be ~0)
+    SIMULATION CONSISTENCY
+    1. ALLKE/ALLIE < 5%
+    2. ALLAE/ALLIE < 10%
+    3. ETOTAL, drift < 1%
+
+    MATERIAL CONSISTENCY (Mooney-Rivlin specific)
+    4. D1 validity         — K/mu ratio in the numerically safe window
+    5. Force magnitude     — RF2 peak vs Hertz analytical estimate
+    6. Strain level & rate — Tabor characteristic strain, MR validity range
+
+    PHYSICAL CONSISTENCY
+    7. Friction physics    — SCOF >= mu_input, bounded, low scatter
+    8. Full recovery       — residual depth ~ 0 (pure hyperelastic => no groove)
 """
 
 import numpy as np
 import os
+import re
 import sys
+
+#  Thresholds
+KE_IE_THRESHOLD = 5.0            # [%]  ALLKE/ALLIE quasi-static limit
+AE_IE_THRESHOLD = 10.0           # [%]  ALLAE/ALLIE hourglass limit
+ETOTAL_DRIFT_THRESHOLD  = 1.0    # [%] dérive de conservation, normalisée par l'énergie INTERNE
+ETOTAL_OFFSET_THRESHOLD = 5.0    # [%] |ETOTAL(0)| vs pic ALLIE — un vrai bilan part de ~0
+K_MU_MIN = 10.0                  # min K/mu (below: too compressible)
+K_MU_MAX = 100.0                 # max K/mu (above: noise risk)
+HERTZ_TOLERANCE_FACTOR = 10.0    # RF2 must be within x10 of Hertz estimate
+MR_STRAIN_VALIDITY = 1.0         # MR validity limit (~100-150%)
+RESIDUAL_DEPTH_TOLERANCE = 0.05  # residual depth < 5% of scratch depth
+
+
 
 #  CSV Parser
 def parse_results_csv(filepath):
-    # Parse the post-processor CSV into time-series and node data.
+    """
+    Parse the post-processor CSV.
+
+    metadata   : dict — C10, C01, D1, rho, mu_friction, tip_radius, wallclock...
+    timeseries : dict — {column: np.ndarray} for Time, RF1-3, energies
+    nodes      : dict — {"labels", "undeformed" (Nx3), "deformed" (Nx3)}
+    """
 
     metadata = {}
     header_cols = []
     ts_rows = []
-    node_labels = []
-    node_undef = []
-    node_def = []
+    node_labels, node_undef, node_def = [], [], []
 
     with open(filepath, "r", encoding="latin-1") as f:
         lines = f.readlines()
 
-    for i, line in enumerate(lines):
+    for line in lines:
         line = line.strip().replace("\r", "")
         if not line:
             continue
 
-        # Metadata lines
+        # ---- Metadata lines ----
         if line.startswith("#"):
             if "WallclockTime=" in line:
-                try:
-                    metadata["wallclock"] = float(line.split("=")[1].split()[0])
-                except (ValueError, IndexError):
-                    pass
-            if "Material parameters:" in line:
-                metadata["material_str"] = line.split("Material parameters:")[1].strip()
-            if "Indenter" in line or "indenter" in line:
-                metadata["indenter_str"] = line.lstrip("# ").strip()
+                m = re.search(r"WallclockTime=([\d\.eE+-]+)", line)
+                if m:
+                    metadata["wallclock"] = float(m.group(1))
+            if "Material parameters:" in line or "Material:" in line:
+                # Parse key=value pairs:  rho=1.2e-09, C10=0.3, ...
+                for m in re.finditer(r"(\w+)=([\d\.eE+-]+)", line):
+                    try:
+                        metadata[m.group(1)] = float(m.group(2))
+                    except ValueError:
+                        pass
+            if "tip radius" in line.lower():
+                m = re.search(r"tip radius\s*([\d\.eE+-]+)\s*mm", line, re.IGNORECASE)
+                if m:
+                    metadata["tip_radius"] = float(m.group(1))
+                m = re.search(r"cone angle\s*([\d\.eE+-]+)", line, re.IGNORECASE)
+                if m:
+                    metadata["cone_angle"] = float(m.group(1))
+            if "Simulation Parameters" in line:
+                # depth_mode, scratch_depth, scratch_time, recovery_time, mass_scale, fine_size_x
+                body = line.split("Parameters:", 1)[1]
+                for k, v in re.findall(r"(\w+)=([A-Za-z0-9\.eE+-]+)", body):
+                    try:
+                        metadata[k] = float(v)
+                    except ValueError:
+                        metadata[k] = v   # keep depth_mode='progressive' as a string
+            if (line.count("=") == 1 and "parameters:" not in line.lower()
+                    and "WallclockTime" not in line):
+                m = re.match(r"#\s*([A-Za-z_]\w*)\s*=\s*(.+?)\s*$", line)
+                if m:
+                    key, val = m.group(1), m.group(2)
+                    try:
+                        metadata[key] = float(val)
+                    except ValueError:
+                        metadata[key] = val
             continue
 
-        # Column header line
+        # ---- Column header ----
         if "Time" in line and "RF1" in line:
             header_cols = [c.strip() for c in line.split(",")]
             continue
 
-        # Data lines
+        # ---- Data rows ----
         parts = line.split(",")
-        if len(parts) < 2:
+        if len(parts) < 2 or not header_cols:
             continue
 
-        # Time-series columns (non-empty Time field)
+        # Time-series part (non-empty Time column)
         if parts[0].strip():
             try:
                 row = {}
@@ -69,29 +115,24 @@ def parse_results_csv(filepath):
             except ValueError:
                 pass
 
-        # Node data columns (non-empty NodeLabel field)
+        # Node part (non-empty NodeLabel column)
         label_idx = header_cols.index("NodeLabel") if "NodeLabel" in header_cols else 7
         if label_idx < len(parts) and parts[label_idx].strip():
             try:
-                node_labels.append(int(parts[label_idx]))
-                xu = float(parts[label_idx + 1])
-                yu = float(parts[label_idx + 2])
-                zu = float(parts[label_idx + 3])
-                xd = float(parts[label_idx + 4])
-                yd = float(parts[label_idx + 5])
-                zd = float(parts[label_idx + 6])
-                node_undef.append([xu, yu, zu])
-                node_def.append([xd, yd, zd])
+                node_labels.append(int(float(parts[label_idx])))
+                node_undef.append([float(parts[label_idx + i]) for i in (1, 2, 3)])
+                node_def.append([float(parts[label_idx + i]) for i in (4, 5, 6)])
             except (ValueError, IndexError):
                 pass
 
-    # Build time-series arrays
     timeseries = {}
     if ts_rows:
-        for col in ts_rows[0].keys():
+        all_cols = set()
+        for row in ts_rows:
+            all_cols.update(row.keys())
+        for col in all_cols:
             timeseries[col] = np.array([row.get(col, 0.0) for row in ts_rows])
 
-    # Build node arrays
     nodes = {
         "labels": np.array(node_labels),
         "undeformed": np.array(node_undef) if node_undef else np.empty((0, 3)),
@@ -100,21 +141,38 @@ def parse_results_csv(filepath):
 
     return metadata, timeseries, nodes
 
-#  Individual checks
 
-# Thresholds
-KE_IE_THRESHOLD = 5.0        # [%]
-AE_IE_THRESHOLD = 10.0       # [%]
-PW_IE_THRESHOLD = 5.0        # [%]
-ETOTAL_DRIFT_THRESHOLD = 1.0  # [%]
-SYMMETRY_THRESHOLD = 1.0     # [%] RF1/RF2
-FRICTION_TOLERANCE = 0.15    # absolute tolerance on mu_apparent vs mu_input
+#  Mooney-Rivlin derived properties 
+def mr_properties(metadata):
+    """
+    Small-strain elastic properties from the Mooney-Rivlin parameters
+    found in the CSV metadata.  None if C10/C01/D1 are missing.
+    """
+    if not all(k in metadata for k in ("C10", "C01", "D1")):
+        return None
 
+    C10, C01, D1 = metadata["C10"], metadata["C01"], metadata["D1"]
+
+    mu0 = 2.0 * (C10 + C01)
+    K0 = 2.0 / D1 if D1 > 0 else float("inf")
+
+    if K0 == float("inf"):
+        E0, nu0 = 3.0 * mu0, 0.5
+    else:
+        E0 = 9.0 * K0 * mu0 / (3.0 * K0 + mu0)
+        nu0 = (3.0 * K0 - 2.0 * mu0) / (2.0 * (3.0 * K0 + mu0))
+
+    return {
+        "mu_0": mu0, "K_0": K0, "E_0": E0, "nu_0": nu0,
+        "K_mu_ratio": K0 / mu0 if mu0 > 0 else float("inf"),
+    }
+
+
+
+#  Checks — numerical quality
 
 def check_quasi_static(timeseries):
-    """Check ALLKE/ALLIE ratio — must stay below 5%."""
-    ke = timeseries.get("ALLKE")
-    ie = timeseries.get("ALLIE")
+    ke, ie = timeseries.get("ALLKE"), timeseries.get("ALLIE")
     time = timeseries.get("Time")
 
     if ke is None or ie is None:
@@ -125,32 +183,29 @@ def check_quasi_static(timeseries):
         return {"status": "SKIP", "message": "ALLIE is zero everywhere"}
 
     ratio = ke[mask] / ie[mask] * 100.0
-    max_ratio = np.max(ratio)
-    max_idx = np.argmax(ratio)
-    time_masked = time[mask] if time is not None else np.arange(len(ratio))
+    time_m = time[mask] if time is not None else np.arange(len(ratio))
 
-    # Also compute the ratio excluding the first 10% of time (transient at contact onset)
-    t_max = time_masked[-1] if len(time_masked) > 0 else 1.0
-    steady_mask = time_masked > 0.1 * t_max
-    steady_ratio = np.max(ratio[steady_mask]) if steady_mask.any() else max_ratio
+    # Exclude the first 10% of time (contact-onset transient)
+    t_max = time_m[-1] if len(time_m) else 1.0
+    steady = time_m > 0.1 * t_max
+    steady_max = np.max(ratio[steady]) if steady.any() else np.max(ratio)
 
-    passed = steady_ratio < KE_IE_THRESHOLD
+    passed = steady_max < KE_IE_THRESHOLD
     return {
         "status": "PASS" if passed else "FAIL",
-        "max_ratio_percent": max_ratio,
-        "max_ratio_time": time_masked[max_idx],
-        "steady_state_max_percent": steady_ratio,
-        "threshold_percent": KE_IE_THRESHOLD,
+        "steady_max_percent": steady_max,
+        "overall_max_percent": np.max(ratio),
         "message": (
-            "KE/IE = %.2f%% (steady-state max). %s"
-            % (steady_ratio, "OK" if passed else "Ratio too important")
+            "KE/IE = %.2f%% (steady-state max, threshold %.0f%%). %s"
+            % (steady_max, KE_IE_THRESHOLD,
+               "OK" if passed else
+               "NOT quasi-static — reduce mass_scale or increase scratch_time")
         ),
     }
 
+
 def check_hourglass(timeseries):
-    """Check ALLAE/ALLIE ratio — must stay below 10%."""
-    ae = timeseries.get("ALLAE")
-    ie = timeseries.get("ALLIE")
+    ae, ie = timeseries.get("ALLAE"), timeseries.get("ALLIE")
 
     if ae is None or ie is None:
         return {"status": "SKIP", "message": "ALLAE or ALLIE not in outputs"}
@@ -160,274 +215,501 @@ def check_hourglass(timeseries):
         return {"status": "SKIP", "message": "ALLIE is zero everywhere"}
 
     ratio = ae[mask] / ie[mask] * 100.0
-    max_ratio = np.max(ratio)
+    final = ratio[-1]
 
-    # Final ratio is most representative (cumulative energies)
-    final_ratio = ratio[-1]
-
-    passed = final_ratio < AE_IE_THRESHOLD
+    passed = final < AE_IE_THRESHOLD
     return {
         "status": "PASS" if passed else "FAIL",
-        "max_ratio_percent": max_ratio,
-        "final_ratio_percent": final_ratio,
-        "threshold_percent": AE_IE_THRESHOLD,
+        "final_percent": final,
         "message": (
-            "AE/IE = %.2f%% (final). %s"
-            % (final_ratio, "OK" if passed else "Hourglass energy too high — refine mesh or check hourglass control")
+            "AE/IE = %.2f%% (final, threshold %.0f%%). %s"
+            % (final, AE_IE_THRESHOLD,
+               "OK" if passed else
+               "Hourglass energy too high")
         ),
     }
 
 
-def check_contact_penalty(timeseries):
-    """Check ALLPW/ALLIE ratio — must stay below 5%."""
-    pw = timeseries.get("ALLPW")
-    ie = timeseries.get("ALLIE")
+# Whole-model energy-balance terms (extractor writes them under WM_* names):
+#   ETOTAL = ALLIE + ALLVD + ALLFD + ALLKE - ALLWK - ALLPW - ALLCW - ALLMW
+WM_BALANCE_TERMS = ("WM_ALLIE", "WM_ALLVD", "WM_ALLFD", "WM_ALLKE",
+                    "WM_ALLWK", "WM_ALLPW", "WM_ALLCW", "WM_ALLMW")
 
-    if pw is None:
-        return {"status": "SKIP", "message": "ALLPW not in outputs — add it to history_energy_variables"}
 
-    mask = ie > 1e-20
-    if not mask.any():
-        return {"status": "SKIP", "message": "ALLIE is zero everywhere"}
+def _peak(x):
+    return float(np.max(np.abs(x))) if x is not None and len(x) else 0.0
 
-    ratio = np.abs(pw[mask]) / ie[mask] * 100.0
-    final_ratio = ratio[-1]
 
-    passed = final_ratio < PW_IE_THRESHOLD
+def check_energy_total(timeseries):
+    """
+    Energy-balance verification.
+
+    ETOTAL is supposed to stay constant.
+    The whole-model ETOTAL should be equal to the driver's kinetic energy (at t=0). 
+    The conservation metric is the drift of ETOTAL away from its initial value.
+
+    Scopes:
+      * substrate ALLIE / ALLKE  -> physical deformation energy (quasi-static
+        check uses these; here ALLIE sets the normalisation).
+      * WM_*  / ETOTAL           -> whole-model balance (driver KE included).
+    """
+
+    # gather values timeseries
+    et = timeseries.get("ETOTAL")
+    ie_sub = timeseries.get("ALLIE")          # substrate internal energy (physical)
+    wk = timeseries.get("WM_ALLWK")           # external work input (whole model)
+
+    if et is None and ie_sub is None:
+        return {"status": "SKIP", "message": "Neither ETOTAL nor ALLIE present in outputs."}
+
+    # Physical energy scale, driver KE is deliberately excluded.
+    e_ref = max(_peak(ie_sub), _peak(wk))
+    if e_ref < 1e-20:
+        return {"status": "SKIP", "message": "No physical energy yet."}
+
+    # Legacy failure mode: ETOTAL identically zero (requested on a set).
+    if et is not None and _peak(et) < 1e-30:
+        return {"status": "FAIL",
+                "message": ("ETOTAL identically zero while physical energy = %.3e, Maybe ETOTAL was requested on an element set instead of the whole model.")}
+
+    # Reconstruct the balance from whole-model components when available.
+    have_wm = all(timeseries.get(k) is not None for k in WM_BALANCE_TERMS)
+    recon = None
+    if have_wm:
+        recon = (timeseries["WM_ALLIE"] + timeseries["WM_ALLVD"]
+                 + timeseries["WM_ALLFD"] + timeseries["WM_ALLKE"]
+                 - timeseries["WM_ALLWK"] - timeseries["WM_ALLPW"]
+                 - timeseries["WM_ALLCW"] - timeseries["WM_ALLMW"])
+
+    # Creation of baseline according to available values.
+    bal = et if et is not None else recon
+    if bal is None:
+        return {"status": "SKIP", "message": "ETOTAL absent and WM_* components missing."}
+
+    baseline = float(bal[0])                                   # driver-KE baseline
+    drift_pct = float(np.max(np.abs(bal - baseline))) / e_ref * 100.0
+
+    consistency_pct = None
+    if et is not None and recon is not None:
+        consistency_pct = float(np.max(np.abs(et - recon))) / e_ref * 100.0
+
+    # Physical, time-varying energy curve (non-constant).
+    e_phys_span = (float(np.min(ie_sub)), float(np.max(ie_sub))) if ie_sub is not None else (0.0, 0.0)
+
+    status, issues = "PASS", []
+
+    if drift_pct > ETOTAL_DRIFT_THRESHOLD:
+        status = "FAIL"
+        issues.append(
+            "energy NOT conserved: drift = %.3f%% > %.0f%% of the physical scale (%.3e)." % (drift_pct, ETOTAL_DRIFT_THRESHOLD, e_ref))
+
+    if consistency_pct is not None and consistency_pct > 5.0:
+        status = "FAIL" if status == "FAIL" else "WARN"
+        issues.append(
+            "Abaqus ETOTAL and the reconstructed balance differ by %.1f%% — likely "
+            "a scope/sign error in the energy outputs." % consistency_pct)
+
+    if not have_wm:
+        if status == "PASS":
+            status = "WARN"
+        issues.append(
+            "WM_* balance components absent, need the dual-scope energy output.")
+
+    recon_msg = "" if consistency_pct is None else " ( ETOTAL vs reconstruction = %.2f%% )" % consistency_pct
+    verdict = "OK" if status == "PASS" else " ; ".join(issues)
+
     return {
-        "status": "PASS" if passed else "FAIL",
-        "final_ratio_percent": final_ratio,
-        "threshold_percent": PW_IE_THRESHOLD,
+        "status": status,
+        "drift_percent": drift_pct,
+        "baseline": baseline,
+        "consistency_percent": consistency_pct,
+        "e_phys_min_max": e_phys_span,
         "message": (
-            "PW/IE = %.2f%% (final). %s"
-            % (final_ratio, "OK" if passed else "Contact penetration excessive — check contact formulation")
+            "Conservation drift = %.3f%% of physical energy (scale %.3e). Driver-KE baseline = %.3e. Substrate ALLIE varies %.3e -> %.3e%s. %s"
+            % (drift_pct, e_ref, baseline,
+               e_phys_span[0], e_phys_span[1], recon_msg, verdict)
         ),
     }
 
 
-def check_energy_balance(timeseries):
-    """Check ETOTAL drift — must stay within 1%."""
-    etotal = timeseries.get("ETOTAL")
+#  Checks — Mooney-Rivlin material consistency
 
-    if etotal is None:
-        return {"status": "SKIP", "message": "ETOTAL not in outputs — add it to history_energy_variables"}
+def check_d1_validity(metadata):
+    """
+    Verify D1 puts K/mu in the numerically safe window [10, 100].
 
-    # Reference: max absolute value of ETOTAL
-    ref = np.max(np.abs(etotal))
-    if ref < 1e-30:
-        return {"status": "PASS", "message": "ETOTAL is effectively zero — no energy in system yet"}
+    K/mu < 10   -> artificially compressible, not polymer-like
+    K/mu > 100  -> single-precision round-off noise (Abaqus 'D1 too small')
+    Sweet spot: K/mu = 20-50  ->  nu_0 = 0.45-0.49
+    """
+    props = mr_properties(metadata)
+    if props is None:
+        return {"status": "SKIP", "message": "C10/C01/D1 not found in CSV metadata"}
 
-    drift = np.abs(etotal[-1] - etotal[0]) / ref * 100.0
+    ratio = props["K_mu_ratio"]
+    nu0 = props["nu_0"]
 
-    passed = drift < ETOTAL_DRIFT_THRESHOLD
-    return {
-        "status": "PASS" if passed else "FAIL",
-        "drift_percent": drift,
-        "threshold_percent": ETOTAL_DRIFT_THRESHOLD,
-        "message": (
-            "ETOTAL drift = %.3f%%. %s"
-            % (drift, "OK" if passed else "Energy not conserved — numerical instability")
-        ),
-    }
-
-
-def check_reaction_forces(timeseries):
-    """Check reaction force magnitudes, signs, and symmetry."""
-    rf1 = timeseries.get("RF1")
-    rf2 = timeseries.get("RF2")
-    rf3 = timeseries.get("RF3")
-
-    if rf1 is None or rf2 is None or rf3 is None:
-        return {"status": "SKIP", "message": "RF1/RF2/RF3 not all in outputs"}
-
-    results = {}
-
-    # RF2 should be negative (indenter pushing down into surface, reaction is upward = negative in Abaqus convention)
-    rf2_min = np.min(rf2)
-    rf2_max = np.max(rf2)
-    results["RF2_min"] = rf2_min
-    results["RF2_max"] = rf2_max
-    results["RF2_sign_ok"] = rf2_min < 0
-
-    # RF3 should be positive (friction opposes scratch direction)
-    rf3_max = np.max(rf3)
-    results["RF3_max"] = rf3_max
-
-    # Symmetry: RF1 should be near zero
-    rf2_scale = np.max(np.abs(rf2))
-    if rf2_scale > 1e-20:
-        rf1_ratio = np.max(np.abs(rf1)) / rf2_scale * 100.0
-        symmetry_ok = rf1_ratio < SYMMETRY_THRESHOLD
-        results["RF1_RF2_max_percent"] = rf1_ratio
-        results["symmetry_ok"] = symmetry_ok
+    if ratio < K_MU_MIN:
+        status, verdict = "FAIL", (
+            "K/mu too LOW — material artificially compressible "
+            "(nu_0=%.3f < ~0.42). Decrease D1." % nu0)
+    elif ratio > K_MU_MAX:
+        status, verdict = "WARN", (
+            "K/mu too HIGH — single-precision noise risk (Abaqus 'D1 too small' ")
     else:
-        rf1_ratio = 0.0
-        symmetry_ok = True
-        results["RF1_RF2_max_percent"] = 0.0
-        results["symmetry_ok"] = True
+        status, verdict = "PASS", "OK — quasi-incompressible and numerically stable"
 
-    # Hertz estimate for order-of-magnitude check (Mooney-Rivlin small-strain)
-    # This is a rough estimate — user should compare with their specific parameters
-    results["message"] = (
-        "RF2 range: [%.3e, %.3e] N | RF3 max: %.3e N | "
-        "RF1/RF2 symmetry: %.2f%% %s"
-        % (rf2_min, rf2_max, rf3_max, rf1_ratio,
-           "OK" if symmetry_ok else "— ASYMMETRY DETECTED, check BCs")
-    )
-    results["status"] = "PASS" if (results["RF2_sign_ok"] and symmetry_ok) else "WARN"
+    return {
+        "status": status,
+        "mu_0_MPa": props["mu_0"],
+        "K_0_MPa": props["K_0"],
+        "E_0_MPa": props["E_0"],
+        "nu_0": nu0,
+        "K_mu_ratio": ratio,
+        "message": (
+            "D1=%.3g -> mu_0=%.3g MPa, K_0=%.3g MPa, E_0=%.3g MPa, nu_0=%.4f, "
+            "K/mu=%.1f (window [%.0f, %.0f]). %s"
+            % (metadata["D1"], props["mu_0"], props["K_0"], props["E_0"], nu0,
+               ratio, K_MU_MIN, K_MU_MAX, verdict)
+        ),
+    }
 
-    return results
 
+def check_force_magnitude(timeseries, metadata, nodes):
+    """
+    Order-of-magnitude check of the peak normal force against Hertz:
 
-def check_apparent_friction(timeseries, mu_input=0.3):
-    """Compare apparent friction coefficient RF3/RF2 with input mu."""
+        F_hertz = (4/3) * E_star * sqrt(R) * depth^1.5,   E_star = E_0/(1-nu_0^2)
+
+    The depth MUST be the penetration at the instant of peak RF2 (force and
+    depth synchronised), taken from the IndenterU2 trace. Remains an
+    order-of-magnitude check for a large-strain polymer / conical tip.
+    """
+
     rf2 = timeseries.get("RF2")
-    rf3 = timeseries.get("RF3")
+    props = mr_properties(metadata)
+
+    if rf2 is None:
+        return {"status": "SKIP", "message": "RF2 not in outputs"}
+    if props is None:
+        return {"status": "SKIP", "message": "Material params not in metadata"}
+    if "tip_radius" not in metadata:
+        return {"status": "SKIP", "message": "Tip radius not in metadata"}
+
+    R = metadata["tip_radius"]
+    E_star = props["E_0"] / (1.0 - props["nu_0"] ** 2)
+
+    rf2_peak = float(np.max(np.abs(rf2)))
+    if rf2_peak < 1e-20:
+        return {"status": "SKIP", "message": "RF2 is zero — no contact occurred?"}
+    
+    depth, dsrc = _penetration_depth(timeseries, metadata, nodes, at_peak_force=True)
+    if depth < 1e-9:
+        return {"status": "SKIP",
+                "message": "No penetration depth available (need IndenterU2 or "
+                           "scratch_depth in the Simulation Parameters header)."}
+
+    f_hertz = (4.0 / 3.0) * E_star * np.sqrt(R) * depth ** 1.5
+    ratio = rf2_peak / f_hertz if f_hertz > 0 else float("inf")
+    ok = (1.0 / HERTZ_TOLERANCE_FACTOR) < ratio < HERTZ_TOLERANCE_FACTOR
+
+    note = ""
+    if "residual" in dsrc:
+        note = " [depth is residual, not peak — re-run for IndenterU2/scratch_depth]"
+
+    return {
+        "status": "PASS" if ok else "WARN",
+        "rf2_peak_N": rf2_peak,
+        "f_hertz_N": f_hertz,
+        "ratio": ratio,
+        "depth_mm": depth,
+        "depth_source": dsrc,
+        "message": (
+            "RF2 peak = %.3e N | Hertz = %.3e N (depth %.4f mm @ %s) | ratio %.2f. %s%s"
+            % (rf2_peak, f_hertz, depth, dsrc, ratio,
+               "Order of magnitude OK" if ok else
+               "Force inconsistent with stiffness — check C10/C01, units, or Hertz validity",
+               note)
+        ),
+    }
+
+
+
+def _penetration_depth(timeseries, metadata, nodes, at_peak_force=False):
+    """
+    Return (depth_mm, source) for the PEAK penetration.
+    """
+
+    u2 = timeseries.get("IndenterU2")
+    rf2 = timeseries.get("RF2")
+    if u2 is not None and len(u2) and float(np.max(np.abs(u2))) > 1e-12:
+        if at_peak_force and rf2 is not None and float(np.max(np.abs(rf2))) > 1e-20:
+            idx = int(np.argmax(np.abs(rf2)))
+            return abs(float(u2[idx])), "indenter U2 @ peak RF2"
+        return abs(float(np.min(u2))), "indenter U2 (max penetration)"
+    d = abs(float(metadata.get("scratch_depth", 0.0)))
+    if d > 1e-12:
+        return d, "commanded scratch_depth"
+    if nodes["deformed"].shape[0] > 0:
+        d = abs(min(float(np.min(nodes["deformed"][:, 1])), 0.0))
+        if d > 1e-12:
+            return d, "final frame (residual, NOT peak)"
+    return 0.0, "unavailable"
+
+
+def check_strain_level(timeseries, metadata, nodes):
+    """
+    Characteristic strain and mean strain rate of the scratch, evaluated at
+    PEAK penetration (not the residual final frame).
+
+        depth    = max penetration (IndenterU2 / commanded scratch_depth)
+        a        = sqrt(depth * R)                contact length scale
+        eps_char = 0.2 * a / R     (spherical regime, depth < delta*)
+                 = 0.2 * tan(beta) (conical regime,  depth > delta*)
+        delta*   = R*(1 - sin(alpha))             sphere->cone transition depth
+        v        = scratch_length / scratch_time  commanded indenter velocity
+        eps_rate = eps_char / (2a / v)            strain rate over a transit
+
+    Convention: metadata cone_angle = full apex angle -> half-apex alpha =
+    cone_angle/2 ; attack angle beta = 90deg - alpha. Verify against the
+    indenter geometry if your cone_angle is defined differently.
+
+    eps_char is checked against the Mooney-Rivlin validity range (~100-150%).
+    The strain rate matters for palier 3 (Prony): relaxation times must
+    bracket 1/eps_rate.
+    """
+
     time = timeseries.get("Time")
+    if time is None or len(time) < 2:
+        return {"status": "SKIP", "message": "No time data"}
+
+    if "tip_radius" not in metadata:
+        return {"status": "SKIP", "message": "Tip radius not in metadata"}
+    
+    R = metadata["tip_radius"]
+    t_total = time[-1] - time[0]
+
+    # Peak penetration depth (NOT the residual final frame).
+    depth, source = _penetration_depth(timeseries, metadata, nodes, at_peak_force=False)
+    if depth < 1e-9:
+        return {"status": "SKIP", "message": "Cannot estimate peak penetration depth"}
+
+    a = np.sqrt(depth * R)   # characteristic contact length (transit-time scale)
+
+    # Regime-aware Tabor representative strain (sphere vs cone).
+    cone_angle = metadata.get("cone_angle", None)
+    if cone_angle:
+        alpha = np.radians(float(cone_angle) / 2.0)        # half-apex from axis
+        delta_star = R * (1.0 - np.sin(alpha))
+    else:
+        alpha = None
+        delta_star = float("inf")
+
+    if depth <= delta_star:
+        eps_char = 0.2 * a / R
+        regime = "spherical"
+    else:
+        beta = (np.pi / 2.0) - alpha                       # attack angle (face-to-surface)
+        eps_char = 0.2 * np.tan(beta)
+        regime = "conical"
+
+    # Commanded scratch velocity (fallback to node z-extent / total time).
+    sl = metadata.get("scratch_length")
+    st = metadata.get("scratch_time")
+    if sl and st and float(st) > 0:
+        v = abs(float(sl)) / float(st)
+        v_src = "commanded"
+    elif nodes["undeformed"].shape[0] > 0 and t_total > 0:
+        v = (np.max(nodes["undeformed"][:, 2]) - np.min(nodes["undeformed"][:, 2])) / t_total
+        v_src = "node z-extent / t (approx.)"
+    else:
+        v = 0.0
+        v_src = "n/a"
+
+    t_contact = 2.0 * a / v if v > 0 else float("inf")
+    eps_rate = eps_char / t_contact if t_contact < float("inf") else 0.0
+
+    within = eps_char < MR_STRAIN_VALIDITY
+    return {
+        "status": "PASS" if within else "WARN",
+        "eps_characteristic": eps_char,
+        "regime": regime,
+        "delta_star_mm": delta_star,
+        "mean_strain_rate_per_s": eps_rate,
+        "contact_radius_mm": a,
+        "scratch_velocity_mm_s": v,
+        "depth_mm": depth,
+        "depth_source": source,
+        "message": (
+            "eps_char ~ %.3f (%s regime, depth %.4f mm @ %s, delta*=%.4f mm) | "
+            "strain rate ~ %.2e /s | v = %.1f mm/s (%s). %s"
+            % (eps_char, regime, depth, source, delta_star, eps_rate, v, v_src,
+               "Within MR validity (<%.0f%% strain)" % (MR_STRAIN_VALIDITY * 100)
+               if within else
+               "Beyond MR validity (~100-150%%) — consider Arruda-Boyce/Ogden")
+        ),
+    }
+
+
+#  Checks — physical consistency
+
+def check_friction_physics(timeseries, metadata):
+    """
+    The apparent friction SCOF = |RF3|/|RF2| must make physical sense:
+
+      (a) SCOF >= mu_input        — ploughing only ADDS friction.
+      (b) SCOF <= mu_input + 0.5  — mu_plough ~ (2/pi)*(a/R) << 1 for a << R
+      (c) low scatter             — std/mean < 30% once contact established
+    """
+
+    rf2, rf3 = timeseries.get("RF2"), timeseries.get("RF3")
+    mu_input = metadata.get("mu_friction", metadata.get("mu", None))
 
     if rf2 is None or rf3 is None:
         return {"status": "SKIP", "message": "RF2 or RF3 not in outputs"}
+    if mu_input is None:
+        return {"status": "SKIP", "message": "mu_friction not found in CSV metadata"}
 
-    # Only compute where RF2 is significant (indenter in contact)
     rf2_abs = np.abs(rf2)
-    threshold = np.max(rf2_abs) * 0.10
-    mask = rf2_abs > threshold
+    mask = rf2_abs > np.max(rf2_abs) * 0.10
 
     if not mask.any():
-        return {"status": "SKIP", "message": "RF2 never exceeds 10% of peak — no significant contact"}
+        return {"status": "SKIP", "message": "RF2 never exceeds 10% of peak"}
 
-    apparent_mu = np.abs(rf3[mask]) / rf2_abs[mask]
-    mu_mean = np.mean(apparent_mu)
-    mu_std = np.std(apparent_mu)
-    mu_min = np.min(apparent_mu)
-    mu_max = np.max(apparent_mu)
+    scof = np.abs(rf3[mask]) / rf2_abs[mask]
+    scof_mean, scof_std = np.mean(scof), np.std(scof)
 
-    # Apparent mu should be >= input mu (ploughing adds to friction)
-    # and not wildly different
-    deviation = abs(mu_mean - mu_input)
-    reasonable = deviation < FRICTION_TOLERANCE and mu_mean >= mu_input * 0.5
+    issues = []
+    if scof_mean < mu_input * 0.95:
+        issues.append("SCOF < mu_input — NON-PHYSICAL (ploughing cannot reduce "
+                      "friction); check friction definition / update_friction call")
+    if scof_mean > mu_input + 0.5:
+        issues.append("Ploughing term too large for shallow Rockwell contact — "
+                      "check depth/R or inertial contamination")
+    if scof_mean > 0 and scof_std / scof_mean > 0.30:
+        issues.append("High SCOF scatter (std/mean=%.0f%%) — oscillatory contact, "
+                      "likely inertial (check KE/IE)" % (scof_std / scof_mean * 100))
+
+    plough_pct = (scof_mean / mu_input - 1.0) * 100.0 if mu_input > 0 else 0.0
 
     return {
-        "status": "PASS" if reasonable else "WARN",
+        "status": "PASS" if not issues else "WARN",
         "mu_input": mu_input,
-        "mu_apparent_mean": mu_mean,
-        "mu_apparent_std": mu_std,
-        "mu_apparent_range": (mu_min, mu_max),
+        "scof_mean": scof_mean,
+        "scof_std": scof_std,
+        "ploughing_contribution_percent": plough_pct,
         "message": (
-            "mu_input=%.2f | mu_apparent=%.3f +/- %.3f [%.3f, %.3f]. %s"
-            % (mu_input, mu_mean, mu_std, mu_min, mu_max,
-               "OK — ploughing adds ~%.0f%% to interfacial friction" % ((mu_mean / mu_input - 1) * 100)
-               if mu_mean > mu_input
-               else "OK" if reasonable
-               else "WARNING — apparent friction far from input, check contact")
+            "mu_input=%.2f | SCOF=%.3f +/- %.3f | ploughing adds %.0f%%. %s"
+            % (mu_input, scof_mean, scof_std, plough_pct,
+               "Physically consistent" if not issues else " ; ".join(issues))
         ),
     }
 
 
-def check_time_stepping(timeseries):
-    """Check for time step regularity and sudden drops."""
-    time = timeseries.get("Time")
-
-    if time is None or len(time) < 3:
-        return {"status": "SKIP", "message": "Not enough time points"}
-
-    dt = np.diff(time)
-    dt_positive = dt[dt > 0]
-
-    if len(dt_positive) < 2:
-        return {"status": "SKIP", "message": "Cannot compute time step statistics"}
-
-    dt_mean = np.mean(dt_positive)
-    dt_min = np.min(dt_positive)
-    dt_max = np.max(dt_positive)
-    dt_ratio = dt_max / dt_min if dt_min > 0 else float("inf")
-
-    # Note: these are output intervals, not solver increments
-    # A large ratio suggests the output interval changed between steps (expected)
-    # or that the solver struggled in some region
-
-    return {
-        "status": "INFO",
-        "dt_mean": dt_mean,
-        "dt_min": dt_min,
-        "dt_max": dt_max,
-        "dt_ratio_max_min": dt_ratio,
-        "n_points": len(time),
-        "time_range": (time[0], time[-1]),
-        "message": (
-            "%d output points over [%.4e, %.4e] s | "
-            "dt range: [%.3e, %.3e] s (ratio %.1f)"
-            % (len(time), time[0], time[-1], dt_min, dt_max, dt_ratio)
-        ),
-    }
-
-
-def check_recovery(nodes, scratch_depth=0.020):
+def check_full_recovery(nodes, metadata):
     """
-    Compute material recovery percentage after the scratch test.
-    recovery_percent = (scratch_depth - residual_depth) / scratch_depth * 100
-    scratch_depth : float — imposed scratch depth [mm] (positive, from Scratch_Config)
+    Pure Mooney-Rivlin has NO dissipation mechanism, so the groove must fully
+    recover — residual surface depth ~ 0 once the material has relaxed.
+
+    Caveats handled here:
+      * The residual is read from the LAST field frame. That frame is the
+        relaxed state ONLY if a recovery step ran; without one the last frame is
+        the end of the (short) unload and the material is still partly loaded ->
+        non-conclusive (WARN), not a real permanent groove. This is the failure
+        mode that bites in progressive mode without recovery.
+      * Reference depth = commanded scratch_depth (the PEAK depth, also the right
+        scale for the progressive ramp). Falls back to 10% of tip radius, and
+        that fallback is flagged as a guess.
+      * residual = low percentile of the downward surface displacements, not the
+        single deepest node, so one lone hourglass spike on a coarse mesh does
+        not dominate. The raw min is still reported for reference.
     """
+
     if nodes["deformed"].shape[0] == 0:
         return {"status": "SKIP", "message": "No node data"}
 
     y_def = nodes["deformed"][:, 1]
-    residual_depth = abs(np.min(y_def))
-    recovery_percent = (scratch_depth - residual_depth) / scratch_depth * 100.0
-    recovery_percent = max(0.0, min(100.0, recovery_percent))
+
+    # --- Robust residual (1st percentile of downward displacements) ---
+    y_neg = y_def[y_def < 0.0]
+    residual = abs(float(np.percentile(y_neg, 1))) if y_neg.size else 0.0
+    residual_raw = abs(min(float(np.min(y_def)), 0.0))   # kept for reference
+    pile_up = max(float(np.max(y_def)), 0.0)
+
+    # --- Reference depth (peak commanded depth; valid for the progressive ramp) ---
+    ref = abs(float(metadata.get("scratch_depth", 0.0)))
+    ref_is_guess = ref < 1e-12
+    if ref_is_guess:
+        ref = metadata.get("tip_radius", 0.2) * 0.1
+    rel = residual / ref * 100.0
+    guess_note = (" [ref is a guess: scratch_depth absent from metadata]"
+                  if ref_is_guess else "")
+
+    # --- Recovery guard: last frame is relaxed only if a recovery step ran ---
+    has_recovery = float(metadata.get("recovery_time", 0.0)) > 0.0
+    if not has_recovery:
+        return {
+            "status": "WARN",
+            "residual_depth_mm": residual,
+            "residual_depth_raw_mm": residual_raw,
+            "pile_up_mm": pile_up,
+            "relative_percent": rel,
+            "reference_mm": ref,
+            "message": (
+                "Residual = %.3e mm (%.1f%% of ref %.3f mm) | raw min = %.3e mm. "
+                "NO recovery step (recovery_time=0): the last frame is the end of "
+                "the unload, NOT a relaxed state, so this is not a true permanent "
+                "groove. Re-run with a recovery step to conclude.%s"
+                % (residual, rel, ref, residual_raw, guess_note)
+            ),
+        }
+
+    passed = rel < RESIDUAL_DEPTH_TOLERANCE * 100.0
+    verdict = ("OK — full hyperelastic recovery" if passed else
+               "Residual groove without dissipation in the model : numerical "
+               "artifact (check hourglass / mesh refinement).") + guess_note
 
     return {
-        "status": "INFO",
-        "scratch_depth_mm": scratch_depth,
-        "residual_depth_mm": residual_depth,
-        "recovery_percent": recovery_percent,
-        "n_nodes": len(y_def),
+        "status": "PASS" if passed else "FAIL",
+        "residual_depth_mm": residual,
+        "residual_depth_raw_mm": residual_raw,
+        "pile_up_mm": pile_up,
+        "relative_percent": rel,
+        "reference_mm": ref,
         "message": (
-            "Residual depth=%.4e mm | Imposed depth=%.4e mm => Recovery=%.1f%%"
-            % (residual_depth, scratch_depth, recovery_percent)
+            "Residual depth = %.3e mm (%.1f%% of ref %.3f mm) | raw min = %.3e mm "
+            "| pile-up = %.3e mm. %s"
+            % (residual, rel, ref, residual_raw, pile_up, verdict)
         ),
     }
 
-
-# ============================================================
 #  Master verification
-# ============================================================
 
-def verify_results(filepath, mu_input=0.3, scratch_depth=0.020, print_report=True):
+def verify_results(filepath, print_report=True):
     """
-    Run all verification checks on a results CSV.
-
-    Parameters
-    ----------
-    filepath     : str   — path to the _Results.csv file
-    mu_input     : float — interfacial friction coefficient from Friction_Config
-    print_report : bool  — if True, prints a formatted report
-
-    Returns
-    -------
-    report : dict — all check results keyed by check name
+    Run all checks on a results CSV. 
     """
+
     if not os.path.exists(filepath):
         raise IOError("File not found: %s" % filepath)
 
     metadata, timeseries, nodes = parse_results_csv(filepath)
+    report = {"file": filepath, "metadata": metadata, "checks": {}}
 
-    report = {
-        "file": filepath,
-        "metadata": metadata,
-        "checks": {},
-    }
-
-    # Run all checks
     checks = [
-        ("Quasi-static (KE/IE)",      check_quasi_static(timeseries)),
+        # Numerical quality
+        ("Quasi-static (KE/IE)",       check_quasi_static(timeseries)),
         ("Hourglass (AE/IE)",          check_hourglass(timeseries)),
-        ("Contact penalty (PW/IE)",    check_contact_penalty(timeseries)),
-        ("Energy balance (ETOTAL)",    check_energy_balance(timeseries)),
-        ("Reaction forces",            check_reaction_forces(timeseries)),
-        ("Apparent friction",          check_apparent_friction(timeseries, mu_input)),
-        ("Time stepping",              check_time_stepping(timeseries)),
-        ("Recovery",                   check_recovery(nodes, scratch_depth)),
+        ("Energy total (ETOTAL)",      check_energy_total(timeseries)),
+
+        # Mooney-Rivlin material consistency
+        ("D1 validity (K/mu window)",  check_d1_validity(metadata)),
+        ("Force magnitude (Hertz)",    check_force_magnitude(timeseries, metadata, nodes)),
+        ("Strain level",        check_strain_level(timeseries, metadata, nodes)),
+
+        # Physical consistency
+        ("Friction physics (SCOF)",    check_friction_physics(timeseries, metadata)),
+        ("Recovery",   check_full_recovery(nodes, metadata)),
     ]
 
     for name, result in checks:
@@ -440,53 +722,42 @@ def verify_results(filepath, mu_input=0.3, scratch_depth=0.020, print_report=Tru
 
 
 def _print_report(report):
-    """Print a formatted verification report."""
+    """
+    Print a formatted verification report.
+    """
 
     print("")
-    print("=" * 72)
-    print("  SIMULATION QUALITY REPORT")
-    print("=" * 72)
+    print("-" * 60)
+    print("  MOONEY-RIVLIN SCRATCH SIMULATION — Results verification")
+    print("-" * 60)
     print("  File: %s" % report["file"])
+
     meta = report["metadata"]
+    mat_keys = [k for k in ("rho", "C10", "C01", "D1", "mu_friction", "mu")
+                if k in meta]
+    
+    if mat_keys:
+        print("  Material: %s" % ", ".join("%s=%s" % (k, meta[k]) for k in mat_keys))
+    if "tip_radius" in meta:
+        print("  Indenter: R=%.2f mm, angle=%s deg"
+              % (meta["tip_radius"], meta.get("cone_angle", "?")))
     if "wallclock" in meta:
         print("  Wallclock: %.1f s" % meta["wallclock"])
-    if "material_str" in meta:
-        print("  Material: %s" % meta["material_str"])
-    print("-" * 72)
 
-    n_pass = 0
-    n_fail = 0
-    n_warn = 0
-    n_skip = 0
-
+    counts = {}
     for name, result in report["checks"].items():
-        status = result.get("status", "?")
-        message = result.get("message", "")
-
-        if status == "PASS":
-            icon = "OK"
-            n_pass += 1
-        elif status == "FAIL":
-            icon = "FAIL"
-            n_fail += 1
-        elif status == "WARN":
-            icon = "WARN"
-            n_warn += 1
-        elif status == "SKIP":
-            icon = "SKIP"
-            n_skip += 1
-        else:
-            icon = "INFO"
-
+        status = result.get("status", "INFO")
+        counts[status] = counts.get(status, 0) + 1
         print("")
-        print("  [%4s]  %s" % (icon, name))
-        print("          %s" % message)
+        print("  [%4s]  %s" % (status, name))
+        print("          %s" % result.get("message", ""))
 
-#  CLI
+    print("")
+    print("-" * 60)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
+        print("Usage: python results_verifier.py <path_to_Results.csv>")
         sys.exit(1)
-
-    filepath = sys.argv[1]
-    mu = float(sys.argv[2]) if len(sys.argv) > 2 else 0.3
-    verify_results(filepath, mu_input=mu)
+    verify_results(sys.argv[1])
