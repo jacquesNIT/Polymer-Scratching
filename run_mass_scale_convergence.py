@@ -23,7 +23,7 @@ cfg = Simulation_Config.polymer_default()
 cfg.job_name = "MassScaleConvergence"
 
 # ALE use
-cfg.solver.use_ALE = True
+cfg.solver.use_ALE = False
 
 #  Mass-scaling factors to test
 mass_scales = [2000,1000,500,200]
