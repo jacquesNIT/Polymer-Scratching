@@ -1,10 +1,11 @@
 import os
+import itertools
 import numpy as np
 import pandas as pd
 from scipy.stats import qmc
 
 # ----------------------------------------------------------------------
-# Mooney-Rivlin parameter sampling 
+# Mooney-Rivlin parameter sampling
 #
 # Strain energy:
 #   W = C10 (I1_bar - 3) + C01 (I2_bar - 3) + (1/D1) (J_el - 1)^2
@@ -15,9 +16,9 @@ from scipy.stats import qmc
 #   - Poisson ratio   nu  = (3 K0 - 2 mu0) / (2 (3 K0 + mu0))
 #
 # Variables sampled:
-#   C10  : first MR constant             [MPa]   
-#   r    = C01 / C10                     [-]     
-#   r_K  = K0 / mu0                      [-]     
+#   C10  : first MR constant             [MPa]
+#   r    = C01 / C10                     [-]
+#   r_K  = K0 / mu0                      [-]
 #   mu   : Coulomb friction coefficient  [-]
 #
 # Variables derived :
@@ -30,72 +31,87 @@ from scipy.stats import qmc
 #
 # ----------------------------------------------------------------------
 
-# Per-parameter configuration of the variables
+# Per-parameter configuration of the variables.
 POLYMER_PARAMS = {
-    "C10": {                        # First MR parameter [MPa] 
+    "C10": {                        # First MR parameter [MPa]
         "range": (0.1, 2.0),
-        "method": "sobol",
         "round": 2 },
     "r": {                          # C01 / C10 ratio [-]
         "range": (0.05, 0.25),
-        "method": "sobol",          
         "round": 3 },
     "r_K": {                        # K0 / mu0 ratio [-] compressibility
         "range": (10.0, 100.0),
-        "method": "sobol",          
         "round": 1 },
     "mu": {                         # Friction coefficient [-]
         "range": (0.3, 0.45),
-        "method": "sobol",
         "round": 3 },
 }
 
 # Fixed parameter
 POLYMER_FIXED = {"rho": 1.2e-9}
 
-# Rounding 
+# Rounding
 DERIVED_ROUND = {"C01": 4, "D1": 5, "nu": 4}
 
-# 1D samplers
-def _sample_1d(method, n_samples, lo, hi, seed=42, **kwargs):
-    # Return an array of 'n_samples' values in [lo, hi] using 'method'
+# Joint sampler
+def _sample_unit_cube(method, n_samples, n_dims, seed=42):
+    # Return an (n_samples, n_dims) array in [0, 1]^d from a single joint sequence.
 
     if method == "sobol":
-        raw = qmc.Sobol(d=1, scramble=True, seed=seed).random(n=n_samples).ravel()
-        return lo + raw * (hi - lo)
+        return qmc.Sobol(d=n_dims, scramble=True, seed=seed).random(n=n_samples)
 
     if method == "halton":
-        raw = qmc.Halton(d=1, scramble=True, seed=seed).random(n=n_samples).ravel()
-        return lo + raw * (hi - lo)
+        return qmc.Halton(d=n_dims, scramble=True, seed=seed).random(n=n_samples)
 
     if method == "lhs":
-        raw = qmc.LatinHypercube(d=1, seed=seed).random(n=n_samples).ravel()
-        return lo + raw * (hi - lo)
+        return qmc.LatinHypercube(d=n_dims, seed=seed).random(n=n_samples)
 
     if method == "random":
-        return np.random.default_rng(seed).uniform(lo, hi, size=n_samples)
+        return np.random.default_rng(seed).uniform(0.0, 1.0, size=(n_samples, n_dims))
 
-    if method == "grid":
-        # n_points evenly spaced values
-        n_points = kwargs.get("n_points", n_samples)
-        grid = np.linspace(lo, hi, n_points)
-        return np.resize(grid, n_samples)
+    raise ValueError("Unknown joint sampling method: %s" % method)
 
-    if method == "exponential":
-        # Log-uniform: good when lo and hi span orders of magnitude
-        if lo <= 0:
-            raise ValueError("exponential requires strictly positive bounds (got lo=%g)" % lo)
-        raw = qmc.Sobol(d=1, scramble=True, seed=seed).random(n=n_samples).ravel()
-        return lo * (hi / lo) ** raw
+# Map a [0, 1]^d sample onto the physical ranges (and discrete levels) of each variable
+def _map_to_ranges(unit, param_config):
+    names = list(param_config.keys())
+    sample = np.empty_like(unit)
+    for i, name in enumerate(names):
+        cfg = param_config[name]
+        if "levels" in cfg:
+            # Discrete dimension: bin the joint coordinate onto the allowed levels
+            levels = np.asarray(cfg["levels"], dtype=float)
+            idx = np.clip((unit[:, i] * len(levels)).astype(int), 0, len(levels) - 1)
+            sample[:, i] = levels[idx]
+        elif cfg.get("log", False):
+            # Log-uniform scaling (requires strictly positive bounds)
+            lo, hi = cfg["range"]
+            if lo <= 0:
+                raise ValueError("log scaling requires lo > 0 (got %g for '%s')" % (lo, name))
+            sample[:, i] = lo * (hi / lo) ** unit[:, i]
+        else:
+            # Linear scaling to [lo, hi]
+            lo, hi = cfg["range"]
+            sample[:, i] = lo + unit[:, i] * (hi - lo)
+    return sample
 
-    if method == "discrete":
-        # Map a Halton sequence onto discrete levels
-        levels = np.asarray(kwargs["levels"])
-        raw = qmc.Halton(d=1, scramble=True, seed=seed).random(n=n_samples).ravel()
-        idx = np.clip((raw * len(levels)).astype(int), 0, len(levels) - 1)
-        return levels[idx]
-
-    raise ValueError("Unknown sampling method: %s" % method)
+# Grid sampler: Cartesian product (does not use a QMC sequence)
+def _grid_sample(param_config, grid_points):
+    if grid_points is None:
+        raise ValueError(
+            "method='grid' requires grid_points={'C10': n, 'r': n, ...}"
+        )
+    grids = []
+    for name, cfg in param_config.items():
+        if "levels" in cfg:
+            grids.append(np.asarray(cfg["levels"], dtype=float))
+        else:
+            if name not in grid_points:
+                raise ValueError("Missing grid_points entry for parameter '%s'" % name)
+            lo, hi = cfg["range"]
+            grids.append(np.linspace(lo, hi, grid_points[name]))
+    sample = np.array(list(itertools.product(*grids)))
+    print("Generated %d grid points." % sample.shape[0])
+    return sample
 
 #  Physical coupling: derive C01, D1, nu from the sampled design variables
 def _derive_mooney_rivlin(df):
@@ -108,31 +124,30 @@ def _derive_mooney_rivlin(df):
 #  Parameter generator
 def generate_parameters(
     n_samples=10,
+    method="sobol",                   # single joint sampler for every variable
     param_config=None,
     fixed_params=None,
     output_dir="material_parameters",
     tag="polymer",                    # prefix for output filenames
-    seed_offset=0 ):                    # added to per-param seed for reproducibility
+    seed=42,                          # one seed for the whole joint sequence
+    grid_points=None ):               # only used when method == "grid"
 
     if param_config is None:
         param_config = POLYMER_PARAMS
     if fixed_params is None:
         fixed_params = POLYMER_FIXED
 
-    #  1. Sample the independent design variables
-    columns = {}
-    for i, (name, cfg) in enumerate(param_config.items()):
-        lo, hi = cfg["range"]
-        method = cfg["method"]
-        # Pass any extra keys (n_points, levels ...) as kwargs
-        extra = {k: v for k, v in cfg.items() if k not in ("range", "method", "round")}
-        columns[name] = _sample_1d(
-            method, n_samples, lo, hi,
-            seed=42 + seed_offset + i,   # unique seed per parameter
-            **extra,
-        )
+    names = list(param_config.keys())
+    dim = len(names)
 
-    df = pd.DataFrame(columns)
+    #  1. Sample the design variables from joint sequence, then map to ranges
+    if method == "grid":
+        sample = _grid_sample(param_config, grid_points)
+    else:
+        unit = _sample_unit_cube(method, n_samples, dim, seed=seed)
+        sample = _map_to_ranges(unit, param_config)
+
+    df = pd.DataFrame(sample, columns=names)
 
     #  2. Round the sampled variables first, so derived values stay consistent
     sampled_round = {name: cfg["round"] for name, cfg in param_config.items() if "round" in cfg}
@@ -173,23 +188,17 @@ def generate_parameters(
 
 if __name__ == "__main__":
 
+    # Continuous joint Sobol sampling (default)
+    generate_parameters(n_samples=1024, method="sobol", tag="polymer_MR")
+
+    # Variant: mu drawn on discrete levels while the remaining variables keep the joint Sobol coverage.
     custom_config = {
-        "C10": {
-            "range": (0.1, 2.0),
-            "method": "sobol",
-            "round": 2 },
-        "r": {
-            "range": (0.05, 0.25),
-            "method": "lhs",            
-            "round": 3 },
-        "r_K": {
-            "range": (10.0, 100.0),
-            "method": "lhs",           
-            "round": 1 },
-        "mu": {
-            "range": (0.3, 0.45),
-            "method": "discrete",
-            "levels": [0.30, 0.33, 0.36, 0.39, 0.42, 0.45],
-            "round": 3 },
+        "C10": {"range": (0.1, 2.0),    "round": 2 },
+        "r":   {"range": (0.05, 0.25),  "round": 3 },
+        "r_K": {"range": (10.0, 100.0), "round": 1 },
+        "mu":  {"range": (0.3, 0.45),
+                "levels": [0.30, 0.33, 0.36, 0.39, 0.42, 0.45],
+                "round": 3 },
     }
-    generate_parameters(n_samples=1024, param_config=custom_config, tag="polymer_MR")
+    generate_parameters(n_samples=1024, method="sobol",
+                        param_config=custom_config, tag="polymer_MR_discrete_mu")

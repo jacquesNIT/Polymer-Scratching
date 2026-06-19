@@ -26,7 +26,7 @@ cfg.job_name = "MassScaleConvergence"
 cfg.solver.use_ALE = True
 
 #  Mass-scaling factors to test
-mass_scales = [2000,1000,500,200,100]
+mass_scales = [2000,1000,500,200]
 
 #  Working directory
 run_dir = os.path.join("runs", "MassScaleConvergence")

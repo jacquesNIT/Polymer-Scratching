@@ -38,3 +38,6 @@ Etotal is always constant
 DONE
 sampling of D1 has to be set accoridng to C01 and C10 values 
 -> need to adjust the rest of the code for when I will use it
+
+DONE
+shear peak was at the dpo_y limit, increased it

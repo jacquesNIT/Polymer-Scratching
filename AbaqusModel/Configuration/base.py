@@ -382,12 +382,12 @@ class Simulation_Config:
             substrate=Substrate_Config(
                 xs1=0.0, ys1=0.0, zs1=0.0,             
                 xs2=0.6, ys2=0.5, zs2=3.0,             
-                dpo_x=0.24, dpo_y=0.06, dpo_z=0.25,
+                dpo_x=0.24, dpo_y=0.06, dpo_z=0.25, # Change y to 0.18 after ALE simulation
             ),
             mesh=Mesh_Config(
-                fine_size_x=0.060,       
-                fine_size_y=0.060,
-                fine_size_z=0.060,
+                fine_size_x=0.030,       
+                fine_size_y=0.030,
+                fine_size_z=0.030,
                 coarse_size_0=0.08,
                 coarse_size_1=0.15,
                 coarse_size_2=0.30,
