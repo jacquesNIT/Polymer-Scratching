@@ -110,21 +110,32 @@ class Scratch_Config:
     PROGRESSIVE = "progressive"
     CONSTANT = "constant"
 
+    DISPLACEMENT = "displacement"
+    FORCE = "force"
+
     def __init__(self,
                  depth_mode="constant",
-                 scratch_length=2.0, scratch_depth=-60e-3,                                                      # [mm]  (negative depth)
-                 scratch_time=0.01, indentation_time=0.001, unload_time=0.0001, recovery_time=1.0,             # [s]   (To be studied) 
-                 recovery_lift=0.05,                                                                            # [mm]  (clearance above surface during recovery)
+                 control_mode="displacement",
+                 scratch_length=2.0, 
+                 scratch_force=20e-3,                                                                           # [N] for force driven scratch (>0)
+                 scratch_depth=-40e-3,                                                                          # [mm] for dispalcement driven scratch (<0)
+                 scratch_time=0.01, indentation_time=0.001, unload_time=0.0001, recovery_time=1.0,              # [s] To be studied
+                 recovery_lift=0.05,                                                                            # [mm] clearance above surface during recovery
                  n_field_frames=20, n_field_frames_recovery=50, n_history_points=100 ):                         # Number of frames / field outputs for each step
         
         if depth_mode not in (self.PROGRESSIVE, self.CONSTANT):
             raise ValueError("depth_mode must be 'progressive' or 'constant', got '%s'" % depth_mode)
-            
-        if recovery_lift <= 0.0 and recovery_time > 0.0:
+        
+        if control_mode not in (self.DISPLACEMENT, self.FORCE):
+            raise ValueError("control_mode must be 'displacement' or 'force', got '%s'" % control_mode)
+              
+        if control_mode == self.DISPLACEMENT and recovery_lift <= 0.0 and recovery_time > 0.0:
             raise ValueError("recovery_lift must be positive to ensure indenter separation during recovery")
             
         self.depth_mode = depth_mode
+        self.control_mode = control_mode
         self.scratch_length = scratch_length
+        self.scratch_force = scratch_force
         self.scratch_depth = scratch_depth
         self.scratch_time = scratch_time
         self.indentation_time = indentation_time
@@ -134,6 +145,7 @@ class Scratch_Config:
         self.n_field_frames = n_field_frames
         self.n_field_frames_recovery = n_field_frames_recovery
         self.n_history_points = n_history_points
+
 
     # Functions to gather information about the Scratching for other files
     @property
@@ -189,6 +201,16 @@ class Scratch_Config:
     @property
     def history_interval(self): # History output interval during scratch [s].
         return self.scratch_time / self.n_history_points
+    
+    @property
+    def is_force_controlled(self): 
+        return self.control_mode == self.FORCE
+
+    @property
+    def uses_single_amplitude(self): 
+        return (not self.is_force_controlled
+                and self.depth_mode == self.PROGRESSIVE
+                and not self.has_recovery_step)
 
     #  Amplitude tables for Abaqus 
     def depth_amplitude(self):
@@ -233,6 +255,26 @@ class Scratch_Config:
             else:
                 t4 = self.t_recovery_end
                 return ((0.0,  0.0),(t1,   0.0),(t2,   1.0),(t3,   1.0),(t4,   1.0))
+            
+    def force_amplitude(self):
+        # Amplitude table for the force (cf2), goes back to 0 at unload
+
+        t1 = self.t_indent_end
+        t2 = self.t_scratch_end
+        t3 = self.t_unload_end
+
+        if self.depth_mode == self.PROGRESSIVE:
+            if not self.has_recovery_step:
+                return ((0.0, 0.0), (t2, 1.0), (t3, 0.0))
+            else:
+                t4 = self.t_recovery_end
+                return ((0.0, 0.0), (t2, 1.0), (t3, 0.0), (t4, 0.0))
+        else:
+            if not self.has_recovery_step:
+                return ((0.0, 0.0), (t1, 1.0), (t2, 1.0), (t3, 0.0))
+            else:
+                t4 = self.t_recovery_end
+                return ((0.0, 0.0), (t1, 1.0), (t2, 1.0), (t3, 0.0), (t4, 0.0))
 
 # 8. Damage Models (empty)
 class Damage_Config:
@@ -321,7 +363,6 @@ class Output_Config:
         self.history_energy_substrate = history_energy_substrate or ("ALLKE", "ALLIE", "ALLAE")     # Substrate energy values 
         self.history_energy_whole = history_energy_whole or ("ALLKE", "ALLIE", "ALLVD", "ALLFD",    # Whole model energy values
                                                              "ALLWK", "ALLPW", "ALLCW", "ALLMW", "ETOTAL")
-
 
 # 13. Naming conventions
 class Naming_Config:
@@ -424,7 +465,9 @@ class Simulation_Config:
             ),
             scratch=Scratch_Config(
                 depth_mode=Scratch_Config.PROGRESSIVE,
+                control_mode=Scratch_Config.DISPLACEMENT,
                 scratch_length=2.0,
+                scratch_force=20e-3,
                 scratch_depth=-40e-3,
                 scratch_time=2.0,
                 indentation_time=0.1,

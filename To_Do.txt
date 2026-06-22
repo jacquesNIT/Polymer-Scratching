@@ -12,11 +12,12 @@ Does the indenter mass has any impact ( cf KE, mass scaling)
 
 Mesh size :
 Push the mesh convergence to get a Force convergence ( invisible for size > 0.02)
-about 4 elements in contact area for thinest mesh, need more
+about 4 elements in contact area for thinest mesh (0.2), need more
 
 Implement the force driven test
 
-Do tests for constant scratch depth
+Constant :
+The extraction of data ( Etotal, SCOF) for constant SD does not take the scratching into account -> wrong values
 
 
 

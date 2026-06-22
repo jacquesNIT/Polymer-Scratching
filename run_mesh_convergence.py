@@ -21,9 +21,6 @@ from ScratchSimulation.AbaqusModel.utils import run_job_and_wait, cleanup_abaqus
 cfg = Simulation_Config.polymer_default()
 cfg.job_name = "MeshConvergence"
 
-# ALE use
-cfg.solver.use_ALE = False
-
 #  Mesh sizes to test  
 mesh_sizes = [
     # [size_x,  size_y,  size_z]

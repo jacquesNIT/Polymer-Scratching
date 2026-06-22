@@ -10,7 +10,7 @@ from scipy.stats import qmc
 # Strain energy:
 #   W = C10 (I1_bar - 3) + C01 (I2_bar - 3) + (1/D1) (J_el - 1)^2
 #
-# Instead of sampling C01 and D1 freely (which produces non-physical combinations), we sample physically meaningful ratios and derive C01, D1 and nu from them:
+# Instead of sampling C01 and D1 freely (which produces non-physical combinations), samples physically meaningful ratios and derive C01, D1 and nu from them:
 #   - shear modulus   mu0 = 2 (C10 + C01)
 #   - bulk modulus    K0  = 2 / D1
 #   - Poisson ratio   nu  = (3 K0 - 2 mu0) / (2 (3 K0 + mu0))

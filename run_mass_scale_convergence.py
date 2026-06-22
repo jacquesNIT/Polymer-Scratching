@@ -1,5 +1,4 @@
 # Mass-scaling convergence study.
-
 import sys
 import os
 
@@ -21,9 +20,6 @@ from ScratchSimulation.AbaqusModel.utils import run_job_and_wait, cleanup_abaqus
 #  Configuration
 cfg = Simulation_Config.polymer_default()
 cfg.job_name = "MassScaleConvergence"
-
-# ALE use
-cfg.solver.use_ALE = False
 
 #  Mass-scaling factors to test
 mass_scales = [2000,1000,500,200]
