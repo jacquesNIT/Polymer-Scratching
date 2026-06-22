@@ -1,0 +1,283 @@
+# Post-processing: extract forces, energies, and surface profiles from the ODB.
+# Produces a single CSV per simulation 
+
+from odbAccess import *
+import numpy as np
+import os
+import re
+from itertools import zip_longest
+import csv
+import time as time_module
+
+
+def post_process(job_name, file_name, cfg):
+
+    names = cfg.naming
+    sub = cfg.substrate
+    indenter = cfg.indenter
+    scratch = cfg.scratch
+    solver = cfg.solver
+    mesh = cfg.mesh
+    material_params = cfg.material.to_dict()
+
+    odb_path = job_name + ".odb"
+    odb = openOdb(path=odb_path, readOnly=True)
+
+    output_folder = "SimDataOutputs"
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+    output_path = os.path.join(output_folder, file_name + "_Results.csv")
+
+    #  Surface node coordinates (undeformed)
+    all_contact_nodes = odb.rootAssembly.surfaces[
+        names.slave_surface.upper()
+    ].nodes[0]
+    unique_nodes = {node.label: node for node in all_contact_nodes}.values()
+
+    undeformed = [
+        (
+            node.label,
+            node.coordinates[0],
+            node.coordinates[1] - sub.ys2,
+            node.coordinates[2] - sub.dpo_z,
+        )
+        for node in unique_nodes
+    ]
+    undeformed_sorted = sorted(undeformed, key=lambda c: (c[3], -c[1], c[2]))
+
+    #  Displacement field (last frame where "U" exists, searching steps in reverse)
+    disp_field = None
+    for step in reversed(list(odb.steps.values())):
+        for frame in reversed(list(step.frames)):
+            try:
+                disp_field = frame.fieldOutputs["U"]
+                break
+            except KeyError:
+                continue
+        if disp_field is not None:
+            break
+
+    if disp_field is None:
+        odb.close()
+        raise ValueError(
+            "No frames containing displacement data ('U') found in any ODB step. "
+        )
+
+    disp_subset = disp_field.getSubset(
+        region=odb.rootAssembly.nodeSets[names.contact_region_nodes.upper()]
+    )
+    displacements = {
+        v.nodeLabel: np.array(v.data) for v in disp_subset.values
+    }
+
+    deformed = []
+    for label, x, y, z in undeformed_sorted:
+        d = displacements.get(label, np.array([0.0, 0.0, 0.0]))
+        deformed.append((label, x + d[0], y + d[1], z + d[2]))
+
+    indenter_region = None
+    substrate_region = None
+    whole_model_region = None     # Needed for Etotal drift calculations
+    history_step = None
+
+    for sname in odb.steps.keys():
+        for rk in odb.steps[sname].historyRegions.keys():
+            hop = list(odb.steps[sname].historyRegions[rk].historyOutputs.keys())
+            if indenter_region is None and any("RF" in k for k in hop):
+                indenter_region = rk
+                history_step = sname
+            if whole_model_region is None and "ETOTAL" in hop:
+                whole_model_region = rk
+            if (substrate_region is None and "ALLIE" in hop and "ETOTAL" not in hop):
+                substrate_region = rk
+        if (indenter_region is not None and substrate_region is not None
+                and whole_model_region is not None):
+            break
+
+    if history_step is None:
+        odb.close()
+        raise ValueError("No history output with RF data found in any step.")
+
+    # Fallbacks for older single-scope models.
+    if substrate_region is None:
+        substrate_region = whole_model_region
+        print("Warning: no substrate-only energy region found; substrate "
+              "energies fall back to the whole-model values (quasi-static / "
+              "hourglass checks will be contaminated by the driver KE).")
+    if whole_model_region is None:
+        whole_model_region = substrate_region
+        print("Warning: no ETOTAL/whole-model energy region found; the balance "
+              "will be reconstructed from the available components.")
+
+
+    #  History data — forces (indenter region)
+    time_arr, force_data = _get_history_all_steps(odb, indenter_region)
+    rf1 = force_data.get("RF1", np.zeros_like(time_arr))
+    rf2 = force_data.get("RF2", np.zeros_like(time_arr))
+    rf3 = force_data.get("RF3", np.zeros_like(time_arr))
+
+    ind_u2 = force_data.get("U2", np.zeros_like(time_arr))   # indenter penetration trace
+
+    #  History data — substrate energies (deformable body only)
+    _, sub_data = _get_history_all_steps(odb, substrate_region)
+    z = np.zeros_like(time_arr)
+    ke = sub_data.get("ALLKE", z.copy())     # substrate kinetic energy
+    ie = sub_data.get("ALLIE", z.copy())     # substrate internal energy
+    ae = sub_data.get("ALLAE", z.copy())     # substrate artificial (hourglass) energy
+
+    #  History data — whole-model energy balance
+    _, wm_data = _get_history_all_steps(odb, whole_model_region)
+
+    def _wm(name):
+        if name not in wm_data and name != "ETOTAL":
+            print("Warning: whole-model term %s absent (filled with zeros)." % name)
+        return wm_data.get(name, z.copy())
+
+    # ETOTAL = ALLIE + ALLVD + ALLFD + ALLKE - ALLWK - ALLPW - ALLCW - ALLMW
+    wm_ke  = _wm("ALLKE")    # incl. rigid-driver KE (the ~constant baseline)
+    wm_ie  = _wm("ALLIE")
+    wm_vd  = _wm("ALLVD")    # viscous dissipation
+    wm_fd  = _wm("ALLFD")    # frictional dissipation
+    wm_wk  = _wm("ALLWK")    # external work (energy input)
+    wm_pw  = _wm("ALLPW")    # contact penalty work
+    wm_cw  = _wm("ALLCW")    # constraint penalty work
+    wm_mw  = _wm("ALLMW")    # mass-scaling work
+    etotal = wm_data.get("ETOTAL", None)
+    if etotal is None:
+        etotal = wm_ie + wm_vd + wm_fd + wm_ke - wm_wk - wm_pw - wm_cw - wm_mw
+
+
+    #  Wallclock time from .sta file
+    wallclock = _extract_wallclock(job_name)
+
+    depth_mode = "constant" if scratch.depth_mode == scratch.CONSTANT else "progressive"
+
+    #  Write CSV
+    with open(output_path, "w") as f:
+        writer = csv.writer(f)
+
+        # Metadata header
+        f.write("# Simulated using Abaqus — Aarhus University\n")
+        f.write("# Made by Peter Thorhauge Moellmann(ft. Jacques Nithart)\n")
+        ts = time_module.strftime("%Y-%m-%d %H:%M:%S", time_module.localtime())
+        f.write("# Simulation date and time: %s\n" % ts)
+        f.write("# ----------------------------\n")
+        f.write(
+            "# Indenter type: %s with tip radius %smm and cone angle %s degrees\n"
+            % (indenter.indenter_type, indenter.tip_radius, indenter.cone_angle)
+        )
+        mat_str = ", ".join(["%s=%s" % (k, v) for k, v in material_params.items()])
+        f.write("# Material parameters: %s\n" % mat_str)
+        f.write("# Simulation Parameters:depth_mode=%s, scratch_depth=%.6g, scratch_time=%.6g, "
+                "recovery_time=%.6g, mass_scale=%.6g, fine_size_x=%.6g\n"
+                % (depth_mode, abs(scratch.scratch_depth), scratch.scratch_time,
+                scratch.recovery_time, solver.mass_scale, mesh.fine_size_x)
+        )
+        f.write("# WallclockTime=%.2f s\n" % wallclock)
+
+        writer.writerow([
+            "Time", "RF1", "RF2", "RF3",
+            "ALLKE", "ALLIE", "ALLAE",                       # substrate (deformable body)
+            "WM_ALLKE", "WM_ALLIE", "WM_ALLVD", "WM_ALLFD",  # whole-model balance terms
+            "WM_ALLWK", "WM_ALLPW", "WM_ALLCW", "WM_ALLMW", "ETOTAL",
+            "IndenterU2", "NodeLabel",
+            "x_undeformed", "y_undeformed", "z_undeformed",
+            "x_deformed", "y_deformed", "z_deformed",
+        ])
+
+        node_labels, xu, yu, zu, xd, yd, zd = [], [], [], [], [], [], []
+        for (lbl, x0, y0, z0), (_, x1, y1, z1) in zip(undeformed_sorted, deformed):
+            node_labels.append(lbl)
+            xu.append(x0); yu.append(y0); zu.append(z0)
+            xd.append(x1); yd.append(y1); zd.append(z1)
+
+        rows = zip_longest(
+            time_arr.reshape(-1), rf1, rf2, rf3,
+            ke, ie, ae,
+            wm_ke, wm_ie, wm_vd, wm_fd, wm_wk, wm_pw, wm_cw, wm_mw, etotal,
+            ind_u2, node_labels, xu, yu, zu, xd, yd, zd,
+            fillvalue="",
+        )
+        writer.writerows(rows)
+
+    print("CSV results written: %s" % output_path)
+    odb.close()
+
+
+
+#  Helpers
+def _get_history_all_steps(odb, region_name):
+    """Concatenate a single history region across ALL analysis steps.
+    In constant-depth mode : IndentationStep -> ScratchStep -> UnloadStep 
+    In progressive-depth mode : ScratchStep -> UnloadStep -> RecoveryStep
+    """
+
+    time_chunks = []
+    data_chunks = {}
+    t_offset = 0.0
+    n_used = 0
+
+    for sname in odb.steps.keys():
+        step = odb.steps[sname]
+        if region_name not in step.historyRegions.keys():
+            continue
+        hr = step.historyRegions[region_name]
+        keys = list(hr.historyOutputs.keys())
+        if not keys:
+            continue
+
+        t = np.array(hr.historyOutputs[keys[0]].data).T[0, :]
+        if t.size == 0:
+            continue
+
+        # Rebase onto the running total: robust to step-time vs total-time
+        # conventions and guarantees a monotonic timeline across steps.
+        t_shifted = (t - t[0]) + t_offset
+
+        lo = 0 if n_used == 0 else 1
+        hi = t_shifted.size
+        if t_shifted.size - lo > 1:
+            hi = t_shifted.size - 1
+
+        if hi > lo:
+            time_chunks.append(t_shifted[lo:hi])
+            for key in keys:
+                out = np.array(hr.historyOutputs[key].data).T
+                data_chunks.setdefault(key, []).append(out[1, lo:hi])
+
+        t_offset = t_shifted[-1]   # true step end, so the next step stays aligned
+        n_used += 1
+
+    if not time_chunks:
+        raise ValueError("History region '%s' not found in any step." % region_name)
+
+    print("History region '%s' assembled from %d step(s)." % (region_name, n_used))
+
+    time_arr = np.concatenate(time_chunks)
+    data = {k: np.concatenate(v) for k, v in data_chunks.items()}
+    return time_arr, data
+
+
+def _extract_wallclock(job_name):
+    """Parse wallclock time from the .sta status file."""
+    sta = job_name + ".sta"
+    if not os.path.exists(sta) or os.path.getsize(sta) == 0:
+        print("Warning: %s missing or empty. Using wallclock=0.0." % sta)
+        return 0.0
+
+    with open(sta, "r") as f:
+        content = f.read()
+
+    match = re.search(r"WALLCLOCK\s*TIME\s*(?:.*\s*)?=\s*([\d\.]+)", content, re.IGNORECASE)
+    if match:
+        return float(match.group(1))
+
+    # Fallback: last number on last non-empty line
+    lines = [l.strip() for l in content.splitlines() if l.strip()]
+    if lines:
+        fb = re.search(r"([\d\.]+)\s*$", lines[-1])
+        if fb:
+            return float(fb.group(1))
+
+    print("Warning: Could not parse wallclock time from %s. Using 0.0." % sta)
+    return 0.0

@@ -22,15 +22,17 @@ cfg = Simulation_Config.polymer_default()
 cfg.job_name = "MeshConvergence"
 
 # ALE use
-cfg.solver.use_ALE = True
+cfg.solver.use_ALE = False
 
 #  Mesh sizes to test  
 mesh_sizes = [
     # [size_x,  size_y,  size_z]
-    [0.060, 0.060, 0.060],
-    [0.040, 0.040, 0.040],
-    #[0.03, 0.03, 0.03],
-    #[0.02, 0.02, 0.02],
+    #[0.060, 0.060, 0.060],
+    #[0.040, 0.040, 0.040],
+    [0.03, 0.03, 0.03],
+    [0.02, 0.02, 0.02],
+    [0.015, 0.015, 0.015],
+    [0.01, 0.01, 0.01],
 ]
 
 #  Working directory
