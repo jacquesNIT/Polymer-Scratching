@@ -34,7 +34,7 @@ def post_process(job_name, file_name, cfg):
     ].nodes[0]
     unique_nodes = {node.label: node for node in all_contact_nodes}.values()
 
-    undeformed = [
+    undeformed = [    # Get the coordinates in the local substrate base
         (
             node.label,
             node.coordinates[0],
@@ -101,13 +101,10 @@ def post_process(job_name, file_name, cfg):
     # Fallbacks for older single-scope models.
     if substrate_region is None:
         substrate_region = whole_model_region
-        print("Warning: no substrate-only energy region found; substrate "
-              "energies fall back to the whole-model values (quasi-static / "
-              "hourglass checks will be contaminated by the driver KE).")
+        print("Warning: no substrate-only energy region found, substrate energies fall back to the whole-model values ")
     if whole_model_region is None:
         whole_model_region = substrate_region
-        print("Warning: no ETOTAL/whole-model energy region found; the balance "
-              "will be reconstructed from the available components.")
+        print("Warning: no ETOTAL/whole-model energy region found, the balance will be reconstructed from the available components.")
 
 
     #  History data — forces (indenter region)
@@ -130,7 +127,7 @@ def post_process(job_name, file_name, cfg):
 
     def _wm(name):
         if name not in wm_data and name != "ETOTAL":
-            print("Warning: whole-model term %s absent (filled with zeros)." % name)
+            print("Warning: whole-model term %s absent." % name)
         return wm_data.get(name, z.copy())
 
     # ETOTAL = ALLIE + ALLVD + ALLFD + ALLKE - ALLWK - ALLPW - ALLCW - ALLMW

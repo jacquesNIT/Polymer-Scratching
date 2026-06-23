@@ -52,7 +52,7 @@ def parse_results_csv(filepath):
         if not line:
             continue
 
-        # ---- Metadata lines ----
+        # Metadata lines 
         if line.startswith("#"):
             if "WallclockTime=" in line:
                 m = re.search(r"WallclockTime=([\d\.eE+-]+)", line)
@@ -91,12 +91,12 @@ def parse_results_csv(filepath):
                         metadata[key] = val
             continue
 
-        # ---- Column header ----
+        # Column header 
         if "Time" in line and "RF1" in line:
             header_cols = [c.strip() for c in line.split(",")]
             continue
 
-        # ---- Data rows ----
+        # Data rows 
         parts = line.split(",")
         if len(parts) < 2 or not header_cols:
             continue
@@ -165,7 +165,6 @@ def mr_properties(metadata):
     }
 
 
-
 #  Checks — numerical quality
 
 def check_quasi_static(timeseries):
@@ -196,7 +195,7 @@ def check_quasi_static(timeseries):
             "KE/IE = %.2f%% (steady-state max, threshold %.0f%%). %s"
             % (steady_max, KE_IE_THRESHOLD,
                "OK" if passed else
-               "NOT quasi-static — reduce mass_scale or increase scratch_time")
+               "NOT quasi-static")
         ),
     }
 
@@ -226,12 +225,8 @@ def check_hourglass(timeseries):
         ),
     }
 
-
-# Whole-model energy-balance terms (extractor writes them under WM_* names):
-#   ETOTAL = ALLIE + ALLVD + ALLFD + ALLKE - ALLWK - ALLPW - ALLCW - ALLMW
 WM_BALANCE_TERMS = ("WM_ALLIE", "WM_ALLVD", "WM_ALLFD", "WM_ALLKE",
                     "WM_ALLWK", "WM_ALLPW", "WM_ALLCW", "WM_ALLMW")
-
 
 def _peak(x):
     return float(np.max(np.abs(x))) if x is not None and len(x) else 0.0
@@ -267,7 +262,7 @@ def check_energy_total(timeseries):
     # Legacy failure mode: ETOTAL identically zero (requested on a set).
     if et is not None and _peak(et) < 1e-30:
         return {"status": "FAIL",
-                "message": ("ETOTAL identically zero while physical energy = %.3e, Maybe ETOTAL was requested on an element set instead of the whole model." % e_ref)}
+                "message": ("ETOTAL identically zero while physical energy = %.3e" % e_ref)}
 
     # Reconstruct the balance from whole-model components when available.
     have_wm = all(timeseries.get(k) is not None for k in WM_BALANCE_TERMS)
@@ -303,14 +298,13 @@ def check_energy_total(timeseries):
     if consistency_pct is not None and consistency_pct > 5.0:
         status = "FAIL" if status == "FAIL" else "WARN"
         issues.append(
-            "Abaqus ETOTAL and the reconstructed balance differ by %.1f%% — likely "
-            "a scope/sign error in the energy outputs." % consistency_pct)
+            "Abaqus ETOTAL and the reconstructed balance differ by %.1f%%" % consistency_pct)
 
     if not have_wm:
         if status == "PASS":
             status = "WARN"
         issues.append(
-            "WM_* balance components absent, need the dual-scope energy output.")
+            "WM_* balance components absent")
 
     recon_msg = "" if consistency_pct is None else " ( ETOTAL vs reconstruction = %.2f%% )" % consistency_pct
     verdict = "OK" if status == "PASS" else " ; ".join(issues)
@@ -349,12 +343,12 @@ def check_d1_validity(metadata):
     if ratio < K_MU_MIN:
         status, verdict = "FAIL", (
             "K/mu too LOW — material artificially compressible "
-            "(nu_0=%.3f < ~0.42). Decrease D1." % nu0)
+            "(nu_0=%.3f < ~0.42)" % nu0)
     elif ratio > K_MU_MAX:
         status, verdict = "WARN", (
             "K/mu too HIGH — single-precision noise risk (Abaqus 'D1 too small' ")
     else:
-        status, verdict = "PASS", "OK — quasi-incompressible and numerically stable"
+        status, verdict = "PASS", "OK"
 
     return {
         "status": status,
@@ -378,7 +372,7 @@ def check_force_magnitude(timeseries, metadata, nodes):
 
         F_hertz = (4/3) * E_star * sqrt(R) * depth^1.5,   E_star = E_0/(1-nu_0^2)
 
-    The depth MUST be the penetration at the instant of peak RF2 (force and
+    The depth must be the penetration at the instant of peak RF2 (force and
     depth synchronised), taken from the IndenterU2 trace. Remains an
     order-of-magnitude check for a large-strain polymer / conical tip.
     """
@@ -398,13 +392,12 @@ def check_force_magnitude(timeseries, metadata, nodes):
 
     rf2_peak = float(np.max(np.abs(rf2)))
     if rf2_peak < 1e-20:
-        return {"status": "SKIP", "message": "RF2 is zero — no contact occurred?"}
+        return {"status": "SKIP", "message": "RF2 is zero"}
     
     depth, dsrc = _penetration_depth(timeseries, metadata, nodes, at_peak_force=True)
     if depth < 1e-9:
         return {"status": "SKIP",
-                "message": "No penetration depth available (need IndenterU2 or "
-                           "scratch_depth in the Simulation Parameters header)."}
+                "message": "No penetration depth available"}
 
     f_hertz = (4.0 / 3.0) * E_star * np.sqrt(R) * depth ** 1.5 / 2.0   # /2 for  half model
     ratio = rf2_peak / f_hertz if f_hertz > 0 else float("inf")
@@ -412,7 +405,7 @@ def check_force_magnitude(timeseries, metadata, nodes):
 
     note = ""
     if "residual" in dsrc:
-        note = " [depth is residual, not peak — re-run for IndenterU2/scratch_depth]"
+        note = " [depth is residual, not peak."
 
     return {
         "status": "PASS" if ok else "WARN",
@@ -425,7 +418,7 @@ def check_force_magnitude(timeseries, metadata, nodes):
             "RF2 peak = %.3e N | Hertz = %.3e N (depth %.4f mm @ %s) | ratio %.2f. %s%s"
             % (rf2_peak, f_hertz, depth, dsrc, ratio,
                "Order of magnitude OK" if ok else
-               "Force inconsistent with stiffness — check C10/C01, units, or Hertz validity",
+               "Force inconsistent with stiffness",
                note)
         ),
     }
@@ -434,7 +427,7 @@ def check_force_magnitude(timeseries, metadata, nodes):
 
 def _penetration_depth(timeseries, metadata, nodes, at_peak_force=False):
     """
-    Return (depth_mm, source) for the PEAK penetration.
+    Return (depth_mm, source) for the peak penetration.
     """
 
     u2 = timeseries.get("IndenterU2")
@@ -442,7 +435,7 @@ def _penetration_depth(timeseries, metadata, nodes, at_peak_force=False):
     if u2 is not None and len(u2) and float(np.max(np.abs(u2))) > 1e-12:
         if at_peak_force and rf2 is not None and float(np.max(np.abs(rf2))) > 1e-20:
             idx = int(np.argmax(np.abs(rf2)))
-            return abs(float(u2[idx])), "indenter U2 @ peak RF2"
+            return abs(float(u2[idx])), "indenter U2 at peak RF2"
         return abs(float(np.min(u2))), "indenter U2 (max penetration)"
     d = abs(float(metadata.get("scratch_depth", 0.0)))
     if d > 1e-12:
@@ -450,14 +443,13 @@ def _penetration_depth(timeseries, metadata, nodes, at_peak_force=False):
     if nodes["deformed"].shape[0] > 0:
         d = abs(min(float(np.min(nodes["deformed"][:, 1])), 0.0))
         if d > 1e-12:
-            return d, "final frame (residual, NOT peak)"
+            return d, "final frame (residual)"
     return 0.0, "unavailable"
 
 
 def check_strain_level(timeseries, metadata, nodes):
     """
-    Characteristic strain and mean strain rate of the scratch, evaluated at
-    PEAK penetration (not the residual final frame).
+    Characteristic strain and mean strain rate of the scratch, evaluated at peak penetration.
 
         depth    = max penetration (IndenterU2 / commanded scratch_depth)
         a        = sqrt(depth * R)                contact length scale
@@ -467,13 +459,7 @@ def check_strain_level(timeseries, metadata, nodes):
         v        = scratch_length / scratch_time  commanded indenter velocity
         eps_rate = eps_char / (2a / v)            strain rate over a transit
 
-    Convention: metadata cone_angle = full apex angle -> half-apex alpha =
-    cone_angle/2 ; attack angle beta = 90deg - alpha. Verify against the
-    indenter geometry if your cone_angle is defined differently.
-
     eps_char is checked against the Mooney-Rivlin validity range (~100-150%).
-    The strain rate matters for palier 3 (Prony): relaxation times must
-    bracket 1/eps_rate.
     """
 
     time = timeseries.get("Time")
@@ -538,12 +524,12 @@ def check_strain_level(timeseries, metadata, nodes):
         "depth_mm": depth,
         "depth_source": source,
         "message": (
-            "eps_char ~ %.3f (%s regime, depth %.4f mm @ %s, delta*=%.4f mm) | "
-            "strain rate ~ %.2e /s | v = %.1f mm/s (%s). %s"
-            % (eps_char, regime, depth, source, delta_star, eps_rate, v, v_src,
+            "eps_char = %.3f (%s, depth %.4fmm), "
+            "strain rate ~ %.2e /s | v = %.1f mm/s. %s"
+            % (eps_char, regime, depth, eps_rate, v, 
                "Within MR validity (<%.0f%% strain)" % (MR_STRAIN_VALIDITY * 100)
                if within else
-               "Beyond MR validity (~100-150%%) — consider Arruda-Boyce/Ogden")
+               "Beyond MR validity (~100-150%%)")
         ),
     }
 
@@ -556,7 +542,6 @@ def check_friction_physics(timeseries, metadata):
 
       (a) SCOF >= mu_input        — ploughing only ADDS friction.
       (b) SCOF <= mu_input + 0.5  — mu_plough ~ (2/pi)*(a/R) << 1 for a << R
-      (c) low scatter             — std/mean < 30% once contact established
     """
 
     rf2, rf3 = timeseries.get("RF2"), timeseries.get("RF3")
@@ -578,14 +563,11 @@ def check_friction_physics(timeseries, metadata):
 
     issues = []
     if scof_mean < mu_input * 0.95:
-        issues.append("SCOF < mu_input — NON-PHYSICAL (ploughing cannot reduce "
-                      "friction); check friction definition / update_friction call")
+        issues.append("SCOF < mu_input — NON-PHYSICAL (ploughing cannot reduce friction)")
     if scof_mean > mu_input + 0.5:
-        issues.append("Ploughing term too large for shallow Rockwell contact — "
-                      "check depth/R or inertial contamination")
+        issues.append("Ploughing term too large")
     if scof_mean > 0 and scof_std / scof_mean > 0.30:
-        issues.append("High SCOF scatter (std/mean=%.0f%%) — oscillatory contact, "
-                      "likely inertial (check KE/IE)" % (scof_std / scof_mean * 100))
+        issues.append("High SCOF scatter (std/mean=%.0f%%)"% (scof_std / scof_mean * 100))
 
     plough_pct = (scof_mean / mu_input - 1.0) * 100.0 if mu_input > 0 else 0.0
 
@@ -605,21 +587,8 @@ def check_friction_physics(timeseries, metadata):
 
 def check_full_recovery(nodes, metadata):
     """
-    Pure Mooney-Rivlin has NO dissipation mechanism, so the groove must fully
-    recover — residual surface depth ~ 0 once the material has relaxed.
-
-    Caveats handled here:
-      * The residual is read from the LAST field frame. That frame is the
-        relaxed state ONLY if a recovery step ran; without one the last frame is
-        the end of the (short) unload and the material is still partly loaded ->
-        non-conclusive (WARN), not a real permanent groove. This is the failure
-        mode that bites in progressive mode without recovery.
-      * Reference depth = commanded scratch_depth (the PEAK depth, also the right
-        scale for the progressive ramp). Falls back to 10% of tip radius, and
-        that fallback is flagged as a guess.
-      * residual = low percentile of the downward surface displacements, not the
-        single deepest node, so one lone hourglass spike on a coarse mesh does
-        not dominate. The raw min is still reported for reference.
+    Pure Mooney-Rivlin has no dissipation mechanism, so the groove must fully
+    recover — residual surface depth ~ 0 once the material has relaxed.  
     """
 
     if nodes["deformed"].shape[0] == 0:
@@ -627,13 +596,13 @@ def check_full_recovery(nodes, metadata):
 
     y_def = nodes["deformed"][:, 1]
 
-    # --- Robust residual (1st percentile of downward displacements) ---
+    # Robust residual (1st percentile of downward displacements) 
     y_neg = y_def[y_def < 0.0]
     residual = abs(float(np.percentile(y_neg, 1))) if y_neg.size else 0.0
     residual_raw = abs(min(float(np.min(y_def)), 0.0))   # kept for reference
     pile_up = max(float(np.max(y_def)), 0.0)
 
-    # --- Reference depth (peak commanded depth; valid for the progressive ramp) ---
+    # Reference depth (peak commanded depth; valid for the progressive ramp) 
     ref = abs(float(metadata.get("scratch_depth", 0.0)))
     ref_is_guess = ref < 1e-12
     if ref_is_guess:
@@ -642,7 +611,7 @@ def check_full_recovery(nodes, metadata):
     guess_note = (" [ref is a guess: scratch_depth absent from metadata]"
                   if ref_is_guess else "")
 
-    # --- Recovery guard: last frame is relaxed only if a recovery step ran ---
+    # Recovery guard: last frame is relaxed only if a recovery step ran 
     has_recovery = float(metadata.get("recovery_time", 0.0)) > 0.0
     if not has_recovery:
         return {
@@ -654,17 +623,14 @@ def check_full_recovery(nodes, metadata):
             "reference_mm": ref,
             "message": (
                 "Residual = %.3e mm (%.1f%% of ref %.3f mm) | raw min = %.3e mm. "
-                "NO recovery step (recovery_time=0): the last frame is the end of "
-                "the unload, NOT a relaxed state, so this is not a true permanent "
-                "groove. Re-run with a recovery step to conclude.%s"
+                "NO recovery step (recovery_time=0), not a relaxed state.%s"
                 % (residual, rel, ref, residual_raw, guess_note)
             ),
         }
 
     passed = rel < RESIDUAL_DEPTH_TOLERANCE * 100.0
     verdict = ("OK — full hyperelastic recovery" if passed else
-               "Residual groove without dissipation in the model : numerical "
-               "artifact (check hourglass / mesh refinement).") + guess_note
+               "Residual groove without dissipation in the model : numerical artifact.") + guess_note
 
     return {
         "status": "PASS" if passed else "FAIL",
@@ -674,9 +640,8 @@ def check_full_recovery(nodes, metadata):
         "relative_percent": rel,
         "reference_mm": ref,
         "message": (
-            "Residual depth = %.3e mm (%.1f%% of ref %.3f mm) | raw min = %.3e mm "
-            "| pile-up = %.3e mm. %s"
-            % (residual, rel, ref, residual_raw, pile_up, verdict)
+            "Residual depth = %.3e mm (%.1f%% of ref %.3f mm), pile-up = %.3e mm. %s"
+            % (residual, rel, ref, pile_up, verdict)
         ),
     }
 

@@ -102,7 +102,7 @@ def _create_steps(model, cfg):
     }
     previous = "Initial"
 
-    # --- Indentation step (constant depth mode only) ---
+    # Indentation step (constant depth mode only) 
     if scratch.depth_mode == scratch.CONSTANT:
         name = "IndentationStep"
         model.ExplicitDynamicsStep(
@@ -120,7 +120,7 @@ def _create_steps(model, cfg):
         steps["all"].append(name)
         previous = name
 
-    # --- Scratch step (always) ---
+    # Scratch step (always) 
     name = "ScratchStep"
     model.ExplicitDynamicsStep(
         improvedDtMethod=ON,
@@ -137,7 +137,7 @@ def _create_steps(model, cfg):
     steps["all"].append(name)
     previous = name
 
-    # --- Unload step (always) ---
+    # Unload step (always) 
     name = "UnloadStep"
     model.ExplicitDynamicsStep(
         improvedDtMethod=ON,
@@ -149,7 +149,7 @@ def _create_steps(model, cfg):
     steps["all"].append(name)
     previous = name
 
-    # --- Recovery step (optional) ---
+    # Recovery step (optional) 
     if scratch.has_recovery_step:
         name = "RecoveryStep"
         model.ExplicitDynamicsStep(
@@ -302,7 +302,7 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
     # The first active step (indent or scratch) gets all outputs
     first_active = steps["all_active"][0]
 
-    # --- History outputs (forces + energies during active steps) ---
+    # History outputs (forces + energies during active steps) 
     model.HistoryOutputRequest(
         createStepName=first_active, name="ReactionForces",
         rebar=EXCLUDE,
@@ -340,7 +340,7 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
         variables=out.history_energy_whole,
     )
 
-    # --- Field outputs ---
+    # Field outputs 
     model.FieldOutputRequest(
         createStepName=first_active, name="FieldOutput",
         region=sub_inst.sets[names.substrate_set],
@@ -355,7 +355,7 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
         variables=out.contact_force_variables,
     )
 
-    # --- Adjust output frequency per step ---
+    # Adjust output frequency per step 
 
     # Indentation step (if exists): fewer field frames
     if steps["indent"] is not None:
@@ -395,7 +395,7 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
     names = cfg.naming
     fric = cfg.material.friction
 
-    # ---- Contact property ----
+    # Contact property 
     model.ContactProperty("IntProp-1")
     model.interactionProperties["IntProp-1"].TangentialBehavior(
         formulation=PENALTY,
@@ -408,7 +408,7 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
         pressureOverclosure=HARD,
     )
 
-    # ---- Surfaces ----
+    # Surfaces 
     rc = cfg.indenter.Rockwell_coords()
 
     asm.Surface(
@@ -426,7 +426,7 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
         ),
     )
 
-    # ---- General contact ----
+    # General contact 
     model.ContactExp(createStepName="Initial", name="Int-1")
     model.interactions["Int-1"].includedPairs.setValuesInStep(
         addPairs=((

@@ -33,7 +33,7 @@ def create_rockwell(model, cfg):
     names = cfg.naming
     rc = ind.Rockwell_coords()
 
-    # ---- Sketch ----
+    # Sketch 
     model.ConstrainedSketch(name="__profile__", sheetSize=cfg.sheet_size)
     sk = model.sketches["__profile__"]
 
@@ -72,7 +72,7 @@ def create_rockwell(model, cfg):
         entity2=sk.vertices.findAt((rc["xc2"], rc["yc2"])),
     )
 
-    # ---- Revolve into analytic rigid surface ----
+    # Revolve into analytic rigid surface 
     sk.sketchOptions.setValues(constructionGeometry=ON)
     sk.assignCenterline(line=sk.geometry.findAt((0.0, 1.0)))
 
@@ -82,7 +82,7 @@ def create_rockwell(model, cfg):
 
     part = model.parts[names.indenter_name]
 
-    # ---- Reference point & inertia ----
+    # Reference point & inertia 
     part.ReferencePoint(point=part.vertices.findAt((rc["xc1"], rc["yc1"], 0.0)))
     part.Set(name=names.indenter_set, referencePoints=(part.referencePoints[2],))
 

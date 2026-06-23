@@ -24,7 +24,7 @@ def create_substrate(model, cfg):
     sub = cfg.substrate
     names = cfg.naming
 
-    # ---- Sketch & extrude ----
+    # Sketch & extrude 
     model.ConstrainedSketch(name="__profile__", sheetSize=cfg.sheet_size)
     sk = model.sketches["__profile__"]
     sk.rectangle(point1=(sub.xs1, sub.ys1), point2=(sub.xs2, sub.ys2))
@@ -40,7 +40,7 @@ def create_substrate(model, cfg):
     part.DatumPlaneByPrincipalPlane(offset=sub.zs2 - sub.dpo_z, principalPlane=XYPLANE)
     part.DatumPlaneByPrincipalPlane(offset=sub.ys2 - sub.dpo_y, principalPlane=XZPLANE)
 
-    # ---- Cell partitions ----
+    # Cell partitions 
     # Partition along x-axis
     part.PartitionCellByDatumPlane(
         cells=part.cells.findAt(((sub.xs2, sub.ys2, sub.zs2),)),
@@ -71,7 +71,7 @@ def create_substrate(model, cfg):
         datumPlane=part.datums[5],
     )
 
-    # ---- Named sets ----
+    # Named sets 
     zmid = (sub.zs1 + sub.zs2) / 2.0
     part.Set(
         cells=part.cells.findAt(
@@ -114,7 +114,7 @@ def mesh_substrate(part, cfg):
 
     cell_region = part.cells.findAt(*[((c),) for c in all_cell_coords])
 
-    # ---- Mesh controls ----
+    # Mesh controls 
     part.setMeshControls(elemShape=HEX, regions=cell_region, technique=STRUCTURED)
 
     # ---- Element type ----
@@ -143,7 +143,7 @@ def mesh_substrate(part, cfg):
         regions=(cell_region,),
     )
 
-    # ---- Edge seeds : refined zone ----
+    # Edge seeds : refined zone 
     # Z-direction edges (scratch direction, refined zone)
     part.seedEdgeBySize(
         constraint=FINER, deviationFactor=0.1,
@@ -179,7 +179,7 @@ def mesh_substrate(part, cfg):
         size=msh.fine_size_y,
     )
 
-    # ---- Edge seeds : biased transitions ----
+    # Edge seeds : biased transitions 
     # Y-direction transition (fine near surface -> coarse at bottom)
     part.seedEdgeByBias(
         biasMethod=SINGLE, constraint=FINER,

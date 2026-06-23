@@ -9,26 +9,17 @@ A. Numerical Quality
 
     Ratio = ALLKE(t) / ALLIE(t) x 100% < 5%
 
-    Dependencies: Directly proportional to the mass scaling factor (alpha) and to the square of the scratch velocity (v^2).
-                  Independent of mesh size and material stiffness.
-
 2. Hourglass Energy (AE/IE)
 
     Description: Controls the artificial energy introduced by restoring forces to counter the zero-energy deformation modes of C3D8R elements.
 
     Ratio = ALLAE(t_final) / ALLIE(t_final) x 100% < 10%
 
-    Dependencies: Inversely proportional to mesh density. Strongly depends on the chosen control method (ENHANCED, RELAX STIFFNESS, DEFAULT).
-                  Sensitive to near-incompressibility. Independent of mass scaling and velocity.
-
 3. Total Energy Conservation (ETOTAL)
 
     Description: Detects numerical instabilities (distorted elements, irregular contact).
 
     Drift = |ETOTAL(t_f) - ETOTAL(t_i)| / max(|ETOTAL|, |ALLIE|) x 100% < 1%
-
-    Dependencies: Closely linked to contact stability and element distortion.
-                  Independent of the material model.
 
 
 B. Material Consistency (Mooney-Rivlin)
@@ -45,8 +36,6 @@ B. Material Consistency (Mooney-Rivlin)
                       E_0  = 9*K*mu / (3K + mu)
                       nu_0 = (3K - 2mu) / (2(3K + mu))
 
-    Dependencies: Defined by the parameters C10, C01, and D1.
-
 5. Force Magnitude (Hertz Estimate)
 
     Description: Order-of-magnitude verification of the maximum normal force RF2 against the Hertz analytical model
@@ -59,8 +48,7 @@ B. Material Consistency (Mooney-Rivlin)
 
               A x10 tolerance is applied.
 
-    Dependencies: Depends on C10, C01, D1, tip radius R, and depth delta.
-                  Based on the assumptions of small strain, frictionless, normal contact.
+    Based on the assumptions of small strain, frictionless, normal contact.
 
 6. Strain Level and Strain Rate
 
@@ -84,10 +72,6 @@ C. Physical Consistency
 
         (a) SCOF >= mu_input
         (b) SCOF <= mu_input + 0.5    (with mu_p ~ (2/pi)(a/R))
-        (c) std/mean < 30%
-
-    Dependencies: Linked to mu_input, delta, R, and mass scaling.
-                  Restricted to zones where |RF2| > 10% of the peak force.
 
 8. Full Recovery
 
@@ -97,7 +81,70 @@ C. Physical Consistency
     Residual depth = |min(y_deformed, 0)|
     Relative       = residual_depth / scratch_depth x 100% < 5%
 
-    Dependencies: Highly sensitive to excessive mass scaling.
+
+Results and remarks
+
+
+1. Quasi-static Control (KE/IE)
+
+    The kinetic energy is very low for most simulations, especially with longer scratching times (0.02s -> 50%, 2s -> 0.03%). (~v**2)
+    This means it should not be an issue when testing realistic scratching times (200s), which is in work.
+    For all simulations, it converges nicely towards 0 with mass scaling and is independent of mesh size. (~m)
+
+2. Hourglass Energy (AE/IE)
+
+    So far, only the 'Relax Stiffness' control method has been tested.
+    The houglass energy is only an issue for coarse mesh sizes (>0.05).
+    It converges towards 0 with mesh size and mass scaling. For now, a mass scale of 500 is enough to get good results.
+
+3. Total Energy Conservation (ETOTAL)
+
+    The energy drift converges toward 0 with mesh size, reaching satifying values for size < 0.04 (0.036%).
+    The reconstructed total energy is in perfect adequation with the abaqus one.
+
+5. Force Magnitude
+
+    The force increases with mesh size and is independent of mass scaling.
+    The ALE tests have shown increases of about 10% for each decrease of size of 0.01.
+    The no ALE and ALE tests seems to be converging to the same value, it is much faster without ALE, more results are needed to confirm this.
+
+    Results have shown different order of magnitudes for elastomers (Conf 1) and vitreous polymers (Conf 2) going from a few mN to a few N.
+    It is an expected result of the compressiblity of the material.
+
+7. Friction Physics (SCOF)
+
+    As expected, the SCOF is higher than mu, this should allow to estimate the effect of ploughing, which would be around 10% of mu.
+    It converges towards an unknown value ( either 0.3 or 0.3xx ) with mesh size and is independent of mass scale.
+
+8. Full Recovery
+
+    The residual depth converges toward 0 with mesh size, thus helping to verify the validity of the model.
+
+    An excessive mass scaling seems to decrease the recovery quality, which is also why 500 seems to be enough.
+    This was only the case with ALE, no ALE simulations seems to give both better results and better mass scaling independency.
+
+Other 
+
+    No ALE seems to be giving better results in all matters( including wallclock ) perhaps the amount of deformation does not justify its use.
+    Haven't tested different ALE parameters
+
+    wallclock time is going to be an issue, a 0.001 mesh size simulation is expected to take about 8h. Can it work for 1024 sets of values.
+    Perhaps fixing mu could be an answer, but need to tests its influence on results first.
+
+    A few constant scratch depth test have been performed, Edrift and SCOF values aren't realistic. Need to adapt the verifier to this kind of scratching
+
+
+Implementation
+
+    Does the indenter mass have any effect on the simulation ?
+
+    Issues with the partitionning, is it necessary ? how does it affect the simulation ?
+
+    Began working on force driven simulations, which will be the main way when comparing with experimental data.
+
+
+
+
 
 
 Annexes
