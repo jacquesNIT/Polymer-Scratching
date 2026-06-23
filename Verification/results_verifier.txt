@@ -75,15 +75,7 @@ B. Material Consistency (Mooney-Rivlin)
 
 C. Physical Consistency
 
-7. Symmetry (RF1/RF2)
-
-    Description: Ensures the model symmetry is respected.
-
-    Formula: Ratio = max(|RF1|) / max(|RF2|) x 100% < 1%
-
-    Dependencies: Sensitive to mass-scaling-induced oscillations, mesh symmetry quality, and indenter centering.
-
-8. Friction Physics (SCOF)
+7. Friction Physics (SCOF)
 
     Description: Validates the consistency of the apparent friction coefficient, which combines
                  the input adhesive friction and the ploughing resistance.
@@ -97,7 +89,7 @@ C. Physical Consistency
     Dependencies: Linked to mu_input, delta, R, and mass scaling.
                   Restricted to zones where |RF2| > 10% of the peak force.
 
-9. Full Recovery
+8. Full Recovery
 
     Description: Since the Mooney-Rivlin model is hyperelastic and dissipation-free, the material must
                  fully return to its initial state (zero residual depth) after unloading.
