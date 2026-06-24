@@ -124,8 +124,7 @@ def material_study(parameters):
 
 # Defaults + selection.
 DEFAULT_MESH_SIZES = [
-    [0.060, 0.060, 0.060],
-    [0.040, 0.040, 0.040],
+    [0.007, 0.007, 0.007],
 ]
 DEFAULT_MASS_SCALES = [2000, 1000]
 DEFAULT_STUDY = "mesh"

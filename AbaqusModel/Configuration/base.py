@@ -479,9 +479,9 @@ class Simulation_Config:
                 fine_size_x=0.030,       
                 fine_size_y=0.030,
                 fine_size_z=0.030,    
-                coarse_size_0=0.06,     # *2
-                coarse_size_1=0.12,     # *2
-                coarse_size_2=0.24,     # *2
+                coarse_size_0=0.02,     # *2
+                coarse_size_1=0.04,     # *2
+                coarse_size_2=0.08,     # *2
                 hourglass_control="RELAX STIFFNESS",      # RELAX STIFFNESS Might be innacurate but only one usable for now
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
@@ -519,9 +519,9 @@ class Simulation_Config:
                 scratch_length=2.0,
                 scratch_force=20e-3,
                 scratch_depth=-40e-3,
-                scratch_time=0.01,
-                indentation_time=0.001,
-                unload_time=0.001,
+                scratch_time=0.1,
+                indentation_time=0.01,
+                unload_time=0.01,
                 recovery_time=0.0005,
                 recovery_lift=0.05,
                 n_field_frames=40,
