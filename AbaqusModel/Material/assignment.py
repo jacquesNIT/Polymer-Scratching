@@ -1,23 +1,8 @@
 # Substrate material creation and assignment for polymer scratch simulation.
 
-from part import *
-from material import *
-from section import *
-from assembly import *
-from step import *
-from interaction import *
-from load import *
-from mesh import *
-from optimization import *
-from job import *
-from sketch import *
-from visualization import *
-from connectorBehavior import *
-from odbAccess import *
+from ScratchSimulation.AbaqusModel.abaqus_env import *
 
 class SubstrateMaterialAssignment:
-
-    MATERIAL_NAME = "SubstrateMaterial"
 
     def __init__(self, model, part, cfg):
                  
@@ -38,10 +23,10 @@ class SubstrateMaterialAssignment:
         # Build the Abaqus material from Material_Config.
 
         # Remove old material if re-running in a loop
-        if self.MATERIAL_NAME in self.model.materials.keys():
-            del self.model.materials[self.MATERIAL_NAME]
+        if self.names.material_name in self.model.materials.keys():
+            del self.model.materials[self.names.material_name]
 
-        self.mat = self.model.Material(name=self.MATERIAL_NAME)
+        self.mat = self.model.Material(name=self.names.material_name)
         mc = self.mat_cfg
 
         # 1. Density 
@@ -91,13 +76,13 @@ class SubstrateMaterialAssignment:
 
     #  Section assignment
     def assign_section(self):
-        self.model.HomogeneousSolidSection(material=self.MATERIAL_NAME,
-                                           name="SubstrateSection",
+        self.model.HomogeneousSolidSection(material=self.names.material_name,
+                                           name=self.names.section_name,
                                            thickness=None)
         self.part.SectionAssignment(offset=0.0,offsetField="",
                                     offsetType=MIDDLE_SURFACE,
                                     region=self.part.sets[self.names.substrate_set],
-                                    sectionName="SubstrateSection",
+                                    sectionName=self.names.section_name,
                                     thicknessAssignment=FROM_SECTION)
 
 

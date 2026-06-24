@@ -1,19 +1,6 @@
 # Generation of the rigid Rockwell indenter geometry
 
-from part import *
-from material import *
-from section import *
-from assembly import *
-from step import *
-from interaction import *
-from load import *
-from mesh import *
-from optimization import *
-from job import *
-from sketch import *
-from visualization import *
-from connectorBehavior import *
-from odbAccess import *
+from ScratchSimulation.AbaqusModel.abaqus_env import *
 
 def create_indenter(model, cfg):           
     # Creation of the indenter Part according to the configuration
@@ -89,7 +76,7 @@ def create_rockwell(model, cfg):
     part.engineeringFeatures.PointMassInertia(
         alpha=0.0, composite=0.0,
         i11=0.0, i22=0.0, i33=0.0, mass=1e-3,     # mass changed from 1.0t to 1e-3t = 1.0kg 
-        name="IndenterInertia",
+        name=names.inertia_name,
         region=part.sets[names.indenter_set],
     )
 

@@ -1,21 +1,6 @@
 # Substrate geometry creation, partitioning, and meshing.
 
-from part import *
-from material import *
-from section import *
-from assembly import *
-from step import *
-from interaction import *
-from load import *
-from mesh import *
-from optimization import *
-from job import *
-from sketch import *
-from visualization import *
-from connectorBehavior import *
-from odbAccess import *
-
-
+from ScratchSimulation.AbaqusModel.abaqus_env import *
 
 #  Geometry + partitions
 def create_substrate(model, cfg):
@@ -88,7 +73,7 @@ def create_substrate(model, cfg):
 
     part.Set(
         cells=part.cells.findAt(((sub.xs1, sub.ys2, zmid),)),
-        name="RefinedArea",
+        name=names.refined_set,
     )
 
     return part

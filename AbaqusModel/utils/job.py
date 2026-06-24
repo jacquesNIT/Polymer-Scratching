@@ -1,21 +1,6 @@
 # Abaqus job submission and wait.
 
-from abaqus import *
-from abaqusConstants import *
-from part import *
-from material import *
-from section import *
-from assembly import *
-from step import *
-from interaction import *
-from load import *
-from mesh import *
-from optimization import *
-from sketch import *
-from visualization import *
-from connectorBehavior import *
-from odbAccess import *
-
+from ScratchSimulation.AbaqusModel.abaqus_env import *
 import os
 
 def run_job_and_wait(job_name, cfg):
@@ -41,7 +26,7 @@ def run_job_and_wait(job_name, cfg):
         historyPrint=OFF,
         memory=90,
         memoryUnits=PERCENTAGE,
-        model="Model-1",
+        model=cfg.naming.model_name,
         modelPrint=OFF,
         multiprocessingMode=MPI,
         name=job_name,

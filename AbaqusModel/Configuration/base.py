@@ -368,21 +368,71 @@ class Output_Config:
 class Naming_Config:
 
     def __init__(self,
+                 model_name="Model-1",
                  indenter_name="RockwellIndenter",
                  substrate_name="Substrate",
                  master_surface="m_Surf-1",
                  slave_surface="s_Surf-1",
                  contact_region_nodes="contactRegionNodes"):
-        
+
+        # Model 
+        self.model_name = model_name
+
+        # Parts / instances / sets 
         self.indenter_name = indenter_name
         self.substrate_name = substrate_name
         self.indenter_set = indenter_name + "Set"
         self.indenter_instance = indenter_name + "Inst"
         self.substrate_set = substrate_name + "Set"
         self.substrate_instance = substrate_name + "Inst"
+        self.refined_set = "RefinedArea"
+        self.inertia_name = "IndenterInertia"
+
+        # Surfaces / contact-node set 
         self.master_surface = master_surface
         self.slave_surface = slave_surface
         self.contact_region_nodes = contact_region_nodes
+
+        # Contact (property + interaction)
+        self.contact_property = "IntProp-1"
+        self.contact_interaction = "Int-1"
+
+        # Boundary-condition sets & BCs
+        self.fixed_set = "FIXEDBCSET"
+        self.symmetry_set = "XsymmetryBCSet"
+        self.fixed_bc = "Fixed_constraint"
+        self.symmetry_bc = "x_axis_symmetry"
+        self.indenter_constraint_bc = "IndenterConstraint"
+
+        # Loading: amplitudes & displacement BCs 
+        self.amp_single = "Amp-1"
+        self.amp_depth = "Amp-Depth"
+        self.amp_length = "Amp-Length"
+        self.bc_scratch = "IndenterScratching"
+        self.bc_depth = "IndenterDepth"
+        self.bc_travel = "IndenterTravel"
+
+        # Output requests 
+        self.out_reaction = "ReactionForces"
+        self.out_indenter_disp = "IndenterDisp"
+        self.out_energy_substrate = "Energy"
+        self.out_energy_whole = "EnergyBalance"
+        self.out_field = "FieldOutput"
+        self.out_contact = "ContactForce"
+
+        # Material / section 
+        self.material_name = "SubstrateMaterial"
+        self.section_name = "SubstrateSection"
+
+        # ALE adaptive meshing 
+        self.ale_control = "Ada-1"
+        self.ale_domain_set = "ALE_Domain"
+
+        # Steps 
+        self.step_indent = "IndentationStep"
+        self.step_scratch = "ScratchStep"
+        self.step_unload = "UnloadStep"
+        self.step_recovery = "RecoveryStep"
 
 # 14. Simulation
 class Simulation_Config:
@@ -455,7 +505,7 @@ class Simulation_Config:
                 mass_scale=500,    
                 target_time_increment=0.0,
                 use_ALE=False,
-                num_cpus=36,
+                num_cpus=6,
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
                 ale_frequency=20,

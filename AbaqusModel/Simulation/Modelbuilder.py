@@ -1,31 +1,16 @@
 # Scratch test model builder for polymer simulation.
 #Orchestrates geometry creation, assembly, step definition, boundary conditions, contact modelling, and output requests.
 
-from part import *
-from material import *
-from section import *
-from assembly import *
-from step import *
-from interaction import *
-from load import *
-from mesh import *
-from optimization import *
-from job import *
-from sketch import *
-from visualization import *
-from connectorBehavior import *
-from odbAccess import *
-
+from ScratchSimulation.AbaqusModel.abaqus_env import *
 from ScratchSimulation.AbaqusModel.Geometry.indenter import create_indenter
 from ScratchSimulation.AbaqusModel.Geometry.substrate import create_substrate, mesh_substrate
-from ScratchSimulation.AbaqusModel.Geometry.partition import  partition_top_face
 
 def build_scratch_model(cfg):
     # Build a complete scratch-test model (geometry + steps + BCs + contact + outputs).
 
     session.journalOptions.setValues(replayGeometry=COORDINATE, recoverGeometry=COORDINATE)
 
-    model = mdb.models["Model-1"]
+    model = mdb.models[cfg.naming.model_name]
     sub = cfg.substrate
     names = cfg.naming
     scratch = cfg.scratch
@@ -35,7 +20,6 @@ def build_scratch_model(cfg):
     substrate_part = create_substrate(model, cfg)
     mesh_substrate(substrate_part, cfg)
     indenter_part = create_indenter(model, cfg)
-    # partition_top_face(substrate_part, cfg)
 
     #  2. Assembly
     asm = model.rootAssembly
@@ -79,6 +63,7 @@ def _create_steps(model, cfg):
    
     scratch = cfg.scratch
     solver = cfg.solver
+    names = cfg.naming
 
     # Mass scaling tuple (shared by all active steps)
     use_variable = solver.target_time_increment > 0.0
@@ -104,7 +89,7 @@ def _create_steps(model, cfg):
 
     # Indentation step (constant depth mode only) 
     if scratch.depth_mode == scratch.CONSTANT:
-        name = "IndentationStep"
+        name = names.step_indent
         model.ExplicitDynamicsStep(
             improvedDtMethod=ON,
             massScaling=(ms_tuple,),
@@ -121,7 +106,7 @@ def _create_steps(model, cfg):
         previous = name
 
     # Scratch step (always) 
-    name = "ScratchStep"
+    name = names.step_scratch
     model.ExplicitDynamicsStep(
         improvedDtMethod=ON,
         massScaling=(ms_tuple,),
@@ -138,7 +123,7 @@ def _create_steps(model, cfg):
     previous = name
 
     # Unload step (always) 
-    name = "UnloadStep"
+    name = names.step_unload
     model.ExplicitDynamicsStep(
         improvedDtMethod=ON,
         name=name,
@@ -151,7 +136,7 @@ def _create_steps(model, cfg):
 
     # Recovery step (optional) 
     if scratch.has_recovery_step:
-        name = "RecoveryStep"
+        name = names.step_recovery
         model.ExplicitDynamicsStep(
             improvedDtMethod=ON,
             name=name,
@@ -180,15 +165,15 @@ def _apply_loading(model, ind_inst, cfg, first_step):
         # Progressive without recovery: depth and length share one amplitude
         model.TabularAmplitude(
             data=scratch.depth_amplitude(),
-            name="Amp-1",
+            name=names.amp_single,
             smooth=SOLVER_DEFAULT,
             timeSpan=TOTAL,
         )
         model.DisplacementBC(
-            amplitude="Amp-1",
+            amplitude=names.amp_single,
             createStepName=first_step,
             distributionType=UNIFORM, fieldName="", fixed=OFF, localCsys=None,
-            name="IndenterScratching",
+            name=names.bc_scratch,
             region=region,
             u1=UNSET,
             u2=scratch.scratch_depth,
@@ -199,21 +184,21 @@ def _apply_loading(model, ind_inst, cfg, first_step):
         # Two separate amplitudes (constant mode, or progressive with recovery)
         model.TabularAmplitude(
             data=scratch.depth_amplitude(),
-            name="Amp-Depth",
+            name=names.amp_depth,
             smooth=SOLVER_DEFAULT,
             timeSpan=TOTAL,
         )
         model.TabularAmplitude(
             data=scratch.length_amplitude(),
-            name="Amp-Length",
+            name=names.amp_length,
             smooth=SOLVER_DEFAULT,
             timeSpan=TOTAL,
         )
         model.DisplacementBC(
-            amplitude="Amp-Depth",
+            amplitude=names.amp_depth,
             createStepName=first_step,
             distributionType=UNIFORM, fieldName="", fixed=OFF, localCsys=None,
-            name="IndenterDepth",
+            name=names.bc_depth,
             region=region,
             u1=UNSET,
             u2=scratch.scratch_depth,
@@ -221,10 +206,10 @@ def _apply_loading(model, ind_inst, cfg, first_step):
             ur1=UNSET, ur2=UNSET, ur3=UNSET,
         )
         model.DisplacementBC(
-            amplitude="Amp-Length",
+            amplitude=names.amp_length,
             createStepName=first_step,
             distributionType=UNIFORM, fieldName="", fixed=OFF, localCsys=None,
-            name="IndenterTravel",
+            name=names.bc_travel,
             region=region,
             u1=UNSET,
             u2=UNSET,
@@ -237,7 +222,7 @@ def _apply_loading(model, ind_inst, cfg, first_step):
         amplitude=UNSET,
         createStepName=first_step,
         distributionType=UNIFORM, fieldName="", fixed=OFF, localCsys=None,
-        name="IndenterConstraint",
+        name=names.indenter_constraint_bc,
         region=region,
         u1=SET, u2=UNSET, u3=UNSET,
         ur1=SET, ur2=SET, ur3=SET,
@@ -247,7 +232,9 @@ def _apply_loading(model, ind_inst, cfg, first_step):
 
 #  Boundary conditions
 def _apply_boundary_conditions(model, asm, ind_inst, sub_inst, cfg, first_step):
+
     sub = cfg.substrate
+    names = cfg.naming
 
     # Fixed bottom face (y = ys1)
     fixed_coords = [
@@ -260,12 +247,12 @@ def _apply_boundary_conditions(model, asm, ind_inst, sub_inst, cfg, first_step):
     ]
     asm.Set(
         faces=sub_inst.faces.findAt(*[(c,) for c in fixed_coords]),
-        name="FIXEDBCSET",
+        name=names.fixed_set,
     )
     model.EncastreBC(
         createStepName=first_step, localCsys=None,
-        name="Fixed_constraint",
-        region=asm.sets["FIXEDBCSET"],
+        name=names.fixed_bc,
+        region=asm.sets[names.fixed_set],
     )
 
     # Symmetry on x = 0
@@ -277,12 +264,12 @@ def _apply_boundary_conditions(model, asm, ind_inst, sub_inst, cfg, first_step):
     ]
     asm.Set(
         faces=sub_inst.faces.findAt(*[(c,) for c in sym_coords]),
-        name="XsymmetryBCSet",
+        name=names.symmetry_set,
     )
     model.XsymmBC(
         createStepName=first_step, localCsys=None,
-        name="x_axis_symmetry",
-        region=asm.sets["XsymmetryBCSet"],
+        name=names.symmetry_bc,
+        region=asm.sets[names.symmetry_set],
     )
 
 
@@ -304,7 +291,7 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
 
     # History outputs (forces + energies during active steps) 
     model.HistoryOutputRequest(
-        createStepName=first_active, name="ReactionForces",
+        createStepName=first_active, name=names.out_reaction,
         rebar=EXCLUDE,
         region=ind_inst.sets[names.indenter_set],
         sectionPoints=DEFAULT,
@@ -313,7 +300,7 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
     )
 
     model.HistoryOutputRequest(
-        createStepName=first_active, name="IndenterDisp",
+        createStepName=first_active, name=names.out_indenter_disp,
         rebar=EXCLUDE,
         region=ind_inst.sets[names.indenter_set],
         sectionPoints=DEFAULT,
@@ -324,7 +311,7 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
     # Substrate-only energies (ALLKE, ALLIE, ALLAE) -> quasi-static & hourglass
     # checks. The rigid driver must NOT enter these, hence region=substrate.
     model.HistoryOutputRequest(
-        createStepName=first_active, name="Energy",
+        createStepName=first_active, name=names.out_energy_substrate,
         region=sub_inst.sets[names.substrate_set],
         timeInterval=scratch.history_interval,
         variables=out.history_energy_substrate,
@@ -335,21 +322,21 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
     # baseline; the balance must share this scope to be reconstructable.
     # (Abaqus also silently writes zeros for ETOTAL if requested on a set.)
     model.HistoryOutputRequest(
-        createStepName=first_active, name="EnergyBalance",
+        createStepName=first_active, name=names.out_energy_whole,
         timeInterval=scratch.history_interval,
         variables=out.history_energy_whole,
     )
 
     # Field outputs 
     model.FieldOutputRequest(
-        createStepName=first_active, name="FieldOutput",
+        createStepName=first_active, name=names.out_field,
         region=sub_inst.sets[names.substrate_set],
         timeInterval=scratch.field_interval_scratch,
         variables=out.field_variables,
     )
 
     model.FieldOutputRequest(
-        createStepName=first_active, name="ContactForce",
+        createStepName=first_active, name=names.out_contact,
         region=sub_inst.sets[names.substrate_set],
         timeInterval=scratch.field_interval_scratch,
         variables=out.contact_force_variables,
@@ -359,33 +346,33 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
 
     # Indentation step (if exists): fewer field frames
     if steps["indent"] is not None:
-        model.fieldOutputRequests["FieldOutput"].setValuesInStep(
+        model.fieldOutputRequests[names.out_field].setValuesInStep(
             stepName=steps["indent"],
             timeInterval=scratch.field_interval_indentation,
         )
 
     # Unload step: adjusted frequency, deactivate history
-    model.fieldOutputRequests["FieldOutput"].setValuesInStep(
+    model.fieldOutputRequests[names.out_field].setValuesInStep(
         stepName=steps["unload"],
         timeInterval=scratch.field_interval_unload,
     )
-    model.fieldOutputRequests["ContactForce"].deactivate(steps["unload"])
-    model.historyOutputRequests["Energy"].deactivate(steps["unload"])
-    model.historyOutputRequests["EnergyBalance"].deactivate(steps["unload"])
-    model.historyOutputRequests["ReactionForces"].deactivate(steps["unload"])
-    model.historyOutputRequests["IndenterDisp"].deactivate(steps["unload"])
+    model.fieldOutputRequests[names.out_contact].deactivate(steps["unload"])
+    model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["unload"])
+    model.historyOutputRequests[names.out_energy_whole].deactivate(steps["unload"])
+    model.historyOutputRequests[names.out_reaction].deactivate(steps["unload"])
+    model.historyOutputRequests[names.out_indenter_disp].deactivate(steps["unload"])
 
     # Recovery step (if exists): coarser field output, no history/contact
     if steps["recovery"] is not None:
-        model.fieldOutputRequests["FieldOutput"].setValuesInStep(
+        model.fieldOutputRequests[names.out_field].setValuesInStep(
             stepName=steps["recovery"],
             timeInterval=scratch.field_interval_recovery,
         )
-        model.fieldOutputRequests["ContactForce"].deactivate(steps["recovery"])
-        model.historyOutputRequests["Energy"].deactivate(steps["recovery"])
-        model.historyOutputRequests["EnergyBalance"].deactivate(steps["recovery"])
-        model.historyOutputRequests["ReactionForces"].deactivate(steps["recovery"])
-        model.historyOutputRequests["IndenterDisp"].deactivate(steps["recovery"])
+        model.fieldOutputRequests[names.out_contact].deactivate(steps["recovery"])
+        model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["recovery"])
+        model.historyOutputRequests[names.out_energy_whole].deactivate(steps["recovery"])
+        model.historyOutputRequests[names.out_reaction].deactivate(steps["recovery"])
+        model.historyOutputRequests[names.out_indenter_disp].deactivate(steps["recovery"])
 
 
 
@@ -396,13 +383,13 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
     fric = cfg.material.friction
 
     # Contact property 
-    model.ContactProperty("IntProp-1")
-    model.interactionProperties["IntProp-1"].TangentialBehavior(
+    model.ContactProperty(names.contact_property)
+    model.interactionProperties[names.contact_property].TangentialBehavior(
         formulation=PENALTY,
         table=((0.0,),),       # friction updated by SubstrateMaterialAssignment
         fraction=fric.elastic_slip_fraction,
     )
-    model.interactionProperties["IntProp-1"].NormalBehavior(
+    model.interactionProperties[names.contact_property].NormalBehavior(
         allowSeparation=ON,
         constraintEnforcementMethod=DEFAULT,
         pressureOverclosure=HARD,
@@ -427,8 +414,8 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
     )
 
     # General contact 
-    model.ContactExp(createStepName="Initial", name="Int-1")
-    model.interactions["Int-1"].includedPairs.setValuesInStep(
+    model.ContactExp(createStepName="Initial", name=names.contact_interaction)
+    model.interactions[names.contact_interaction].includedPairs.setValuesInStep(
         addPairs=((
             asm.surfaces[names.master_surface],
             asm.surfaces[names.slave_surface],
@@ -436,11 +423,11 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
         stepName="Initial",
         useAllstar=OFF,
     )
-    model.interactions["Int-1"].contactPropertyAssignments.appendInStep(
-        assignments=((GLOBAL, SELF, "IntProp-1"),),
+    model.interactions[names.contact_interaction].contactPropertyAssignments.appendInStep(
+        assignments=((GLOBAL, SELF, names.contact_property),),
         stepName="Initial",
     )
-    model.interactions["Int-1"].smoothingAssignments.appendInStep(
+    model.interactions[names.contact_interaction].smoothingAssignments.appendInStep(
         assignments=((asm.surfaces[names.slave_surface], REVOLUTION),),
         stepName=first_step,
     )
@@ -452,11 +439,12 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
     )
 
 
-
 #  ALE adaptive meshing
 def _setup_ale(model, asm, sub_inst, cfg, steps):
+
     sub = cfg.substrate
     solver = cfg.solver
+    names = cfg.naming
     zmid = (sub.zs1 + sub.zs2) / 2.0
 
     smoothing_priority = GRADED if solver.ale_smoothing_priority == "GRADED" else UNIFORM
@@ -466,7 +454,7 @@ def _setup_ale(model, asm, sub_inst, cfg, steps):
     )
 
     model.AdaptiveMeshControl(
-        name="Ada-1",
+        name=names.ale_control,
         smoothingPriority=smoothing_priority,
         smoothingAlgorithm=smoothing_algorithm,
         curvatureRefinement=1,
@@ -485,34 +473,34 @@ def _setup_ale(model, asm, sub_inst, cfg, steps):
         (sub.xs2, sub.ys1, sub.zs2),
     ]
     asm.Set(
-        name="ALE_Domain",
+        name=names.ale_domain_set,
         cells=sub_inst.cells.findAt(*[(c,) for c in ale_cell_coords]),
     )
 
     # Active steps: full ALE frequency
     for step_name in steps["all_active"]:
         model.steps[step_name].AdaptiveMeshDomain(
-            controls="Ada-1",
+            controls=names.ale_control,
             meshSweeps=solver.ale_mesh_sweeps,
             frequency=solver.ale_frequency,
-            region=asm.sets["ALE_Domain"],
+            region=asm.sets[names.ale_domain_set],
         )
 
     # Unload step: lower frequency (less deformation happening)
     model.steps[steps["unload"]].AdaptiveMeshDomain(
-        controls="Ada-1",
+        controls=names.ale_control,
         meshSweeps=1,
         frequency=400,
         initialMeshSweeps=1,
-        region=asm.sets["ALE_Domain"],
+        region=asm.sets[names.ale_domain_set],
     )
 
     # Recovery step: minimal ALE (indenter is lifted, substrate relaxes)
     if steps["recovery"] is not None:
         model.steps[steps["recovery"]].AdaptiveMeshDomain(
-            controls="Ada-1",
+            controls=names.ale_control,
             meshSweeps=1,
             frequency=1000,
             initialMeshSweeps=1,
-            region=asm.sets["ALE_Domain"],
+            region=asm.sets[names.ale_domain_set],
         )
