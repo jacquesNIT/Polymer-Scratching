@@ -415,7 +415,7 @@ def check_force_magnitude(timeseries, metadata, nodes):
         "depth_mm": depth,
         "depth_source": dsrc,
         "message": (
-            "RF2 peak = %.3e N | Hertz = %.3e N (depth %.4f mm @ %s) | ratio %.2f. %s%s"
+            "RF2 peak = %.3e N | Hertz = %.3e N (depth %.4f mm at %s) | ratio %.2f. %s%s"
             % (rf2_peak, f_hertz, depth, dsrc, ratio,
                "Order of magnitude OK" if ok else
                "Force inconsistent with stiffness",
