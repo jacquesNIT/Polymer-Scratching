@@ -5,7 +5,6 @@
 # " abaqus cae noGUI=run_parameter_study.py -- mass_scale "
 # " abaqus cae noGUI=run_parameter_study.py -- material "
 
-
 import sys
 import os
 import shutil
@@ -87,6 +86,9 @@ def mesh_study(sizes):
         cfg.mesh.fine_size_x = s[0]
         cfg.mesh.fine_size_y = s[1]
         cfg.mesh.fine_size_z = s[2]
+        cfg.coarse_size_0 = 2*s[0]
+        cfg.coarse_size_1 = 4*s[0]
+        cfg.coarse_size_2 = 8*s[0]
     return ParameterStudy(
         name="MeshConvergence",
         cases=sizes,
@@ -124,7 +126,11 @@ def material_study(parameters):
 
 # Defaults + selection.
 DEFAULT_MESH_SIZES = [
-    [0.007, 0.007, 0.007],
+    [0.04, 0.04, 0.04],
+    [0.03, 0.03, 0.03],
+    [0.02, 0.02, 0.02],
+    [0.015, 0.015, 0.015],
+    # [0.01, 0.01, 0.01],
 ]
 DEFAULT_MASS_SCALES = [2000, 1000]
 DEFAULT_STUDY = "mesh"
@@ -139,7 +145,6 @@ STUDIES = {
     "mass_scale": lambda: mass_scale_study(DEFAULT_MASS_SCALES),
     # "material":   lambda: material_study(_load_material_parameters()),
 }
-
 
 def _selected_study_name(default=DEFAULT_STUDY):
     argv = sys.argv

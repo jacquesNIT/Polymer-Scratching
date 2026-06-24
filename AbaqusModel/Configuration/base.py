@@ -45,7 +45,7 @@ class Substrate_Config:
     def __init__(self,
                  xs1=0.0, ys1=0.0, zs1=0.0,             # Substrate box  (origin at xs1, ys1, zs1)
                  xs2=0.6, ys2=0.5, zs2=3.0,             # Width, height  and depth of the box [mm] (z is the scratch direction)
-                 dpo_x=0.24, dpo_y=0.06, dpo_z=0.25 ):  # Partition offsets (from edges of refined zone) 
+                 dpo_x=0.24, dpo_y=0.18, dpo_z=0.25 ):  # Partition offsets (from edges of refined zone) 
 
         self.xs1 = xs1
         self.ys1 = ys1
@@ -464,17 +464,8 @@ class Simulation_Config:
     def polymer_default():
         # Typical polymer scratch test configuration.
         return Simulation_Config(
-            indenter=Indenter_Config(
-                indenter_type=Indenter_Config.ROCKWELL,
-                tip_radius=0.2,
-                cone_angle=60,
-                rigid=True,
-            ),
-            substrate=Substrate_Config(
-                xs1=0.0, ys1=0.0, zs1=0.0,             
-                xs2=0.6, ys2=0.5, zs2=3.0,             
-                dpo_x=0.24, dpo_y=0.18, dpo_z=0.25, # Changed y to 0.18
-            ),
+            indenter=Indenter_Config(),
+            substrate=Substrate_Config(),
             mesh=Mesh_Config(
                 fine_size_x=0.030,       
                 fine_size_y=0.030,
@@ -490,7 +481,7 @@ class Simulation_Config:
             ),
             material=Material_Config(
                 rho=1.2e-9,
-                hyperelastic=HE_Model_Config(C10=1.0, C01=0.1, D1=0.018),
+                hyperelastic=HE_Model_Config(C10=400.0, C01=40.0, D1=2.8e-5),
                 viscoelastic=None,
                 plasticity=None,
                 damage=None,
