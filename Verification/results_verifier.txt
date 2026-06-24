@@ -144,6 +144,10 @@ Implementation
 
 
 
+Decrease scratch time to get finer meshs
+make sure its time independent 
+other models
+increase mass scale ?
 
 
 
