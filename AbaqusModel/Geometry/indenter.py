@@ -75,7 +75,7 @@ def create_rockwell(model, cfg):
 
     part.engineeringFeatures.PointMassInertia(
         alpha=0.0, composite=0.0,
-        i11=0.0, i22=0.0, i33=0.0, mass=1e-3,     # mass changed from 1.0t to 1e-3t = 1.0kg 
+        i11=0.0, i22=0.0, i33=0.0, mass=1.0,     # mass changed from 1.0t to 1e-3t = 1.0kg 
         name=names.inertia_name,
         region=part.sets[names.indenter_set],
     )

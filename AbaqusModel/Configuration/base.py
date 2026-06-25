@@ -149,10 +149,6 @@ class Scratch_Config:
 
     # Functions to gather information about the Scratching for other files
     @property
-    def uses_single_amplitude(self): # True if depth and length share the same amplitude (progressive mode without recovery).
-        return self.depth_mode == self.PROGRESSIVE and not self.has_recovery_step
-
-    @property
     def has_recovery_step(self): # True if there is a post-unload recovery step.
         return self.recovery_time > 0.0
 

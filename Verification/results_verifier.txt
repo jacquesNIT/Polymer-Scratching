@@ -148,6 +148,7 @@ Decrease scratch time to get finer meshs
 make sure its time independent 
 other models
 increase mass scale ?
+tester un coeff de friction plus bas ( jusqu'a 0.1 par exemple) ( demander a peter si c'est pas 0.01 meme)
 
 Pour les autres modèles :
 besoin d'extraire tout plein de nouvelles données -> un extractor test et un extractor results
