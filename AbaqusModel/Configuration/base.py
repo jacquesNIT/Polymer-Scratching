@@ -96,13 +96,23 @@ class HE_Model_Config:
         self.C01 = C01   
         self.D1 = D1   
 
+    def params(self):
+        return {"C10": self.C10, "C01": self.C01, "D1": self.D1}
+
 # 5. Visco-elastic Models (empty)
 class VE_Model_Config:
     MODEL = "none"
 
+    def params(self):
+        return {}
+
 # 6. Plasticity Models (empty)
 class P_Model_Config:
     MODEL = "none"
+
+    def params(self):
+        return {}
+
 
 # 7. Scratching (Progressive and Constant)
 class Scratch_Config:
@@ -275,7 +285,10 @@ class Scratch_Config:
 # 8. Damage Models (empty)
 class Damage_Config:
     MODEL = "none"
-    
+
+    def params(self):
+        return {}
+
 # 9. Friction Models (Pressure independent)
 class Friction_Config:
     # For now, pressure independent
@@ -297,7 +310,8 @@ class Material_Config:
                  viscoelastic=None,
                  plasticity=None,
                  damage=None,
-                 friction=None):
+                 friction=None,
+                 family="elastomer_mr"):
 
         self.rho = rho
         self.hyperelastic = hyperelastic or HE_Model_Config()
@@ -305,13 +319,17 @@ class Material_Config:
         self.plasticity = plasticity or P_Model_Config()
         self.damage = damage or Damage_Config()
         self.friction = friction or Friction_Config()
+        self.family = family
 
     def to_dict(self):
-        h = self.hyperelastic
+        
         d = {"rho": self.rho}
-        if h.MODEL == "mooney_rivlin":
-            d.update({"C10": h.C10, "C01": h.C01, "D1": h.D1})
-            d["mu_friction"] = self.friction.mu
+        d.update(self.hyperelastic.params())
+        d.update(self.viscoelastic.params())
+        d.update(self.plasticity.params())
+        d.update(self.damage.params())
+        d["mu_friction"] = self.friction.mu
+
         return d
 
 # 11. Solver 
@@ -506,9 +524,9 @@ class Simulation_Config:
                 scratch_length=2.0,
                 scratch_force=20e-3,
                 scratch_depth=-40e-3,
-                scratch_time=0.1,
-                indentation_time=0.01,
-                unload_time=0.01,
+                scratch_time=0.01,
+                indentation_time=0.001,
+                unload_time=0.001,
                 recovery_time=0.0005,
                 recovery_lift=0.05,
                 n_field_frames=40,

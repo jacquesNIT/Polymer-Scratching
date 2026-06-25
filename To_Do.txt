@@ -1,10 +1,5 @@
 Hourglass control :
-AE is too high in too many cases 
--> run a thinely meshed mass_scale convergence to assess the importance of the issue
 -> Test DEFAULT
-
-Partionninbg :
-Still issues for implementation, is it necessary ? influence on symmetry ?
 
 Indenter :
 The current rockwell indenter is only spherical for depth up to 27um, change of regime after that
@@ -20,11 +15,22 @@ Constant :
 The extraction of data ( Etotal, SCOF) for constant SD does not take the scratching into account -> wrong values
 
 
+Decrease scratch time to get finer meshs
+make sure its time independent 
+other models
+increase mass scale ?
+tester un coeff de friction plus bas jusqu'à 0.01
+
+Pour les autres modèles :
+besoin d'extraire tout plein de nouvelles données -> un extractor test et un extractor results
+remplir toutes les belles classses de base.py
+apparemment force-driven pas si deep ? a voir si important
 
 
 
-
-
+SOLVED
+Partionninbg :
+Still issues for implementation, is it necessary ? influence on symmetry ?
 
 
 

@@ -18,6 +18,11 @@ class SubstrateMaterialAssignment:
         self.assign_section()
         self.update_friction()
         return self
+    
+    _HYPERELASTIC_BUILDERS = {"mooney_rivlin": "_mooney_rivlin"}
+    _VISCOELASTIC_BUILDERS = {"none": "_skip"}
+    _PLASTICITY_BUILDERS   = {"none": "_skip"}
+    _DAMAGE_BUILDERS       = {"none": "_skip"}
 
     def create_material(self):
         # Build the Abaqus material from Material_Config.
@@ -29,38 +34,26 @@ class SubstrateMaterialAssignment:
         self.mat = self.model.Material(name=self.names.material_name)
         mc = self.mat_cfg
 
-        # 1. Density 
-        self.mat.Density(table=((mc.rho,),))
-
-        # 2. Hyperelastic (MN)
-        h = mc.hyperelastic
-        if h.MODEL == "mooney_rivlin":
-            self._mooney_rivlin(h)
-        else:
-            raise ValueError("Unknown hyperelastic model: %s" % h.MODEL)
-
-        # 3. Viscoelastic 
-        v = mc.viscoelastic
-        if v.MODEL == "none":
-            pass
-        else:
-            raise ValueError("Unknown viscoelastic model: %s" % v.MODEL)
-
-        # 4. Plasticity 
-        p = mc.plasticity
-        if p.MODEL == "none":
-            pass
-        else:
-            raise ValueError("Unknown plasticity model: %s" % p.MODEL)
-
-        # 5. Damage 
-        d = mc.damage
-        if d.MODEL == "none":
-            pass
-        else:
-            raise ValueError("Unknown damage model: %s" % d.MODEL)
+        # 2-5. Constitutive blocks, dispatched by their MODEL string
+        self._apply_block(mc.hyperelastic, self._HYPERELASTIC_BUILDERS, "hyperelastic")
+        self._apply_block(mc.viscoelastic, self._VISCOELASTIC_BUILDERS, "viscoelastic")
+        self._apply_block(mc.plasticity,   self._PLASTICITY_BUILDERS,   "plasticity")
+        self._apply_block(mc.damage,       self._DAMAGE_BUILDERS,       "damage")
 
         return self.mat
+    
+    def _apply_block(self, sub_cfg, registry, label):
+        # Look up the builder for this sub-model's MODEL string and run it.
+        builder_name = registry.get(sub_cfg.MODEL)
+        if builder_name is None:
+            raise ValueError("Unknown %s model: '%s'" % (label, sub_cfg.MODEL))
+        getattr(self, builder_name)(sub_cfg)
+
+    #  Builders
+    def _skip(self, sub_cfg):
+        # No-op builder for MODEL == "none".
+        pass
+
 
 
     #  Hyperelastic models
