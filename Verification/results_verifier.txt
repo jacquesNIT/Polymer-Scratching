@@ -143,18 +143,6 @@ Implementation
     Began working on force driven simulations, which will be the main way when comparing with experimental data.
 
 
-
-Decrease scratch time to get finer meshs
-make sure its time independent 
-other models
-increase mass scale ?
-tester un coeff de friction plus bas ( jusqu'a 0.1 par exemple) ( demander a peter si c'est pas 0.01 meme)
-
-Pour les autres modèles :
-besoin d'extraire tout plein de nouvelles données -> un extractor test et un extractor results
-remplir toutes les belles classses de base.py
-apparemment force-driven pas si deep ? a voir si important
-
 Annexes
 
 Symbols and Units (SI mm system)
