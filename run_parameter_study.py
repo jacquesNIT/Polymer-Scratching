@@ -16,6 +16,7 @@ except NameError:
 
 from ScratchSimulation.AbaqusModel.abaqus_env import *          
 from ScratchSimulation.AbaqusModel.Configuration import Simulation_Config
+from ScratchSimulation.AbaqusModel.Configuration import get_family
 from ScratchSimulation.AbaqusModel.Simulation import build_scratch_model
 from ScratchSimulation.AbaqusModel.Material import SubstrateMaterialAssignment
 from ScratchSimulation.AbaqusModel.Postprocessing import post_process
@@ -29,10 +30,11 @@ class ParameterStudy(object):
         self.label = label
         self.configure = configure
 
-def run_parameter_study(study, base_cfg=None, job_name=None,
-                        output_subdir="SimDataOutputs", move_exts=(".sta", ".odb")):
+def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
+                         output_subdir="SimDataOutputs", move_exts=(".sta", ".odb")):
 
-    cfg = base_cfg or Simulation_Config.polymer_default()
+
+    cfg = base_cfg or get_family(family or DEFAULT_FAMILY).build_config()
     cfg.job_name = job_name or study.name
     if study.configure:
         study.configure(cfg)
@@ -86,9 +88,9 @@ def mesh_study(sizes):
         cfg.mesh.fine_size_x = s[0]
         cfg.mesh.fine_size_y = s[1]
         cfg.mesh.fine_size_z = s[2]
-        cfg.coarse_size_0 = 2*s[0]
-        cfg.coarse_size_1 = 4*s[0]
-        cfg.coarse_size_2 = 8*s[0]
+        cfg.mesh.coarse_size_0 = 2*s[0]
+        cfg.mesh.coarse_size_1 = 4*s[0]
+        cfg.mesh.coarse_size_2 = 8*s[0]
     return ParameterStudy(
         name="MeshConvergence",
         cases=sizes,
@@ -125,12 +127,13 @@ def material_study(parameters):
 
 
 # Defaults + selection.
+DEFAULT_FAMILY = "semicrystalline_j2" 
 DEFAULT_MESH_SIZES = [
     [0.04, 0.04, 0.04],
     [0.03, 0.03, 0.03],
     [0.02, 0.02, 0.02],
     [0.015, 0.015, 0.015],
-    [0.01, 0.01, 0.01],
+    #[0.01, 0.01, 0.01],
 ]
 DEFAULT_MASS_SCALES = [2000, 1000]
 DEFAULT_STUDY = "mesh"
@@ -157,9 +160,18 @@ def _selected_study_name(default=DEFAULT_STUDY):
             return a
     return default
 
+def _selected_family(default=DEFAULT_FAMILY):
+    # Optional second token after "--": study then family.
+    #   abaqus cae noGUI=run_parameter_study.py -- single semicrystalline_j2
+    argv = sys.argv
+    if "--" in argv:
+        rest = argv[argv.index("--") + 1:]
+        if len(rest) >= 2:
+            return rest[1]
+    return default
 
 if __name__ == "__main__":
     name = _selected_study_name()
     if name not in STUDIES:
         raise SystemExit("Unknown study '%s'." % (name))
-    run_parameter_study(STUDIES[name]())
+    run_parameter_study(STUDIES[name](), family=_selected_family())

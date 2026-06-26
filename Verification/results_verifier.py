@@ -73,13 +73,15 @@ def parse_results_csv(filepath):
                 if m:
                     metadata["cone_angle"] = float(m.group(1))
             if "Simulation Parameters" in line:
-                # depth_mode, scratch_depth, scratch_time, recovery_time, mass_scale, fine_size_x
+                # (was previously unreachable in the data-row section: this
+                #  "#"-prefixed line is consumed by the metadata block first)
                 body = line.split("Parameters:", 1)[1]
                 for k, v in re.findall(r"(\w+)=([A-Za-z0-9\.eE+-]+)", body):
                     try:
                         metadata[k] = float(v)
                     except ValueError:
-                        metadata[k] = v   # keep depth_mode='progressive' as a string
+                        metadata[k] = v       # garde depth_mode='progressive' comme str
+
             if (line.count("=") == 1 and "parameters:" not in line.lower()
                     and "WallclockTime" not in line):
                 m = re.match(r"#\s*([A-Za-z_]\w*)\s*=\s*(.+?)\s*$", line)
@@ -163,6 +165,23 @@ def mr_properties(metadata):
         "mu_0": mu0, "K_0": K0, "E_0": E0, "nu_0": nu0,
         "K_mu_ratio": K0 / mu0 if mu0 > 0 else float("inf"),
     }
+
+def material_properties(metadata):
+    """
+    Small-strain isotropic elastic properties, from EITHER the linear-elastic
+    parameters (E, nu) when present, or the Mooney-Rivlin parameters
+    (C10, C01, D1). Returns None if neither set is available.
+    """
+    if "E" in metadata and "nu" in metadata:
+        E0 = float(metadata["E"])
+        nu0 = float(metadata["nu"])
+        mu0 = E0 / (2.0 * (1.0 + nu0))
+        K0 = E0 / (3.0 * (1.0 - 2.0 * nu0)) if nu0 < 0.5 else float("inf")
+        return {
+            "mu_0": mu0, "K_0": K0, "E_0": E0, "nu_0": nu0,
+            "K_mu_ratio": K0 / mu0 if mu0 > 0 else float("inf"),
+        }
+    return mr_properties(metadata)
 
 
 #  Checks — numerical quality
@@ -378,7 +397,7 @@ def check_force_magnitude(timeseries, metadata, nodes):
     """
 
     rf2 = timeseries.get("RF2")
-    props = mr_properties(metadata)
+    props = material_properties(metadata)
 
     if rf2 is None:
         return {"status": "SKIP", "message": "RF2 not in outputs"}
@@ -585,10 +604,13 @@ def check_friction_physics(timeseries, metadata):
     }
 
 
-def check_full_recovery(nodes, metadata):
+def check_full_recovery(nodes, metadata, is_dissipative=None):
     """
     Pure Mooney-Rivlin has no dissipation mechanism, so the groove must fully
-    recover — residual surface depth ~ 0 once the material has relaxed.  
+    recover — residual surface depth ~ 0 once the material has relaxed.
+    For dissipative families (plasticity / damage) the logic is inverted: a
+    permanent groove is EXPECTED. verify_results passes is_dissipative from the
+    family; when run standalone we infer it from the metadata.
     """
 
     if nodes["deformed"].shape[0] == 0:
@@ -610,6 +632,38 @@ def check_full_recovery(nodes, metadata):
     rel = residual / ref * 100.0
     guess_note = (" [ref is a guess: scratch_depth absent from metadata]"
                   if ref_is_guess else "")
+
+    # Dissipative families (plasticity / damage): a PERMANENT groove is
+    # EXPECTED, so the pass/fail logic is inverted (residual ~ 0 is the anomaly).
+    # Use the value passed by verify_results; fall back to metadata detection
+    # (family tag or presence of a yield stress) for standalone use.
+    if is_dissipative is None:
+        family = str(metadata.get("family", "")).lower()
+        is_dissipative = ("sigma_y0" in metadata
+                          or any(t in family for t in
+                                 ("j2", "mises", "plast", "semicryst", "glassy", "thermoset")))
+    if is_dissipative:
+        has_recovery = float(metadata.get("recovery_time", 0.0)) > 0.0
+        recov_note = ("" if has_recovery else
+                      " [no recovery step: elastic springback may be incomplete, "
+                      "groove possibly overestimated]")
+        passed = rel >= RESIDUAL_DEPTH_TOLERANCE * 100.0   # a groove is present
+        verdict = ("OK — permanent groove present, consistent with plasticity"
+                   if passed else
+                   "No residual groove despite a dissipative model — check yield "
+                   "level, depth or mesh") + guess_note + recov_note
+        return {
+            "status": "PASS" if passed else "WARN",
+            "residual_depth_mm": residual,
+            "residual_depth_raw_mm": residual_raw,
+            "pile_up_mm": pile_up,
+            "relative_percent": rel,
+            "reference_mm": ref,
+            "message": (
+                "Residual depth = %.3e mm (%.1f%% of ref %.3f mm), pile-up = %.3e mm. %s"
+                % (residual, rel, ref, pile_up, verdict)
+            ),
+        }
 
     # Recovery guard: last frame is relaxed only if a recovery step ran 
     has_recovery = float(metadata.get("recovery_time", 0.0)) > 0.0
@@ -647,35 +701,76 @@ def check_full_recovery(nodes, metadata):
 
 #  Master verification
 
+#  Family-aware check selection
+# families.py (Configuration package) is the source of truth for which checks
+# apply to each family. We try to import it; if the package is not importable
+# (standalone CSV verification), we fall back to this mirror.
+_FALLBACK_FAMILIES = {
+    "elastomer_mr": {
+        "label": "Unfilled elastomer (Mooney-Rivlin)",
+        "dissipative": False,
+        "checks": ("quasi_static", "hourglass", "energy_total", "d1_validity",
+                   "force_magnitude", "strain_level", "friction_physics", "recovery"),
+    },
+    "semicrystalline_j2": {
+        "label": "Soft semicrystalline (linear elastic + J2 plasticity)",
+        "dissipative": True,
+        "checks": ("quasi_static", "hourglass", "energy_total",
+                   "force_magnitude", "strain_level", "friction_physics", "recovery"),
+    },
+}
+_DEFAULT_FAMILY = "elastomer_mr"
+
+
+def _resolve_family(family_key):
+    # Return {"label", "checks", "dissipative"} for a family key, preferring the
+    # live definition in families.py and falling back to the local mirror.
+    try:
+        from ScratchSimulation.AbaqusModel.Configuration import get_family
+        fam = get_family(family_key)
+        mat = fam.build_config().material
+        dissipative = (mat.plasticity.MODEL != "none" or mat.damage.MODEL != "none")
+        return {"label": fam.label, "checks": list(fam.checks), "dissipative": dissipative}
+    except Exception:
+        return dict(_FALLBACK_FAMILIES.get(family_key, _FALLBACK_FAMILIES[_DEFAULT_FAMILY]))
+
+
 def verify_results(filepath, print_report=True):
     """
-    Run all checks on a results CSV. 
+    Run the checks declared for the simulation's polymer family on a results CSV.
     """
 
     if not os.path.exists(filepath):
         raise IOError("File not found: %s" % filepath)
 
     metadata, timeseries, nodes = parse_results_csv(filepath)
-    report = {"file": filepath, "metadata": metadata, "checks": {}}
 
-    checks = [
-        # Numerical quality
-        ("Quasi-static (KE/IE)",       check_quasi_static(timeseries)),
-        ("Hourglass (AE/IE)",          check_hourglass(timeseries)),
-        ("Energy total (ETOTAL)",      check_energy_total(timeseries)),
+    family_key = str(metadata.get("family", _DEFAULT_FAMILY))
+    fam = _resolve_family(family_key)
 
-        # Mooney-Rivlin material consistency
-        ("D1 validity (K/mu window)",  check_d1_validity(metadata)),
-        ("Force magnitude (Hertz)",    check_force_magnitude(timeseries, metadata, nodes)),
-        ("Strain level",        check_strain_level(timeseries, metadata, nodes)),
+    report = {"file": filepath, "metadata": metadata,
+              "family": family_key, "family_label": fam["label"], "checks": {}}
 
-        # Physical consistency
-        ("Friction physics (SCOF)",    check_friction_physics(timeseries, metadata)),
-        ("Recovery",   check_full_recovery(nodes, metadata)),
-    ]
+    # Check name -> (display label, zero-arg callable). Only the names listed in
+    # the family's "checks" are run; recovery is told explicitly whether the
+    # family is dissipative so its pass/fail logic matches the family.
+    registry = {
+        "quasi_static":     ("Quasi-static (KE/IE)",      lambda: check_quasi_static(timeseries)),
+        "hourglass":        ("Hourglass (AE/IE)",         lambda: check_hourglass(timeseries)),
+        "energy_total":     ("Energy total (ETOTAL)",     lambda: check_energy_total(timeseries)),
+        "d1_validity":      ("D1 validity (K/mu window)", lambda: check_d1_validity(metadata)),
+        "force_magnitude":  ("Force magnitude (Hertz)",   lambda: check_force_magnitude(timeseries, metadata, nodes)),
+        "strain_level":     ("Strain level",              lambda: check_strain_level(timeseries, metadata, nodes)),
+        "friction_physics": ("Friction physics (SCOF)",   lambda: check_friction_physics(timeseries, metadata)),
+        "recovery":         ("Recovery",                  lambda: check_full_recovery(nodes, metadata, fam["dissipative"])),
+    }
 
-    for name, result in checks:
-        report["checks"][name] = result
+    for name in fam["checks"]:
+        entry = registry.get(name)
+        if entry is None:
+            continue
+        label, run = entry
+        report["checks"][label] = run()
 
     if print_report:
         _print_report(report)
@@ -690,12 +785,14 @@ def _print_report(report):
 
     print("")
     print("-" * 60)
-    print("  MOONEY-RIVLIN SCRATCH SIMULATION — Results verification")
+    print("  SCRATCH SIMULATION — Results verification")
+    print("  Family: %s" % report.get("family_label", report.get("family", "?")))
     print("-" * 60)
     print("  File: %s" % report["file"])
 
     meta = report["metadata"]
-    mat_keys = [k for k in ("rho", "C10", "C01", "D1", "mu_friction", "mu")
+    mat_keys = [k for k in ("rho", "C10", "C01", "D1", "E", "nu",
+                            "sigma_y0", "mu_friction", "mu")
                 if k in meta]
     
     if mat_keys:

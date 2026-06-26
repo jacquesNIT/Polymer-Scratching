@@ -165,6 +165,7 @@ def post_process(job_name, file_name, cfg):
         )
         mat_str = ", ".join(["%s=%s" % (k, v) for k, v in material_params.items()])
         f.write("# Material parameters: %s\n" % mat_str)
+        f.write("# family = %s\n" % getattr(cfg.material, "family", "elastomer_mr"))
         f.write("# Simulation Parameters:depth_mode=%s, scratch_depth=%.6g, scratch_time=%.6g, "
                 "recovery_time=%.6g, mass_scale=%.6g, fine_size_x=%.6g\n"
                 % (depth_mode, abs(scratch.scratch_depth), scratch.scratch_time,

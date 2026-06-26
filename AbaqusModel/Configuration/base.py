@@ -82,7 +82,20 @@ class Mesh_Config:
         self.element_deletion = element_deletion
         self.second_order_accuracy = second_order_accuracy
 
-# 4. Hyper-elastic Models (Mooney-Rivlin)
+# 4a. Linear Elastic Model (for glassy / semicrystalline bases)
+class LinearElastic_Config:
+
+    MODEL = "elastic"
+
+    def __init__(self, E=200.0, nu=0.40):
+        self.E = E
+        self.nu = nu
+
+    def params(self):
+        return {"E": self.E, "nu": self.nu}
+
+
+# 4b. Hyper-elastic Models (Mooney-Rivlin)
 class HE_Model_Config:
     # For now, only the Mooney-Rivlin model
     #  W = C10 * (I1_bar - 3) + C01 * (I2_bar - 3) + (1/D1) * (J_el - 1)^2
@@ -113,6 +126,18 @@ class P_Model_Config:
     def params(self):
         return {}
 
+# 6b. J2 / von Mises plasticity (isochoric, pressure-independent)
+class J2Plasticity_Config:
+    # yield_table: ((yield_stress [MPa], plastic_strain [-]), ...), first point = initial yield.
+    MODEL = "mises"
+
+    def __init__(self, yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6))):
+        self.yield_table = tuple(tuple(pt) for pt in yield_table)
+
+    def params(self):
+        # Expose the initial yield stress for the CSV / verifier; the full
+        # hardening table is used only by the material assignment.
+        return {"sigma_y0": self.yield_table[0][0]}
 
 # 7. Scratching (Progressive and Constant)
 class Scratch_Config:
@@ -322,7 +347,7 @@ class Material_Config:
         self.family = family
 
     def to_dict(self):
-        
+
         d = {"rho": self.rho}
         d.update(self.hyperelastic.params())
         d.update(self.viscoelastic.params())
@@ -495,22 +520,18 @@ class Simulation_Config:
             ),
             material=Material_Config(
                 rho=1.2e-9,
-                hyperelastic=HE_Model_Config(C10=400.0, C01=40.0, D1=2.8e-5),
+                hyperelastic=HE_Model_Config(C10=1.0, C01=0.1, D1=1.8e-2),
                 viscoelastic=None,
                 plasticity=None,
                 damage=None,
-                friction=Friction_Config(
-                    mu=0.3, 
-                    formulation="penalty", 
-                    elastic_slip_fraction=0.005, 
-                    pressure_dependent=False,
-                ),
+                friction=Friction_Config(),
+                family="elastomer_mr",
             ),
             solver=Solver_Config(
-                mass_scale=500,    
+                mass_scale=1000,    
                 target_time_increment=0.0,
                 use_ALE=False,
-                num_cpus=36,
+                num_cpus=6,
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
                 ale_frequency=20,
@@ -524,9 +545,9 @@ class Simulation_Config:
                 scratch_length=2.0,
                 scratch_force=20e-3,
                 scratch_depth=-40e-3,
-                scratch_time=0.01,
-                indentation_time=0.001,
-                unload_time=0.001,
+                scratch_time=0.1,
+                indentation_time=0.01,
+                unload_time=0.01,
                 recovery_time=0.0005,
                 recovery_lift=0.05,
                 n_field_frames=40,

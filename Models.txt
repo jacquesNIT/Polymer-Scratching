@@ -1,0 +1,37 @@
+    A. Hyperelasticity
+
+        Le calcul de contrainte est issue de la densité d'énergie de déformation W.
+        Celle-ci dépend de I1 et I2 invariants du tenseur de Cauchy-Green isochore I et de J=det(F)
+
+        Utilisé pour décrire des comportements sans dissipation et donc réversibles.
+
+        1. Neo-Hookean
+
+            Le modèle le plus simple, il s'écrit :
+
+                W = C10·(I1 − 3) + (1/D1)(J − 1)², avec μ0 = 2·C10
+
+            Il n'utilise qu'un seul paramètre de cisaillement, l'énergie est donc linéaire en I1.
+            Utile pour une réponse en contrainte quasi-linéaire jusqu'à des déformations modérées.
+
+            Implémentation Abaqus : *HYPERELASTIC, NEO HOOKE 
+            Nécessite C10 et D1
+
+        2. Mooney-Rivlin 
+
+            Rajoute un terme I2 au modèle :
+
+                W = C10·(I1 − 3) + C01·(I2 − 3) + (1/D1)(J − 1)², avec μ0 = 2·(C10 + C01)
+
+            Permet de mieux décrire le comportement pour des déformations plus grande, typiquement jusqu'à 100%
+
+            Implémentation Abaqus : *HYPERELASTIC, MOONEY-RIVLIN
+            Nécessite C10, C01 et D1
+
+        3. Yeoh
+
+            Modèle polynomial en I1 seul :
+
+                W = (C10 - 3)^1 + (C20 - 3)^2 + (C30 - 3)^3 + termes volumiques
+    
+            Permet de capter la remontée après assouplissement, utile pour caoutchouc chargés

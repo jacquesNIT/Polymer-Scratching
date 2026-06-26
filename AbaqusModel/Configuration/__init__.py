@@ -4,9 +4,11 @@ from .base import (
     Indenter_Config,
     Substrate_Config,
     Mesh_Config,
+    LinearElastic_Config,
     HE_Model_Config,
     VE_Model_Config,
     P_Model_Config,
+    J2Plasticity_Config,
     Scratch_Config,
     Damage_Config,
     Friction_Config,
@@ -17,13 +19,17 @@ from .base import (
     Simulation_Config,
 )
 
+from .families import PolymerFamily, ELASTOMER_MR, SEMICRYSTALLINE_J2, FAMILIES, get_family
+
 __all__ = [
     "Indenter_Config",
     "Substrate_Config",
     "Mesh_Config",
+    "LinearElastic_Config",
     "HE_Model_Config",
     "VE_Model_Config",
     "P_Model_Config",
+    "J2Plasticity_Config",
     "Scratch_Config",
     "Damage_Config",
     "Friction_Config",
@@ -32,4 +38,9 @@ __all__ = [
     "Output_Config",
     "Naming_Config",
     "Simulation_Config",
+    "PolymerFamily",
+    "ELASTOMER_MR",
+    "SEMICRYSTALLINE_J2",
+    "FAMILIES",
+    "get_family",
 ]

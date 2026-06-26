@@ -19,10 +19,14 @@ class SubstrateMaterialAssignment:
         self.update_friction()
         return self
     
-    _HYPERELASTIC_BUILDERS = {"mooney_rivlin": "_mooney_rivlin"}
+    _HYPERELASTIC_BUILDERS = {"mooney_rivlin": "_mooney_rivlin", "elastic": "_linear_elastic"}
     _VISCOELASTIC_BUILDERS = {"none": "_skip"}
-    _PLASTICITY_BUILDERS   = {"none": "_skip"}
+    _PLASTICITY_BUILDERS   = {"none": "_skip", "mises": "_j2_plasticity"}
     _DAMAGE_BUILDERS       = {"none": "_skip"}
+
+    #  Base-elasticity MODELs that are hyperelastic (mutually exclusive with plasticity)
+    _HYPERELASTIC_MODELS = ("mooney_rivlin", "neo_hooke", "yeoh", "ogden", "arruda_boyce")
+
 
     def create_material(self):
         # Build the Abaqus material from Material_Config.
@@ -33,6 +37,9 @@ class SubstrateMaterialAssignment:
 
         self.mat = self.model.Material(name=self.names.material_name)
         mc = self.mat_cfg
+        self._validate_material(mc)
+
+        self.mat.Density(table=((mc.rho,),))
 
         # 2-5. Constitutive blocks, dispatched by their MODEL string
         self._apply_block(mc.hyperelastic, self._HYPERELASTIC_BUILDERS, "hyperelastic")
@@ -49,12 +56,26 @@ class SubstrateMaterialAssignment:
             raise ValueError("Unknown %s model: '%s'" % (label, sub_cfg.MODEL))
         getattr(self, builder_name)(sub_cfg)
 
+    def _validate_material(self, mc):
+        # Abaqus forbids combining a (true) hyperelastic base with metal plasticity.
+        # A linear-elastic base ("elastic") + plasticity is the valid plastic combo.
+        base = mc.hyperelastic.MODEL
+        plast = mc.plasticity.MODEL
+        if base in self._HYPERELASTIC_MODELS and plast != "none":
+            raise ValueError(
+                "Invalid material: hyperelastic base '%s' cannot be combined with "
+                "plasticity '%s' (mutually exclusive families in Abaqus). "
+                "Use a linear-elastic base for plastic families." % (base, plast))
+
+
     #  Builders
     def _skip(self, sub_cfg):
         # No-op builder for MODEL == "none".
         pass
 
-
+    #  Base elasticity
+    def _linear_elastic(self, e):
+        self.mat.Elastic(table=((e.E, e.nu),))
 
     #  Hyperelastic models
     def _mooney_rivlin(self, h):
@@ -63,6 +84,9 @@ class SubstrateMaterialAssignment:
     #  Viscoelastic models
 
     #  Plasticity models
+    def _j2_plasticity(self, p):
+        self.mat.Plastic(table=p.yield_table)
+
 
     #  Damage models
 
