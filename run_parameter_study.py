@@ -135,7 +135,7 @@ DEFAULT_MESH_SIZES = [
     [0.015, 0.015, 0.015],
     #[0.01, 0.01, 0.01],
 ]
-DEFAULT_MASS_SCALES = [5000, 3000, 2000, 1000, 500]
+DEFAULT_MASS_SCALES = [300, 200 ,100]
 DEFAULT_STUDY = "mass_scale"
 
 # def _load_material_parameters():
