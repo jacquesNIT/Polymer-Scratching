@@ -509,9 +509,9 @@ class Simulation_Config:
                 fine_size_x=0.030,       
                 fine_size_y=0.030,
                 fine_size_z=0.030,    
-                coarse_size_0=0.02,     # *2
-                coarse_size_1=0.04,     # *2
-                coarse_size_2=0.08,     # *2
+                coarse_size_0=0.06,     # *2
+                coarse_size_1=0.12,     # *2
+                coarse_size_2=0.24,     # *2
                 hourglass_control="RELAX STIFFNESS",      # RELAX STIFFNESS Might be innacurate but only one usable for now
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
@@ -531,7 +531,7 @@ class Simulation_Config:
                 mass_scale=1000,    
                 target_time_increment=0.0,
                 use_ALE=False,
-                num_cpus=6,
+                num_cpus=12,
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
                 ale_frequency=20,
