@@ -47,6 +47,7 @@ To show :
 
 friction coefficient study
 semicrystalline and new models
+runners regrouped
 
 
 SOLVED

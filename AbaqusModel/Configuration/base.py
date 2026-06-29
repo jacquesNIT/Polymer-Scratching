@@ -364,7 +364,7 @@ class Solver_Config:
                  mass_scale=1000,
                  target_time_increment=0.0,
                  use_ALE=True,
-                 num_cpus=20,
+                 num_cpus=36,
                  linear_bulk_viscosity=0.06, quad_bulk_viscosity=1.2, # Default Abaqus values
                  ale_frequency=20, ale_mesh_sweeps=1, ale_smoothing_priority="GRADED", ale_smoothing_algorithm="GEOMETRY_ENHANCED"): # ALE parameters
     
@@ -506,12 +506,12 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.030,       
-                fine_size_y=0.030,
-                fine_size_z=0.030,    
-                coarse_size_0=0.06,     # *2
-                coarse_size_1=0.12,     # *2
-                coarse_size_2=0.24,     # *2
+                fine_size_x=0.0150,       
+                fine_size_y=0.0150,
+                fine_size_z=0.0150,    
+                coarse_size_0=0.03,     # *2
+                coarse_size_1=0.06,     # *2
+                coarse_size_2=0.12,     # *2
                 hourglass_control="RELAX STIFFNESS",      # RELAX STIFFNESS Might be innacurate but only one usable for now
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
@@ -528,7 +528,7 @@ class Simulation_Config:
                 family="elastomer_mr",
             ),
             solver=Solver_Config(
-                mass_scale=1000,    
+                mass_scale=500,    
                 target_time_increment=0.0,
                 use_ALE=False,
                 num_cpus=36,

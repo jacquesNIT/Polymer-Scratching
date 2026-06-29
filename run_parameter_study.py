@@ -4,6 +4,7 @@
 # " abaqus cae noGUI=run_parameter_study.py -- mesh "
 # " abaqus cae noGUI=run_parameter_study.py -- mass_scale "
 # " abaqus cae noGUI=run_parameter_study.py -- material "
+# " abaqus cae noGUI=run_parameter_study.py -- friction "
 
 import sys
 import os
@@ -111,6 +112,16 @@ def mass_scale_study(scales):
         configure=lambda cfg: setattr(cfg.solver, "use_ALE", True),
     )
 
+def friction_study(mu_values):
+    def apply(cfg, mu):
+        cfg.friction.mu = mu
+    return ParameterStudy(
+        name="Friction",
+        cases=mu_values,
+        apply_case=apply,
+        label=lambda mu: "Mu_%s" % mu,
+    )
+
 
 def material_study(parameters):
     def apply(cfg, p):
@@ -129,7 +140,7 @@ def material_study(parameters):
 
 
 # Defaults + selection.
-DEFAULT_FAMILY = "semicrystalline_j2" 
+DEFAULT_FAMILY = "elastomer_mr" 
 DEFAULT_MESH_SIZES = [
     #[0.04, 0.04, 0.04],
     #[0.03, 0.03, 0.03],
@@ -138,7 +149,8 @@ DEFAULT_MESH_SIZES = [
     [0.01, 0.01, 0.01],
 ]
 DEFAULT_MASS_SCALES = [300, 200 ,100]
-DEFAULT_STUDY = "mesh"
+DEFAULT_MU_VALUES = [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+DEFAULT_STUDY = "friction"
 
 # def _load_material_parameters():
 #    from ScratchSimulation.mixed_material_parameter_sweep import parameters
@@ -148,6 +160,7 @@ STUDIES = {
     "single":     lambda: single_study(),
     "mesh":       lambda: mesh_study(DEFAULT_MESH_SIZES),
     "mass_scale": lambda: mass_scale_study(DEFAULT_MASS_SCALES),
+    "friction":   lambda: friction_study(DEFAULT_MU_VALUES),
     # "material":   lambda: material_study(_load_material_parameters()),
 }
 
