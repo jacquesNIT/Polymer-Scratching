@@ -129,11 +129,11 @@ def material_study(parameters):
 # Defaults + selection.
 DEFAULT_FAMILY = "semicrystalline_j2" 
 DEFAULT_MESH_SIZES = [
-    [0.04, 0.04, 0.04],
-    [0.03, 0.03, 0.03],
-    [0.02, 0.02, 0.02],
-    [0.015, 0.015, 0.015],
-    #[0.01, 0.01, 0.01],
+    #[0.04, 0.04, 0.04],
+    #[0.03, 0.03, 0.03],
+    #[0.02, 0.02, 0.02],
+    #[0.015, 0.015, 0.015],
+    [0.01, 0.01, 0.01],
 ]
 DEFAULT_MASS_SCALES = [300, 200 ,100]
 DEFAULT_STUDY = "mass_scale"
