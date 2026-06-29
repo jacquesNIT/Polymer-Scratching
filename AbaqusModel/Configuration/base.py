@@ -118,6 +118,22 @@ class VE_Model_Config:
 
     def params(self):
         return {}
+    
+# 5b. Prony-series linear viscoelasticity
+class Prony_Config:
+    # prony_table: ((g_i, k_i, tau_i), ...) — normalized shear/bulk moduli and
+    # relaxation times [s]. sum(g_i) < 1 for stability; k_i often 0 (shear only).
+    MODEL = "prony"
+
+    def __init__(self, prony_table=((0.2, 0.0, 0.1), (0.1, 0.0, 0.001))):
+        self.prony_table = tuple(tuple(row) for row in prony_table)
+
+    def params(self):
+        taus = [row[2] for row in self.prony_table]
+        return {"prony_terms": len(self.prony_table),
+                "tau_max": max(taus) if taus else 0.0}
+
+
 
 # 6. Plasticity Models (empty)
 class P_Model_Config:
@@ -128,16 +144,31 @@ class P_Model_Config:
 
 # 6b. J2 / von Mises plasticity (isochoric, pressure-independent)
 class J2Plasticity_Config:
-    # yield_table: ((yield_stress [MPa], plastic_strain [-]), ...), first point = initial yield.
     MODEL = "mises"
 
-    def __init__(self, yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6))):
+    def __init__(self, yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6))): # (yield_stress [MPa], plastic_strain [-])
         self.yield_table = tuple(tuple(pt) for pt in yield_table)
 
     def params(self):
-        # Expose the initial yield stress for the CSV / verifier; the full
-        # hardening table is used only by the material assignment.
+        # Expose the initial yield stress for the CSV / verifier; the full hardening table is used only by the material assignment.
         return {"sigma_y0": self.yield_table[0][0]}
+    
+# 6c. Drucker-Prager pressure-dependent plasticity (glassy / thermoset bases)
+class DruckerPrager_Config:
+    MODEL = "drucker_prager"
+
+    def __init__(self, friction_angle=25.0, flow_stress_ratio=0.85,
+                 dilation_angle=10.0,
+                 yield_table=((60.0, 0.0), (70.0, 0.1), (80.0, 0.4))):
+        self.friction_angle = friction_angle            # friction_angle beta [deg]
+        self.flow_stress_ratio = flow_stress_ratio      # flow_stress_ratio K [-]
+        self.dilation_angle = dilation_angle            # dilation_angle psi [deg]
+        self.yield_table = tuple(tuple(pt) for pt in yield_table)
+
+    def params(self):
+        return {"sigma_y0": self.yield_table[0][0],
+                "friction_angle": self.friction_angle,
+                "dilation_angle": self.dilation_angle}
 
 # 7. Scratching (Progressive and Constant)
 class Scratch_Config:
@@ -506,12 +537,12 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.0150,       
-                fine_size_y=0.0150,
-                fine_size_z=0.0150,    
-                coarse_size_0=0.03,     # *2
-                coarse_size_1=0.06,     # *2
-                coarse_size_2=0.12,     # *2
+                fine_size_x=0.030,       
+                fine_size_y=0.030,
+                fine_size_z=0.030,    
+                coarse_size_0=0.06,     # *2
+                coarse_size_1=0.12,     # *2
+                coarse_size_2=0.24,     # *2
                 hourglass_control="RELAX STIFFNESS",      # RELAX STIFFNESS Might be innacurate but only one usable for now
                 distortion_control="DEFAULT",
                 max_degradation=0.9,

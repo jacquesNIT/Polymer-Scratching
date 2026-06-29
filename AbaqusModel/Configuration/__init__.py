@@ -7,8 +7,10 @@ from .base import (
     LinearElastic_Config,
     HE_Model_Config,
     VE_Model_Config,
+    Prony_Config,
     P_Model_Config,
     J2Plasticity_Config,
+    DruckerPrager_Config,
     Scratch_Config,
     Damage_Config,
     Friction_Config,
@@ -19,7 +21,7 @@ from .base import (
     Simulation_Config,
 )
 
-from .families import PolymerFamily, ELASTOMER_MR, SEMICRYSTALLINE_J2, FAMILIES, get_family
+from .families import PolymerFamily, ELASTOMER_MR, SEMICRYSTALLINE_J2, GLASSY_DP, FAMILIES, get_family
 
 __all__ = [
     "Indenter_Config",
@@ -28,8 +30,10 @@ __all__ = [
     "LinearElastic_Config",
     "HE_Model_Config",
     "VE_Model_Config",
+    "Prony_Config",
     "P_Model_Config",
     "J2Plasticity_Config",
+    "DruckerPrager_Config",
     "Scratch_Config",
     "Damage_Config",
     "Friction_Config",
@@ -41,6 +45,7 @@ __all__ = [
     "PolymerFamily",
     "ELASTOMER_MR",
     "SEMICRYSTALLINE_J2",
+    "GLASSY_DP",
     "FAMILIES",
     "get_family",
 ]

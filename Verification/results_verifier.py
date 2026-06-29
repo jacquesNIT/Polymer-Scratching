@@ -718,6 +718,13 @@ _FALLBACK_FAMILIES = {
         "checks": ("quasi_static", "hourglass", "energy_total",
                    "force_magnitude", "strain_level", "friction_physics", "recovery"),
     },
+    "glassy_dp": {
+        "label": "Glassy amorphous thermoplastic (elastic + Drucker-Prager + Prony)",
+        "dissipative": True,
+        "checks": ("quasi_static", "hourglass", "energy_total",
+                   "force_magnitude", "strain_level", "friction_physics", "recovery"),
+    },
+
 }
 _DEFAULT_FAMILY = "elastomer_mr"
 

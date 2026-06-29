@@ -22,6 +22,9 @@ class SubstrateMaterialAssignment:
     _HYPERELASTIC_BUILDERS = {"mooney_rivlin": "_mooney_rivlin", "elastic": "_linear_elastic"}
     _VISCOELASTIC_BUILDERS = {"none": "_skip"}
     _PLASTICITY_BUILDERS   = {"none": "_skip", "mises": "_j2_plasticity"}
+    _VISCOELASTIC_BUILDERS = {"none": "_skip", "prony": "_prony"}
+    _PLASTICITY_BUILDERS   = {"none": "_skip", "mises": "_j2_plasticity", "drucker_prager": "_drucker_prager"}
+
     _DAMAGE_BUILDERS       = {"none": "_skip"}
 
     #  Base-elasticity MODELs that are hyperelastic (mutually exclusive with plasticity)
@@ -82,14 +85,19 @@ class SubstrateMaterialAssignment:
         self.mat.Hyperelastic(materialType=ISOTROPIC, type=MOONEY_RIVLIN, testData=OFF, table=((h.C10, h.C01, h.D1),))
 
     #  Viscoelastic models
+    def _prony(self, v):
+        self.mat.Viscoelastic(domain=TIME, time=PRONY, table=v.prony_table)
 
     #  Plasticity models
     def _j2_plasticity(self, p):
         self.mat.Plastic(table=p.yield_table)
 
+    def _drucker_prager(self, p):
+        dp = self.mat.DruckerPrager(
+            table=((p.friction_angle, p.flow_stress_ratio, p.dilation_angle),))
+        dp.DruckerPragerHardening(table=p.yield_table)
 
     #  Damage models
-
 
     #  Section assignment
     def assign_section(self):

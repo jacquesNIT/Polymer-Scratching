@@ -13,8 +13,11 @@
 # = add a PolymerFamily instance and register it in FAMILIES; nothing in the
 # orchestration changes.
 
+ 
 from .base import (Simulation_Config, Material_Config,
-                   LinearElastic_Config, J2Plasticity_Config, Friction_Config)
+                   LinearElastic_Config, J2Plasticity_Config,
+                   DruckerPrager_Config, Prony_Config, Friction_Config)
+
 
 
 class PolymerFamily:
@@ -57,6 +60,17 @@ _SEMICRYSTALLINE_CHECKS = (
     "recovery",          # residual groove expected (plastic)
 )
 
+_GLASSY_CHECKS = (
+    "quasi_static",      
+    "hourglass",         
+    "energy_total",      # ETOTAL drift (now includes viscous dissipation ALLVD)
+    "force_magnitude",   
+    "strain_level",      
+    "friction_physics",  
+    "recovery",          # residual groove expected (dissipative)
+)
+
+
 def _semicrystalline_config():
     # Reuses the geometry, scratch and outputs of polymer_default. 
     # Only the material changes 
@@ -70,6 +84,27 @@ def _semicrystalline_config():
         friction=Friction_Config(mu=0.3),
         family="semicrystalline_j2",
     )
+    return cfg
+
+def _glassy_config():
+    # Linear-elastic base + Drucker-Prager + Prony (PMMA/PC-like). Reuses the
+    # geometry / scratch kinematics / outputs of polymer_default().
+    cfg = Simulation_Config.polymer_default()
+    cfg.material = Material_Config(
+        rho=1.18e-9,                                            # ~1180 kg/m3 (PMMA)
+        hyperelastic=LinearElastic_Config(E=2400.0, nu=0.38),  # instantaneous modulus
+        plasticity=DruckerPrager_Config(
+            friction_angle=25.0, flow_stress_ratio=0.85, dilation_angle=10.0,
+            yield_table=((60.0, 0.0), (70.0, 0.1), (80.0, 0.4))),
+        viscoelastic=Prony_Config(
+            prony_table=((0.2, 0.0, 0.1), (0.1, 0.0, 0.001))),
+        friction=Friction_Config(mu=0.3),
+        family="glassy_dp",
+    )
+    # Glassy E is ~3 orders above an elastomer -> dilatational wave speed
+    # ~sqrt(E/rho) is much higher -> stable dt much smaller. Compensate with
+    # more mass scaling (starting point; tune via a mass-scale convergence run).
+    cfg.solver.mass_scale = 5000
     return cfg
 
 
@@ -93,11 +128,26 @@ SEMICRYSTALLINE_J2 = PolymerFamily(
                  "permanent groove + pile-up expected. (J2 is plastically incompressible)"),
 )
 
+GLASSY_DP = PolymerFamily(
+    key="glassy_dp",
+    label="Glassy amorphous thermoplastic (elastic + Drucker-Prager + Prony)",
+    config_factory=_glassy_config,
+    checks=_GLASSY_CHECKS,
+    sampling=None,
+    description=("Linear-elastic base + pressure-dependent Drucker-Prager "
+                 "plasticity + Prony viscoelasticity; permanent groove expected. "
+                 "Caveat: linear Prony captures time-dependence of the elastic domain "
+                 "only, not rate-dependent yield (Eyring); native DP+Prony coupling is "
+                 "fragile in Explicit -> PRF / VUMAT for full fidelity."),
+)
+
+
 
 # Registry of all implemented families.
 FAMILIES = {
     ELASTOMER_MR.key: ELASTOMER_MR,
     SEMICRYSTALLINE_J2.key: SEMICRYSTALLINE_J2,
+    GLASSY_DP.key: GLASSY_DP,
 }
 
 
