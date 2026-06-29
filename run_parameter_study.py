@@ -75,8 +75,8 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
 
 # Study definitions (thin: just cases + how to apply + how to name).
 def single_study():
-    def apply(cfg):
-         cfg.friction.mu = 0.1
+   # def apply(cfg):
+        # cfg.friction.mu = 0.1
     return ParameterStudy(
         name="SingleScratch",
         cases=[None],
@@ -131,14 +131,14 @@ def material_study(parameters):
 # Defaults + selection.
 DEFAULT_FAMILY = "semicrystalline_j2" 
 DEFAULT_MESH_SIZES = [
-    #[0.04, 0.04, 0.04],
-    #[0.03, 0.03, 0.03],
-    #[0.02, 0.02, 0.02],
+    [0.04, 0.04, 0.04],
+    [0.03, 0.03, 0.03],
+    [0.02, 0.02, 0.02],
     #[0.015, 0.015, 0.015],
-    [0.01, 0.01, 0.01],
+    #[0.01, 0.01, 0.01],
 ]
 DEFAULT_MASS_SCALES = [300, 200 ,100]
-DEFAULT_STUDY = "single"
+DEFAULT_STUDY = "mesh"
 
 # def _load_material_parameters():
 #    from ScratchSimulation.mixed_material_parameter_sweep import parameters

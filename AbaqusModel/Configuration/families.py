@@ -62,10 +62,11 @@ def _semicrystalline_config():
     # Only the material changes 
     cfg = Simulation_Config.polymer_default()
     cfg.material = Material_Config(
-        rho=0.93e-9,                                            # ~930 kg/m3
-        hyperelastic=LinearElastic_Config(E=200.0, nu=0.40),    # base-elasticity slot
+        rho=0.93e-9,                                            # 0.93 for soft, 0.95 for rigid
+        hyperelastic=LinearElastic_Config(E=200.0, nu=0.40),    # (200,0.4) for soft, (1000,0.42) for rigid
         plasticity=J2Plasticity_Config(
-            yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6))), # Coherent paramters for the study, need to adjust later
+            yield_table=((28.0, 0.0), (30.0, 0.2), (40.0, 1.0), (60.0, 1.9))),           # For rigid, Coherent paramters for the study, need to adjust later
+            # yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6))),                      # For soft
         friction=Friction_Config(mu=0.3),
         family="semicrystalline_j2",
     )

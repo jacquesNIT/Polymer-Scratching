@@ -21,18 +21,37 @@ other models
 increase mass scale ?
 tester un coeff de friction plus bas jusqu'à 0.01
 
-Pour les autres modèles :
-besoin d'extraire tout plein de nouvelles données -> un extractor test et un extractor results
-remplir toutes les belles classses de base.py
-apparemment force-driven pas si deep ? a voir si important
+Questions about the goal of the whole study :
 
+When is a first data set expected ?
+Should the results precision or the general behavior be preferred ?
+
+
+
+For other models building :
+
+Need to study the mass scaling according to the used material
+-> would be about 5000 for glassy aphomous for example due to high E
+
+Modify the checks according to each models 
+
+Determine which parameters to sample
+-> for semicrystalline with plasticty + Linear elasticity, it would be E, rho, nu, and the yield table ?
+
+Build a test extractor and a final results one 
+
+With lab results, will need to run determination algorithm with initial guess for sets of values ( Monte-Carlo ?)
+-> which paramters are determined ,which are sampled ?
+
+To show :
+
+friction coefficient study
+semicrystalline and new models
 
 
 SOLVED
 Partionninbg :
 Still issues for implementation, is it necessary ? influence on symmetry ?
-
-
 
 DONE
 Extraction of U is done on the very last frame, unable to capture true deformation for eps verifier
