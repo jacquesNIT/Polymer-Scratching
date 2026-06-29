@@ -54,7 +54,7 @@ _SEMICRYSTALLINE_CHECKS = (
     "force_magnitude",   
     "strain_level",      
     "friction_physics",  
-    "recovery",          # residual groove EXPECTED (plastic)
+    "recovery",          # residual groove expected (plastic)
 )
 
 def _semicrystalline_config():
@@ -65,7 +65,7 @@ def _semicrystalline_config():
         rho=0.93e-9,                                            # ~930 kg/m3
         hyperelastic=LinearElastic_Config(E=200.0, nu=0.40),    # base-elasticity slot
         plasticity=J2Plasticity_Config(
-            yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6))),
+            yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6))), # Coherent paramters for the study, need to adjust later
         friction=Friction_Config(mu=0.3),
         family="semicrystalline_j2",
     )

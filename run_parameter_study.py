@@ -75,6 +75,8 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
 
 # Study definitions (thin: just cases + how to apply + how to name).
 def single_study():
+    def apply(cfg):
+         cfg.friction.mu = 0.1
     return ParameterStudy(
         name="SingleScratch",
         cases=[None],
@@ -136,7 +138,7 @@ DEFAULT_MESH_SIZES = [
     [0.01, 0.01, 0.01],
 ]
 DEFAULT_MASS_SCALES = [300, 200 ,100]
-DEFAULT_STUDY = "mesh"
+DEFAULT_STUDY = "single"
 
 # def _load_material_parameters():
 #    from ScratchSimulation.mixed_material_parameter_sweep import parameters
