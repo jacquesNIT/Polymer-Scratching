@@ -136,7 +136,7 @@ DEFAULT_MESH_SIZES = [
     [0.01, 0.01, 0.01],
 ]
 DEFAULT_MASS_SCALES = [300, 200 ,100]
-DEFAULT_STUDY = "mass_scale"
+DEFAULT_STUDY = "mesh"
 
 # def _load_material_parameters():
 #    from ScratchSimulation.mixed_material_parameter_sweep import parameters
