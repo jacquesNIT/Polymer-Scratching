@@ -138,7 +138,7 @@ def material_study(parameters):
 
 
 # Defaults + selection.
-DEFAULT_FAMILY = "semicrystalline_j2" 
+DEFAULT_FAMILY = "glassy_dp" 
 DEFAULT_MESH_SIZES = [
     [0.04, 0.04, 0.04],
     [0.03, 0.03, 0.03],
