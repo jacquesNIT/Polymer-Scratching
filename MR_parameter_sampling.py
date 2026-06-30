@@ -43,7 +43,7 @@ POLYMER_PARAMS = {
         "range": (10.0, 100.0),
         "round": 1 },
     "mu": {                         # Friction coefficient [-]
-        "range": (0.3, 0.45), # from 0.01
+        "range": (0.01, 0.45),      # From 0.01 is fine
         "round": 3 },
 }
 

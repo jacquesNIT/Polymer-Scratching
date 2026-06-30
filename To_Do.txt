@@ -60,8 +60,11 @@ With Mooney Rivlin, - The KE/IE decreases with the friction
 With Elastic + Von Mises,   - Residual depth and pile-up decrease with mu
                             
 
+semicrystalline and new models,
 
-semicrystalline and new models
+from 300 to 600 mN of force
+Energy drift too high even with lower mass scaling
+
 runners regrouped
 
 
