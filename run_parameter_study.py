@@ -74,10 +74,8 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
 
 
 
-# Study definitions (thin: just cases + how to apply + how to name).
+# Study definitions 
 def single_study():
-   # def apply(cfg):
-        # cfg.friction.mu = 0.1
     return ParameterStudy(
         name="SingleScratch",
         cases=[None],
@@ -114,7 +112,7 @@ def mass_scale_study(scales):
 
 def friction_study(mu_values):
     def apply(cfg, mu):
-        cfg.friction.mu = mu
+        cfg.material.friction.mu = mu
     return ParameterStudy(
         name="Friction",
         cases=mu_values,
@@ -140,13 +138,13 @@ def material_study(parameters):
 
 
 # Defaults + selection.
-DEFAULT_FAMILY = "glassy_dp" 
+DEFAULT_FAMILY = "semicrystalline_j2" 
 DEFAULT_MESH_SIZES = [
-    #[0.04, 0.04, 0.04],
-    #[0.03, 0.03, 0.03],
-    #[0.02, 0.02, 0.02],
-    [0.015, 0.015, 0.015],
-    [0.01, 0.01, 0.01],
+    [0.04, 0.04, 0.04],
+    [0.03, 0.03, 0.03],
+    [0.02, 0.02, 0.02],
+    #[0.015, 0.015, 0.015],
+    #[0.01, 0.01, 0.01],
 ]
 DEFAULT_MASS_SCALES = [10000, 7000, 5000, 3000, 2000, 1000, 500, 300]
 DEFAULT_MU_VALUES = [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
@@ -176,8 +174,7 @@ def _selected_study_name(default=DEFAULT_STUDY):
     return default
 
 def _selected_family(default=DEFAULT_FAMILY):
-    # Optional second token after "--": study then family.
-    #   abaqus cae noGUI=run_parameter_study.py -- single semicrystalline_j2
+    # Optional second token after "--"
     argv = sys.argv
     if "--" in argv:
         rest = argv[argv.index("--") + 1:]

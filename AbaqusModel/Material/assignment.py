@@ -24,7 +24,6 @@ class SubstrateMaterialAssignment:
     _PLASTICITY_BUILDERS   = {"none": "_skip", "mises": "_j2_plasticity"}
     _VISCOELASTIC_BUILDERS = {"none": "_skip", "prony": "_prony"}
     _PLASTICITY_BUILDERS   = {"none": "_skip", "mises": "_j2_plasticity", "drucker_prager": "_drucker_prager"}
-
     _DAMAGE_BUILDERS       = {"none": "_skip"}
 
     #  Base-elasticity MODELs that are hyperelastic (mutually exclusive with plasticity)
@@ -51,6 +50,30 @@ class SubstrateMaterialAssignment:
         self._apply_block(mc.damage,       self._DAMAGE_BUILDERS,       "damage")
 
         return self.mat
+    
+    def _validate_material(self, mc):
+        # Abaqus forbids combining a (true) hyperelastic base with metal plasticity.
+        # A linear-elastic base ("elastic") + plasticity is the valid plastic combo.
+        base = mc.hyperelastic.MODEL
+        plast = mc.plasticity.MODEL
+        visco = mc.viscoelastic.MODEL
+        if base in self._HYPERELASTIC_MODELS and plast != "none":
+            raise ValueError(
+                "Invalid material: hyperelastic base '%s' cannot be combined with "
+                "plasticity '%s' (mutually exclusive families in Abaqus). "
+                "Use a linear-elastic base for plastic families." % (base, plast))
+ 
+        # Abaqus/Explicit: *VISCOELASTIC is forbidden with any plasticity option.
+        # Runtime error: "THE LINEAR VISCOELASTIC MODEL MAY NOT BE USED WITH
+        #                 ANY OF THE PLASTICITY OPTIONS"
+        if visco != "none" and plast != "none":
+            raise ValueError(
+                "Invalid material: viscoelastic model '%s' cannot be combined with "
+                "plasticity '%s' in Abaqus/Explicit (*VISCOELASTIC and *PLASTIC / "
+                "*DRUCKER PRAGER are mutually exclusive). "
+                "Remove viscoelasticity for plastic families, or use a purely "
+                "viscoelastic model without plasticity." % (visco, plast))
+
     
     def _apply_block(self, sub_cfg, registry, label):
         # Look up the builder for this sub-model's MODEL string and run it.

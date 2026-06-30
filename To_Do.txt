@@ -43,9 +43,24 @@ Build a test extractor and a final results one
 With lab results, will need to run determination algorithm with initial guess for sets of values ( Monte-Carlo ?)
 -> which paramters are determined ,which are sampled ?
 
-To show :
+Figure out if combining viscoelastic and plastic is possible 
 
-friction coefficient study
+Use of a VUMAT, pre-built for polymer behavior
+
+NEW :
+
+friction coefficient study,
+
+With Mooney Rivlin, - The KE/IE decreases with the friction
+                    - Energy drift strongly increases when friction decreases (unrealistic values ?)
+                    - Effect of ploughing increases (relatively to mu) when friction decreases
+                    - Applied force is unchanged ( surprising ?)
+                    - Slight increase of residual depth with mu
+
+With Elastic + Von Mises,   - Residual depth and pile-up decrease with mu
+                            
+
+
 semicrystalline and new models
 runners regrouped
 

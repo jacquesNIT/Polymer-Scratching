@@ -1,19 +1,4 @@
 # Polymer-family registry.
-#
-# A PolymerFamily bundles, for one row of the polymer-families reference:
-#   - a factory that returns a fully-built Simulation_Config,
-#   - the verifier checks that apply to that family,
-#   - (later) sampling ranges and solver/mesh overrides.
-#
-# Pure configuration: NO Abaqus imports here, so this module is importable
-# from both the Abaqus kernel and plain CPython (sampler / verifier).
-#
-# Phase 0: a single family (Mooney-Rivlin elastomer) that reproduces the
-# current Simulation_Config.polymer_default() exactly. Adding a family later
-# = add a PolymerFamily instance and register it in FAMILIES; nothing in the
-# orchestration changes.
-
- 
 from .base import (Simulation_Config, Material_Config,
                    LinearElastic_Config, J2Plasticity_Config,
                    DruckerPrager_Config, Prony_Config, Friction_Config)
@@ -70,13 +55,12 @@ _GLASSY_CHECKS = (
     "recovery",          # residual groove expected (dissipative)
 )
 
+# Configurations of polymer families using polymer_defaut and then adding the wanted models
 
 def _semicrystalline_config():
-    # Reuses the geometry, scratch and outputs of polymer_default. 
-    # Only the material changes 
     cfg = Simulation_Config.polymer_default()
     cfg.material = Material_Config(
-        rho=0.93e-9,                                            # 0.93 for soft, 0.95 for rigid
+        rho=0.93e-9,                                            # 930kg/m3 for soft, 950kg/m3 for rigid
         hyperelastic=LinearElastic_Config(E=200.0, nu=0.40),    # (200,0.4) for soft, (1000,0.42) for rigid
         plasticity=J2Plasticity_Config(
             yield_table=((28.0, 0.0), (30.0, 0.2), (40.0, 1.0), (60.0, 1.9))),           # For rigid, Coherent paramters for the study, need to adjust later
@@ -87,26 +71,20 @@ def _semicrystalline_config():
     return cfg
 
 def _glassy_config():
-    # Linear-elastic base + Drucker-Prager + Prony (PMMA/PC-like). Reuses the
-    # geometry / scratch kinematics / outputs of polymer_default().
     cfg = Simulation_Config.polymer_default()
     cfg.material = Material_Config(
-        rho=1.18e-9,                                            # ~1180 kg/m3 (PMMA)
-        hyperelastic=LinearElastic_Config(E=2400.0, nu=0.38),  # instantaneous modulus
+        rho=1.18e-9,                                            # 1180 kg/m3 
+        hyperelastic=LinearElastic_Config(E=2400.0, nu=0.38),  
         plasticity=DruckerPrager_Config(
             friction_angle=25.0, flow_stress_ratio=0.85, dilation_angle=10.0,
             yield_table=((60.0, 0.0), (70.0, 0.1), (80.0, 0.4))),
-        viscoelastic=Prony_Config(
-            prony_table=((0.2, 0.0, 0.1), (0.1, 0.0, 0.001))),
+        viscoelastic=None,          # Viscoelastic cannot be combined with plasticity
+                     # Prony_Config(prony_table=((0.2, 0.0, 0.1), (0.1, 0.0, 0.001))),
         friction=Friction_Config(mu=0.3),
         family="glassy_dp",
     )
-    # Glassy E is ~3 orders above an elastomer -> dilatational wave speed
-    # ~sqrt(E/rho) is much higher -> stable dt much smaller. Compensate with
-    # more mass scaling (starting point; tune via a mass-scale convergence run).
-    cfg.solver.mass_scale = 5000
+    cfg.solver.mass_scale = 5000       # E much higher than elastomers, need to compensate with more mass scaling (to be decided)
     return cfg
-
 
 ELASTOMER_MR = PolymerFamily(
     key="elastomer_mr",
@@ -130,15 +108,12 @@ SEMICRYSTALLINE_J2 = PolymerFamily(
 
 GLASSY_DP = PolymerFamily(
     key="glassy_dp",
-    label="Glassy amorphous thermoplastic (elastic + Drucker-Prager + Prony)",
+    label="Glassy amorphous thermoplastic (elastic + Drucker-Prager or elastic + Prony)",
     config_factory=_glassy_config,
     checks=_GLASSY_CHECKS,
     sampling=None,
     description=("Linear-elastic base + pressure-dependent Drucker-Prager "
-                 "plasticity + Prony viscoelasticity; permanent groove expected. "
-                 "Caveat: linear Prony captures time-dependence of the elastic domain "
-                 "only, not rate-dependent yield (Eyring); native DP+Prony coupling is "
-                 "fragile in Explicit -> PRF / VUMAT for full fidelity."),
+                 "plasticity + Prony viscoelasticity; permanent groove expected. "),
 )
 
 
