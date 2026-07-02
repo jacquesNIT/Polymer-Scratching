@@ -1,0 +1,11 @@
+Polymers;Examples;Young's Modulus E (MPa);Hyperelasticity;Plasticity;ViscoElasticity;Time Dependent
+;;;;;;
+Elastomers;Silicone / Natural Rubber;[1-5];Mooney-Rivlin / Ogden / Yeoh;X;X;NO
+Filled Elastomers;Carbon black;[3-20];Ogden + Mullins / Yeoh;X;Prony Series;YES
+Thermoplastic Elastomers;TPU / SEBS;[10-1000];Ogden / Yeoh / Arruda-Boyce;J2 Permanent Set;Prony Series / PRF;YES
+Soft Semicrystalline;LDPE;[10-300];X;J2 Von Mises + Hardening;X;YES
+Rigid Semicrystalline;PP / PA / HDPE;[800-2000];X;J2 Von Mises + Hardening;X;YES
+Glassy Aphormous;PMMA / PC / rigit PVC;[2000-3500];X;Drucker-Prager;Prony Series / PRF;YES
+Thermosets;Epoxy;[2000-5000];X;Drucker-Prager + Brittle Damage;X;NO
+Polymer Foams;PU;[0,01-100];Hyperfoam;Crushable Foam;X;YES
+Hydrogels;Polyacrylamide;[0,001-1];Neo-Hookean;X;Prony Series ;YES
