@@ -78,6 +78,7 @@ def post_process(job_name, file_name, cfg):
     indenter_region = None
     substrate_region = None
     whole_model_region = None     # Needed for Etotal drift calculations
+    contact_pair_region = None    # Contact-pair force history (CFN/CFS)
     history_step = None
 
     for sname in odb.steps.keys():
@@ -90,6 +91,8 @@ def post_process(job_name, file_name, cfg):
                 whole_model_region = rk
             if (substrate_region is None and "ALLIE" in hop and "ETOTAL" not in hop):
                 substrate_region = rk
+            if contact_pair_region is None and any(k.startswith("CFN") for k in hop):
+                contact_pair_region = rk
         if (indenter_region is not None and substrate_region is not None
                 and whole_model_region is not None):
             break
@@ -105,6 +108,10 @@ def post_process(job_name, file_name, cfg):
     if whole_model_region is None:
         whole_model_region = substrate_region
         print("Warning: no ETOTAL/whole-model energy region found, the balance will be reconstructed from the available components.")
+    if contact_pair_region is None:
+        print("Warning: no contact-pair force history region found (CFN*). CFN1-3/CFS1-3 columns will be written as zero. This is expected ")
+
+
 
 
     #  History data — forces (indenter region)
@@ -114,6 +121,18 @@ def post_process(job_name, file_name, cfg):
     rf3 = force_data.get("RF3", np.zeros_like(time_arr))
 
     ind_u2 = force_data.get("U2", np.zeros_like(time_arr))   # indenter penetration trace
+
+    #  History data — contact-pair force (CFN/CFS). Used in place of RF2 by results_verifier.py when control_mode == "force"
+    if contact_pair_region is not None:
+        _, contact_data = _get_history(odb, history_step, contact_pair_region)
+        cfn1 = _align(contact_data.get("CFN1", np.zeros_like(time_arr)), len(time_arr))
+        cfn2 = _align(contact_data.get("CFN2", np.zeros_like(time_arr)), len(time_arr))
+        cfn3 = _align(contact_data.get("CFN3", np.zeros_like(time_arr)), len(time_arr))
+        cfs1 = _align(contact_data.get("CFS1", np.zeros_like(time_arr)), len(time_arr))
+        cfs2 = _align(contact_data.get("CFS2", np.zeros_like(time_arr)), len(time_arr))
+        cfs3 = _align(contact_data.get("CFS3", np.zeros_like(time_arr)), len(time_arr))
+    else:
+        cfn1 = cfn2 = cfn3 = cfs1 = cfs2 = cfs3 = np.zeros_like(time_arr)
 
     #  History data — substrate energies (deformable body only)
     _, sub_data = _get_history(odb, history_step, substrate_region)
@@ -166,15 +185,17 @@ def post_process(job_name, file_name, cfg):
         mat_str = ", ".join(["%s=%s" % (k, v) for k, v in material_params.items()])
         f.write("# Material parameters: %s\n" % mat_str)
         f.write("# family = %s\n" % getattr(cfg.material, "family", "elastomer_mr"))
-        f.write("# Simulation Parameters:depth_mode=%s, scratch_depth=%.6g, scratch_time=%.6g, "
+        f.write("# Simulation Parameters:depth_mode=%s, control_mode=%s, scratch_depth=%.6g, "
+                "scratch_force=%.6g, scratch_time=%.6g, "
                 "recovery_time=%.6g, mass_scale=%.6g, fine_size_x=%.6g\n"
-                % (depth_mode, abs(scratch.scratch_depth), scratch.scratch_time,
-                scratch.recovery_time, solver.mass_scale, mesh.fine_size_x)
+                % (depth_mode, scratch.control_mode, abs(scratch.scratch_depth), scratch.scratch_force,
+                scratch.scratch_time, scratch.recovery_time, solver.mass_scale, mesh.fine_size_x)
         )
         f.write("# WallclockTime=%.2f s\n" % wallclock)
 
         writer.writerow([
             "Time", "RF1", "RF2", "RF3",
+            "CFN1", "CFN2", "CFN3", "CFS1", "CFS2", "CFS3",  # contact-pair force (force-driven mode)
             "ALLKE", "ALLIE", "ALLAE",                       # substrate (deformable body)
             "WM_ALLKE", "WM_ALLIE", "WM_ALLVD", "WM_ALLFD",  # whole-model balance terms
             "WM_ALLWK", "WM_ALLPW", "WM_ALLCW", "WM_ALLMW", "ETOTAL",
@@ -191,6 +212,7 @@ def post_process(job_name, file_name, cfg):
 
         rows = zip_longest(
             time_arr.reshape(-1), rf1, rf2, rf3,
+            cfn1, cfn2, cfn3, cfs1, cfs2, cfs3,
             ke, ie, ae,
             wm_ke, wm_ie, wm_vd, wm_fd, wm_wk, wm_pw, wm_cw, wm_mw, etotal,
             ind_u2, node_labels, xu, yu, zu, xd, yd, zd,
@@ -204,6 +226,22 @@ def post_process(job_name, file_name, cfg):
 
 
 #  Helpers
+def _align(arr, n):
+    """
+    Pad (with the last value) or truncate so arr has exactly n samples.
+    Guards against a (rare) frame-count mismatch between the indenter and
+    contact-pair history regions, even though both share the same
+    timeInterval/step -- avoids a silent row misalignment in the CSV.
+    """
+
+    arr = np.asarray(arr, dtype=float)
+    if arr.size == n:
+        return arr
+    if arr.size > n:
+        return arr[:n]
+    pad_value = arr[-1] if arr.size > 0 else 0.0
+    return np.concatenate([arr, np.full(n - arr.size, pad_value)])
+
 def _get_history(odb, step_name, region_name):
     """Extract time + history-output dict from a given history region."""
     hr = odb.steps[step_name].historyRegions[region_name]

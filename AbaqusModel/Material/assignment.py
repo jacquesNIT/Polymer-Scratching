@@ -19,7 +19,7 @@ class SubstrateMaterialAssignment:
         self.update_friction()
         return self
     
-    _HYPERELASTIC_BUILDERS = {"mooney_rivlin": "_mooney_rivlin", "elastic": "_linear_elastic"}
+    _HYPERELASTIC_BUILDERS = {"mooney_rivlin": "_mooney_rivlin", "elastic": "_linear_elastic", "arruda_boyce": "_arruda_boyce"}
     _VISCOELASTIC_BUILDERS = {"none": "_skip"}
     _PLASTICITY_BUILDERS   = {"none": "_skip", "mises": "_j2_plasticity"}
     _VISCOELASTIC_BUILDERS = {"none": "_skip", "prony": "_prony"}
@@ -82,18 +82,6 @@ class SubstrateMaterialAssignment:
             raise ValueError("Unknown %s model: '%s'" % (label, sub_cfg.MODEL))
         getattr(self, builder_name)(sub_cfg)
 
-    def _validate_material(self, mc):
-        # Abaqus forbids combining a (true) hyperelastic base with metal plasticity.
-        # A linear-elastic base ("elastic") + plasticity is the valid plastic combo.
-        base = mc.hyperelastic.MODEL
-        plast = mc.plasticity.MODEL
-        if base in self._HYPERELASTIC_MODELS and plast != "none":
-            raise ValueError(
-                "Invalid material: hyperelastic base '%s' cannot be combined with "
-                "plasticity '%s' (mutually exclusive families in Abaqus). "
-                "Use a linear-elastic base for plastic families." % (base, plast))
-
-
     #  Builders
     def _skip(self, sub_cfg):
         # No-op builder for MODEL == "none".
@@ -106,6 +94,9 @@ class SubstrateMaterialAssignment:
     #  Hyperelastic models
     def _mooney_rivlin(self, h):
         self.mat.Hyperelastic(materialType=ISOTROPIC, type=MOONEY_RIVLIN, testData=OFF, table=((h.C10, h.C01, h.D1),))
+
+    def _arruda_boyce(self, h):
+        self.mat.Hyperelastic(materialType=ISOTROPIC, type=ARRUDA_BOYCE, testData=OFF, table=((h.mu, h.lambda_m, h.D),))
 
     #  Viscoelastic models
     def _prony(self, v):

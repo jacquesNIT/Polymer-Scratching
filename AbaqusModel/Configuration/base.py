@@ -94,13 +94,9 @@ class LinearElastic_Config:
     def params(self):
         return {"E": self.E, "nu": self.nu}
 
-
-# 4b. Hyper-elastic Models (Mooney-Rivlin)
+# 4b. Hyper-elastic Model (Mooney-Rivlin)
 class HE_Model_Config:
-    # For now, only the Mooney-Rivlin model
     #  W = C10 * (I1_bar - 3) + C01 * (I2_bar - 3) + (1/D1) * (J_el - 1)^2
-    # Must still use a sampling method
-   
     MODEL = "mooney_rivlin"
 
     def __init__(self, C10=1.0, C01=0.1, D1=0.018): # First and second parameter [MPa], Compressibility parameter [1/MPa]
@@ -111,6 +107,21 @@ class HE_Model_Config:
 
     def params(self):
         return {"C10": self.C10, "C01": self.C01, "D1": self.D1}
+    
+# 4c. Arruda-Boyce (eight-chain) hyper-elastic Model
+class AB_Model_Config:
+    #  W = mu * sum_{i=1..5} C_i / lambda_m^(2i-2) * (I1_bar^i - 3^i) + (1/D) * ((J_el^2 - 1)/2 - ln(J_el))
+    # Abaqus direct-coefficient table order: (mu, lambda_m, D).
+    MODEL = "arruda_boyce"
+
+    def __init__(self, mu=2.0, lambda_m=2.5, D=0.018):
+        self.mu = mu               # initial shear modulus [MPa]
+        self.lambda_m = lambda_m   # locking stretch [-]
+        self.D = D                 # compressibility [1/MPa], D = 2/K0
+
+    def params(self):
+        return {"mu_AB": self.mu, "lambda_m": self.lambda_m, "D_AB": self.D}
+
 
 # 5. Visco-elastic Models (empty)
 class VE_Model_Config:
@@ -132,8 +143,6 @@ class Prony_Config:
         taus = [row[2] for row in self.prony_table]
         return {"prony_terms": len(self.prony_table),
                 "tau_max": max(taus) if taus else 0.0}
-
-
 
 # 6. Plasticity Models (empty)
 class P_Model_Config:
@@ -197,6 +206,11 @@ class Scratch_Config:
               
         if control_mode == self.DISPLACEMENT and recovery_lift <= 0.0 and recovery_time > 0.0:
             raise ValueError("recovery_lift must be positive to ensure indenter separation during recovery")
+        
+        if control_mode == self.FORCE and scratch_force <= 0.0:
+            raise ValueError("scratch_force must be positive for force-controlled scratch, got %s" % scratch_force)
+
+
             
         self.depth_mode = depth_mode
         self.control_mode = control_mode
@@ -478,9 +492,11 @@ class Naming_Config:
         self.amp_single = "Amp-1"
         self.amp_depth = "Amp-Depth"
         self.amp_length = "Amp-Length"
+        self.amp_force = "Amp-Force"
         self.bc_scratch = "IndenterScratching"
         self.bc_depth = "IndenterDepth"
         self.bc_travel = "IndenterTravel"
+        self.bc_force = "IndenterForce"
 
         # Output requests 
         self.out_reaction = "ReactionForces"
@@ -489,6 +505,7 @@ class Naming_Config:
         self.out_energy_whole = "EnergyBalance"
         self.out_field = "FieldOutput"
         self.out_contact = "ContactForce"
+        self.out_contact_pair = "ContactPairForce"
 
         # Material / section 
         self.material_name = "SubstrateMaterial"
@@ -537,9 +554,9 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.020,       
-                fine_size_y=0.020,
-                fine_size_z=0.020,    
+                fine_size_x=0.040,       
+                fine_size_y=0.040,
+                fine_size_z=0.040,    
                 coarse_size_0=0.04,     # *2
                 coarse_size_1=0.8,     # *2
                 coarse_size_2=0.16,     # *2
@@ -551,7 +568,8 @@ class Simulation_Config:
             ),
             material=Material_Config(
                 rho=1.2e-9,
-                hyperelastic=HE_Model_Config(C10=1.0, C01=0.1, D1=1.8e-2),
+                # hyperelastic=HE_Model_Config(C10=1.0, C01=0.1, D1=1.8e-2),
+                hyperelastic=AB_Model_Config(mu=2.0, lambda_m=2.5, D=1.8e-2),
                 viscoelastic=None,
                 plasticity=None,
                 damage=None,
@@ -562,7 +580,7 @@ class Simulation_Config:
                 mass_scale=500,    
                 target_time_increment=0.0,
                 use_ALE=False,
-                num_cpus=6,
+                num_cpus=36,
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
                 ale_frequency=20,
@@ -574,12 +592,12 @@ class Simulation_Config:
                 depth_mode=Scratch_Config.PROGRESSIVE,
                 control_mode=Scratch_Config.DISPLACEMENT,
                 scratch_length=2.0,
-                scratch_force=20e-3,
+                scratch_force=40e-3,
                 scratch_depth=-40e-3,
                 scratch_time=0.1,
                 indentation_time=0.01,
                 unload_time=0.01,
-                recovery_time=0.0005,
+                recovery_time=0.01,
                 recovery_lift=0.05,
                 n_field_frames=40,
                 n_field_frames_recovery=10,

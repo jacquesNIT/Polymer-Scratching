@@ -43,11 +43,11 @@ def build_scratch_model(cfg):
     #  5. Loading (displacement-controlled indenter via amplitudes)
     _apply_loading(model, ind_inst, cfg, steps["first"])
 
-    #  6. Output requests
-    _setup_output_requests(model, ind_inst, sub_inst, cfg, steps)
-
-    #  7. Contact
+    #  6. Contact (before output_request to get asm.surfaces[names.slave_surface])
     _setup_contact(model, asm, ind_inst, sub_inst, cfg, steps["first"])
+
+    #  7. Output request
+    _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps)
 
     #  8. ALE adaptive meshing
     if solver.use_ALE:
@@ -161,7 +161,49 @@ def _apply_loading(model, ind_inst, cfg, first_step):
     names = cfg.naming
     region = ind_inst.sets[names.indenter_set]
 
-    if scratch.uses_single_amplitude:
+    if scratch.is_force_controlled:
+
+        # U2 is force-driven,a ConcentratedForce (cf2) is applied below. 
+        # U3 is displacement-driven, scratch speed is imposed
+        model.TabularAmplitude(
+            data=scratch.length_amplitude(),
+            name=names.amp_length,
+            smooth=SOLVER_DEFAULT,
+            timeSpan=TOTAL,
+        )
+
+        model.DisplacementBC(
+            amplitude=names.amp_length,
+            createStepName=first_step,
+            distributionType=UNIFORM, fieldName="", fixed=OFF, localCsys=None,
+            name=names.bc_travel,
+            region=region,
+            u1=UNSET,
+            u2=UNSET,
+            u3=scratch.scratch_length,
+            ur1=UNSET, ur2=UNSET, ur3=UNSET,
+        )
+
+        model.TabularAmplitude(
+            data=scratch.force_amplitude(),
+            name=names.amp_force,
+            smooth=SOLVER_DEFAULT,
+            timeSpan=TOTAL,
+        )
+
+        # Half-symmetry model: scratch_force is halved (same convention used on the RF2/Hertz checks)
+        # Cf2 has to be negative
+        model.ConcentratedForce(
+            amplitude=names.amp_force,
+            cf2=-(scratch.scratch_force / 2.0),
+            createStepName=first_step,
+            distributionType=UNIFORM, field="", localCsys=None,
+            name=names.bc_force,
+            region=region,
+        )
+
+    elif scratch.uses_single_amplitude:
+
         # Progressive without recovery: depth and length share one amplitude
         model.TabularAmplitude(
             data=scratch.depth_amplitude(),
@@ -275,7 +317,8 @@ def _apply_boundary_conditions(model, asm, ind_inst, sub_inst, cfg, first_step):
 
 
 #  Output requests
-def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
+def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
+
     names = cfg.naming
     scratch = cfg.scratch
     out = cfg.output
@@ -297,6 +340,18 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
         sectionPoints=DEFAULT,
         timeInterval=scratch.history_interval,
         variables=out.history_force_variables,
+    )
+
+    # Contact-pair force history (CFN/CFS)
+    # NB: In Force-driven scratchs, RF2 = 0. Need an unconditionnal substitute.
+    model.HistoryOutputRequest(
+        createStepName=first_active, name=names.out_contact_pair,
+        region=asm.surfaces[names.slave_surface],
+        timeInterval=scratch.history_interval,
+        variables=getattr(
+            out, "history_contact_pair_variables",
+            ("CFN1", "CFN2", "CFN3", "CFNM", "CFS1", "CFS2", "CFS3", "CFSM", "CAREA")
+        ),
     )
 
     model.HistoryOutputRequest(
@@ -342,6 +397,7 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
         variables=out.contact_force_variables,
     )
 
+
     # Adjust output frequency per step 
 
     # Indentation step (if exists): fewer field frames
@@ -360,6 +416,7 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
     model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["unload"])
     model.historyOutputRequests[names.out_energy_whole].deactivate(steps["unload"])
     model.historyOutputRequests[names.out_reaction].deactivate(steps["unload"])
+    model.historyOutputRequests[names.out_contact_pair].deactivate(steps["unload"])
     model.historyOutputRequests[names.out_indenter_disp].deactivate(steps["unload"])
 
     # Recovery step (if exists): coarser field output, no history/contact
@@ -372,8 +429,8 @@ def _setup_output_requests(model, ind_inst, sub_inst, cfg, steps):
         model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["recovery"])
         model.historyOutputRequests[names.out_energy_whole].deactivate(steps["recovery"])
         model.historyOutputRequests[names.out_reaction].deactivate(steps["recovery"])
+        model.historyOutputRequests[names.out_contact_pair].deactivate(steps["recovery"])
         model.historyOutputRequests[names.out_indenter_disp].deactivate(steps["recovery"])
-
 
 
 #  Contact

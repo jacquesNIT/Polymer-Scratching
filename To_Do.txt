@@ -53,7 +53,7 @@ friction coefficient study,
 
 With Mooney Rivlin, - The KE/IE decreases with the friction
                     - Energy drift strongly increases when friction decreases (unrealistic values ?)
-                    - Effect of ploughing increases (relatively to mu) when friction decreases
+                    - Effect of ploughing increases (relatively to mu) when friction decreases (nice)
                     - Applied force is unchanged ( surprising ?)
                     - Slight increase of residual depth with mu
 
