@@ -26,6 +26,13 @@ Questions about the goal of the whole study :
 When is a first data set expected ?
 Should the results precision or the general behavior be preferred ?
 
+Force driven :
+- on progressive, issues with the unloading phase, need to make it force adapted
+- on constant, just looks super weird, curved indenter trajectory
+
+Glassy :
+Horrible results on constant
+
 
 
 For other models building :
@@ -66,6 +73,10 @@ from 300 to 600 mN of force
 Energy drift too high even with lower mass scaling
 
 runners regrouped
+
+Changes for force driven
+modelbuilder : ligns 421 434, 347-357
+extractor : ligns 81, 94 95, 111 112, 126-137, 200, 217
 
 
 SOLVED

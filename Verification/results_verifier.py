@@ -436,7 +436,8 @@ def check_force_magnitude(timeseries, metadata, nodes):
     force-controlled mode (see _normal_force_series).
     """
 
-    rf2, force_src = _normal_force_series(timeseries, metadata)
+    # rf2, force_src = _normal_force_series(timeseries, metadata)
+    rf2 = timeseries.get("RF2")
     props = material_properties(metadata)
 
     if rf2 is None:
@@ -469,14 +470,16 @@ def check_force_magnitude(timeseries, metadata, nodes):
     return {
         "status": "PASS" if ok else "WARN",
         "rf2_peak_N": rf2_peak,
-        "force_source": force_src,
+        # "force_source": force_src,
         "f_hertz_N": f_hertz,
         "ratio": ratio,
         "depth_mm": depth,
         "depth_source": dsrc,
         "message": (
-            "%s peak = %.3e N | Hertz = %.3e N (depth %.4f mm at %s) | ratio %.2f. %s%s"
-            % (force_src, rf2_peak, f_hertz, depth, dsrc, ratio,
+            "RF2 peak = %.3e N | Hertz = %.3e N (depth %.4f mm at %s) | ratio %.2f. %s%s"
+            % (rf2_peak, f_hertz, depth, dsrc, ratio,
+            #"%s peak = %.3e N | Hertz = %.3e N (depth %.4f mm at %s) | ratio %.2f. %s%s"
+            #% (force_src, rf2_peak, f_hertz, depth, dsrc, ratio,
                "Order of magnitude OK" if ok else
                "Force inconsistent with stiffness",
                note)
@@ -491,11 +494,15 @@ def _penetration_depth(timeseries, metadata, nodes, at_peak_force=False):
     """
 
     u2 = timeseries.get("IndenterU2")
-    force, force_src = _normal_force_series(timeseries, metadata)
+    rf2 = timeseries.get("RF2")
+    # force, force_src = _normal_force_series(timeseries, metadata)
     if u2 is not None and len(u2) and float(np.max(np.abs(u2))) > 1e-12:
-        if at_peak_force and force is not None and float(np.max(np.abs(force))) > 1e-20:
-            idx = int(np.argmax(np.abs(force)))
-            return abs(float(u2[idx])), "indenter U2 at peak %s" % force_src
+        if at_peak_force and rf2 is not None and float(np.max(np.abs(rf2))) > 1e-20:
+            idx = int(np.argmax(np.abs(rf2)))
+            return abs(float(u2[idx])), "indenter U2 at peak RF2"
+        #if at_peak_force and force is not None and float(np.max(np.abs(force))) > 1e-20:
+        #    idx = int(np.argmax(np.abs(force)))
+        #    return abs(float(u2[idx])), "indenter U2 at peak %s" % force_src
         return abs(float(np.min(u2))), "indenter U2 (max penetration)"
     d = abs(float(metadata.get("scratch_depth", 0.0)))
     if d > 1e-12:
@@ -604,8 +611,9 @@ def check_friction_physics(timeseries, metadata):
       (b) SCOF <= mu_input + 0.5  — mu_plough ~ (2/pi)*(a/R) << 1 for a << R
     """
 
-    rf3 = timeseries.get("RF3")
-    rf2, force_src = _normal_force_series(timeseries, metadata)
+    rf2, rf3 = timeseries.get("RF2"), timeseries.get("RF3")
+    #rf3 = timeseries.get("RF3")
+    #rf2, force_src = _normal_force_series(timeseries, metadata)
     mu_input = metadata.get("mu_friction", metadata.get("mu", None))
 
     if rf2 is None or rf3 is None:
@@ -635,13 +643,15 @@ def check_friction_physics(timeseries, metadata):
     return {
         "status": "PASS" if not issues else "WARN",
         "mu_input": mu_input,
-        "normal_force_source": force_src,
+        #"normal_force_source": force_src,
         "scof_mean": scof_mean,
         "scof_std": scof_std,
         "ploughing_contribution_percent": plough_pct,
         "message": (
-           "mu_input=%.2f | SCOF=|RF3|/|%s|=%.3f +/- %.3f | ploughing adds %.0f%%. %s"
-            % (mu_input, force_src, scof_mean, scof_std, plough_pct,
+            "mu_input=%.2f | SCOF=%.3f +/- %.3f | ploughing adds %.0f%%. %s"
+            % (mu_input, scof_mean, scof_std, plough_pct,
+           #"mu_input=%.2f | SCOF=|RF3|/|%s|=%.3f +/- %.3f | ploughing adds %.0f%%. %s"
+           # % (mu_input, force_src, scof_mean, scof_std, plough_pct,
                "Physically consistent" if not issues else " ; ".join(issues))
         ),
     }
@@ -667,8 +677,14 @@ def check_full_recovery(nodes, metadata, is_dissipative=None, timeseries=None):
     residual_raw = abs(min(float(np.min(y_def)), 0.0))   # kept for reference
     pile_up = max(float(np.max(y_def)), 0.0)
 
+    # Reference depth (peak commanded depth; valid for the progressive ramp) 
+    ref = abs(float(metadata.get("scratch_depth", 0.0)))
+    ref_is_guess = ref < 1e-12
+    if ref_is_guess:
+        ref = metadata.get("tip_radius", 0.2) * 0.1
     # Reference depth: peak commanded depth in displacement mode (valid for the progressive ramp), 
     # measured peak penetration in force mode
+    """
     control_mode = str(metadata.get("control_mode", "displacement"))
     if control_mode == "force":
         ref, ref_src = (0.0, "unavailable")
@@ -687,7 +703,11 @@ def check_full_recovery(nodes, metadata, is_dissipative=None, timeseries=None):
             ref = metadata.get("tip_radius", 0.2) * 0.1
         guess_note = (" [ref is a guess: scratch_depth absent from metadata]"
                       if ref_is_guess else "")
+    """
     rel = residual / ref * 100.0
+    guess_note = (" [ref is a guess: scratch_depth absent from metadata]" if ref_is_guess else "")
+
+
 
     # Dissipative families (plasticity / damage): pass/fail logic is inverted, groove expected
     if is_dissipative is None:

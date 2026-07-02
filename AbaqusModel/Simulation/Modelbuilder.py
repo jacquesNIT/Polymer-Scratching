@@ -344,6 +344,7 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
 
     # Contact-pair force history (CFN/CFS)
     # NB: In Force-driven scratchs, RF2 = 0. Need an unconditionnal substitute.
+    """
     model.HistoryOutputRequest(
         createStepName=first_active, name=names.out_contact_pair,
         region=asm.surfaces[names.slave_surface],
@@ -353,6 +354,7 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
             ("CFN1", "CFN2", "CFN3", "CFNM", "CFS1", "CFS2", "CFS3", "CFSM", "CAREA")
         ),
     )
+    """
 
     model.HistoryOutputRequest(
         createStepName=first_active, name=names.out_indenter_disp,
@@ -416,7 +418,7 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
     model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["unload"])
     model.historyOutputRequests[names.out_energy_whole].deactivate(steps["unload"])
     model.historyOutputRequests[names.out_reaction].deactivate(steps["unload"])
-    model.historyOutputRequests[names.out_contact_pair].deactivate(steps["unload"])
+    #  model.historyOutputRequests[names.out_contact_pair].deactivate(steps["unload"])
     model.historyOutputRequests[names.out_indenter_disp].deactivate(steps["unload"])
 
     # Recovery step (if exists): coarser field output, no history/contact
@@ -429,7 +431,7 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
         model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["recovery"])
         model.historyOutputRequests[names.out_energy_whole].deactivate(steps["recovery"])
         model.historyOutputRequests[names.out_reaction].deactivate(steps["recovery"])
-        model.historyOutputRequests[names.out_contact_pair].deactivate(steps["recovery"])
+        # model.historyOutputRequests[names.out_contact_pair].deactivate(steps["recovery"])
         model.historyOutputRequests[names.out_indenter_disp].deactivate(steps["recovery"])
 
 

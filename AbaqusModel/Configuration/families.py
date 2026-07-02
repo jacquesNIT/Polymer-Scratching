@@ -57,6 +57,13 @@ _GLASSY_CHECKS = (
 
 # Configurations of polymer families using polymer_defaut and then adding the wanted models
 
+"""
+Currently available models :
+- Linear Elasticity, Mooney-Rivlin, Arruda-Boyce
+- Von Mises, Drucker-Prager
+- Prony Series
+"""
+
 def _semicrystalline_config():
     cfg = Simulation_Config.polymer_default()
     cfg.material = Material_Config(
