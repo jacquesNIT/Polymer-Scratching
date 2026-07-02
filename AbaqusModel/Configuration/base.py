@@ -554,9 +554,9 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.040,       
-                fine_size_y=0.040,
-                fine_size_z=0.040,    
+                fine_size_x=0.020,       
+                fine_size_y=0.020,
+                fine_size_z=0.020,    
                 coarse_size_0=0.04,     # *2
                 coarse_size_1=0.8,     # *2
                 coarse_size_2=0.16,     # *2
