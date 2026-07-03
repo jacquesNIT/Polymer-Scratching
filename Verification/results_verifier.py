@@ -1,17 +1,25 @@
 """
     SIMULATION CONSISTENCY
     1. ALLKE/ALLIE < 5%
-    2. ALLAE/ALLIE < 10%
+    2. ALLAE/ALLIE — target < 5% (WARN band up to 10%)
     3. ETOTAL, drift < 1%
+    4. Artificial work    — ALLMW (mass scaling) & ALLPW (contact penalty)
+                            small vs the physical energy scale
 
-    MATERIAL CONSISTENCY (Mooney-Rivlin specific)
-    4. D1 validity         — K/mu ratio in the numerically safe window
-    5. Force magnitude     — peak normal force (RF2, or CFN2 in force-controlled mode) vs Hertz analytical estimate
-    6. Strain level & rate — Tabor characteristic strain, MR validity range
+    MATERIAL CONSISTENCY
+    5. D1 validity         — K/mu ratio in the numerically safe window (MR)
+    6. Force magnitude     — peak normal force vs Hertz (elastic families) or
+                             vs scratch hardness F ~ C*sigma_y*A (dissipative)
+    7. Strain level & rate — Tabor characteristic strain, model validity range
 
     PHYSICAL CONSISTENCY
-    7. Friction physics    — SCOF >= mu_input, bounded, low scatter
-    8. Full recovery       — residual depth ~ 0 (pure hyperelastic => no groove)
+    8. Friction physics    — SCOF >= mu_input, bounded, low scatter
+    9. Steady state        — RF/SCOF plateau over the second half of the scratch
+   10. Settling            — kinetic energy decayed before the residual profile is trusted
+   11. Recovery            — residual ~ 0 (hyperelastic) / groove expected (dissipative)
+
+    The normal force is RF2 in displacement-controlled mode and CFN2 (contact
+    pair) in force-controlled mode; see _normal_force_series.
 """
 
 import numpy as np
@@ -28,6 +36,14 @@ K_MU_MAX = 100.0                 # max K/mu (above: noise risk)
 HERTZ_TOLERANCE_FACTOR = 10.0    # RF2 must be within x10 of Hertz estimate
 MR_STRAIN_VALIDITY = 1.0         # MR validity limit (~100-150%)
 RESIDUAL_DEPTH_TOLERANCE = 0.05  # residual depth < 5% of scratch depth
+AE_IE_TARGET = 5.0               # [%]  hourglass PASS target (WARN band up to AE_IE_THRESHOLD)
+MW_WARN_PCT = 1.0                # [%]  artificial work / physical energy (WARN above)
+MW_FAIL_PCT = 5.0                # [%]  artificial work / physical energy (FAIL above)
+PLATEAU_CV_WARN = 10.0           # [%]  force CV / trend over the scratch plateau (WARN above)
+PLATEAU_CV_FAIL = 30.0           # [%]  force CV / trend over the scratch plateau (FAIL above)
+SETTLE_KE_PCT = 1.0              # [%]  final ALLKE / peak ALLIE for a settled recovery
+HARDNESS_TOLERANCE_FACTOR = 3.0  # dissipative families: force within x3 of C*sigma_y*A
+CONSTRAINT_FACTOR = 2.0          # Tabor constraint factor C for polymers (~1.5-2.6)
 
 #  CSV Parser
 def parse_results_csv(filepath):
@@ -166,11 +182,48 @@ def mr_properties(metadata):
         "K_mu_ratio": K0 / mu0 if mu0 > 0 else float("inf"),
     }
 
+def ab_properties(metadata):
+    """
+    Small-strain elastic properties from the Arruda-Boyce parameters
+    (mu_AB, lambda_m, D_AB) found in the CSV metadata. The initial shear
+    modulus includes the locking-stretch correction of the eight-chain model:
+      mu_0 = mu*(1 + 3/(5 lm^2) + 99/(175 lm^4) + 513/(875 lm^6) + 42039/(67375 lm^8))
+    Returns None if mu_AB / D_AB are missing.
+    """
+    if "mu_AB" not in metadata or "D_AB" not in metadata:
+        return None
+
+    mu = float(metadata["mu_AB"])
+    D = float(metadata["D_AB"])
+    lm = float(metadata.get("lambda_m", 0.0))
+
+    corr = 1.0
+    if lm > 0.0:
+        l2 = lm * lm
+        corr = (1.0 + 3.0 / (5.0 * l2) + 99.0 / (175.0 * l2 ** 2)
+                + 513.0 / (875.0 * l2 ** 3) + 42039.0 / (67375.0 * l2 ** 4))
+
+    mu0 = mu * corr
+    K0 = 2.0 / D if D > 0 else float("inf")
+
+    if K0 == float("inf"):
+        E0, nu0 = 3.0 * mu0, 0.5
+    else:
+        E0 = 9.0 * K0 * mu0 / (3.0 * K0 + mu0)
+        nu0 = (3.0 * K0 - 2.0 * mu0) / (2.0 * (3.0 * K0 + mu0))
+
+    return {
+        "mu_0": mu0, "K_0": K0, "E_0": E0, "nu_0": nu0,
+        "K_mu_ratio": K0 / mu0 if mu0 > 0 else float("inf"),
+    }
+
+
 def material_properties(metadata):
     """
-    Small-strain isotropic elastic properties, from EITHER the linear-elastic
-    parameters (E, nu) when present, or the Mooney-Rivlin parameters
-    (C10, C01, D1). Returns None if neither set is available.
+    Small-strain isotropic elastic properties, from the linear-elastic
+    parameters (E, nu) when present, else the Mooney-Rivlin parameters
+    (C10, C01, D1), else the Arruda-Boyce parameters (mu_AB, lambda_m, D_AB).
+    Returns None if no set is available.
     """
     if "E" in metadata and "nu" in metadata:
         E0 = float(metadata["E"])
@@ -181,7 +234,10 @@ def material_properties(metadata):
             "mu_0": mu0, "K_0": K0, "E_0": E0, "nu_0": nu0,
             "K_mu_ratio": K0 / mu0 if mu0 > 0 else float("inf"),
         }
-    return mr_properties(metadata)
+    props = mr_properties(metadata)
+    if props is not None:
+        return props
+    return ab_properties(metadata)
 
 
 #  Checks — numerical quality
@@ -232,15 +288,19 @@ def check_hourglass(timeseries):
     ratio = ae[mask] / ie[mask] * 100.0
     final = ratio[-1]
 
-    passed = final < AE_IE_THRESHOLD
+    if final < AE_IE_TARGET:
+        status, verdict = "PASS", "OK"
+    elif final < AE_IE_THRESHOLD:
+        status, verdict = "WARN", ("Acceptable but forces may be polluted by a few percent "
+                                   "(consider ENHANCED hourglass control / finer mesh)")
+    else:
+        status, verdict = "FAIL", "Hourglass energy too high"
     return {
-        "status": "PASS" if passed else "FAIL",
+        "status": status,
         "final_percent": final,
         "message": (
-            "AE/IE = %.2f%% (final, threshold %.0f%%). %s"
-            % (final, AE_IE_THRESHOLD,
-               "OK" if passed else
-               "Hourglass energy too high")
+            "AE/IE = %.2f%% (final, target < %.0f%%, hard limit %.0f%%). %s"
+            % (final, AE_IE_TARGET, AE_IE_THRESHOLD, verdict)
         ),
     }
 
@@ -342,6 +402,186 @@ def check_energy_total(timeseries):
     }
 
 
+def check_artificial_energy(timeseries):
+    """
+    Artificial work terms of the whole-model balance:
+
+      * WM_ALLMW — mass-scaling work. The dominant contamination channel of
+        the stiff (dissipative) families: the glassy MS study shows an ETOTAL
+        drift of ~43% at MS 10000 that falls below ~5% only for MS <= 500.
+      * WM_ALLPW — contact penalty work; should stay negligible.
+
+    Both are normalised by the physical energy scale max(|ALLIE|, |WM_ALLWK|).
+    """
+    ie = timeseries.get("ALLIE")
+    wk = timeseries.get("WM_ALLWK")
+    mw = timeseries.get("WM_ALLMW")
+    pw = timeseries.get("WM_ALLPW")
+
+    if mw is None and pw is None:
+        return {"status": "SKIP", "message": "WM_ALLMW / WM_ALLPW not in outputs"}
+
+    e_ref = max(_peak(ie), _peak(wk))
+    if e_ref < 1e-20:
+        return {"status": "SKIP", "message": "No physical energy yet."}
+
+    mw_pct = _peak(mw) / e_ref * 100.0 if mw is not None else 0.0
+    pw_pct = _peak(pw) / e_ref * 100.0 if pw is not None else 0.0
+    worst = max(mw_pct, pw_pct)
+
+    if worst < MW_WARN_PCT:
+        status, verdict = "PASS", "OK"
+    elif worst < MW_FAIL_PCT:
+        status, verdict = "WARN", "Artificial work is polluting the energy balance"
+    else:
+        status, verdict = "FAIL", ("Artificial work dominates -- reduce mass_scale, or switch to "
+                                   "variable mass scaling (target_time_increment) on the fine zone only")
+
+    return {
+        "status": status,
+        "allmw_percent": mw_pct,
+        "allpw_percent": pw_pct,
+        "message": (
+            "ALLMW = %.2f%%, ALLPW = %.2f%% of the physical energy scale (%.3e) "
+            "(warn %.0f%%, fail %.0f%%). %s"
+            % (mw_pct, pw_pct, e_ref, MW_WARN_PCT, MW_FAIL_PCT, verdict)
+        ),
+    }
+
+
+def check_steady_state(timeseries, metadata):
+    """
+    Steady-state plateau over the second half of the scratch phase.
+
+    Without a plateau, the mean SCOF (and any single "peak force") is not a
+    well-defined observable: a large CV reveals inertial ringing, a strong
+    end-trend reveals a scratch too short to reach steady state or a boundary
+    effect. Only meaningful in constant depth_mode (progressive mode ramps the
+    depth throughout the scratch, so no plateau exists by design).
+    """
+    time = timeseries.get("Time")
+    force, force_src = _normal_force_series(timeseries, metadata)
+    st = metadata.get("scratch_time")
+
+    if time is None or len(time) < 4:
+        return {"status": "SKIP", "message": "No time data"}
+    if force is None:
+        return {"status": "SKIP", "message": "Normal force (RF2/CFN2) not in outputs"}
+    if not st or float(st) <= 0.0:
+        return {"status": "SKIP", "message": "scratch_time not in metadata"}
+
+    if str(metadata.get("depth_mode", "")).lower().startswith("prog"):
+        return {"status": "SKIP",
+                "message": ("progressive depth_mode: depth ramps during the whole scratch, "
+                            "no steady-state plateau expected")}
+
+    t_end = float(time[-1])
+    mask = time >= (t_end - 0.5 * float(st))
+    if int(np.sum(mask)) < 10:
+        return {"status": "SKIP", "message": "Fewer than 10 samples in the plateau window"}
+
+    f = np.abs(force[mask])
+    f_mean = float(np.mean(f))
+    if f_mean < 1e-20:
+        return {"status": "SKIP", "message": "Normal force is zero over the plateau window"}
+
+    cv = float(np.std(f)) / f_mean * 100.0
+    n = len(f)
+    trend = (float(np.mean(f[3 * n // 4:])) / f_mean - 1.0) * 100.0
+
+    # SCOF stability over the same window (when RF3 is available)
+    scof_cv = None
+    rf3 = timeseries.get("RF3")
+    if rf3 is not None and len(rf3) == len(force):
+        scof = np.abs(rf3[mask]) / np.maximum(f, 1e-20)
+        if float(np.mean(scof)) > 0:
+            scof_cv = float(np.std(scof) / np.mean(scof)) * 100.0
+
+    worst = max(cv, abs(trend))
+    if worst < PLATEAU_CV_WARN:
+        status, verdict = "PASS", "Steady state reached"
+    elif worst < PLATEAU_CV_FAIL:
+        status, verdict = "WARN", "Noisy or drifting plateau (inertial ringing / scratch too short?)"
+    else:
+        status, verdict = "FAIL", "No steady state -- mean SCOF and peak force are not reliable"
+
+    scof_msg = "" if scof_cv is None else " | SCOF CV = %.1f%%" % scof_cv
+    return {
+        "status": status,
+        "force_source": force_src,
+        "cv_percent": cv,
+        "trend_percent": trend,
+        "scof_cv_percent": scof_cv,
+        "message": (
+            "%s plateau (last 50%% of scratch): CV = %.1f%%, end-trend = %+.1f%%%s. %s"
+            % (force_src, cv, trend, scof_msg, verdict)
+        ),
+    }
+
+
+def check_settling(timeseries, metadata):
+    """
+    Before trusting the residual profile, the substrate kinetic energy must
+    have decayed when the final frame is written: mass scaling slows the
+    apparent settling by sqrt(mass_scale), so a short recovery step can freeze
+    a still-ringing groove.
+
+    NB: the current output requests deactivate the substrate energy history in
+    the unload/recovery steps, so until that history is kept alive (at low
+    frequency) through recovery this check reports a WARN that makes the
+    unverified-settling assumption visible.
+    """
+    time = timeseries.get("Time")
+    ke = timeseries.get("ALLKE")
+    ie = timeseries.get("ALLIE")
+    recovery_time = float(metadata.get("recovery_time", 0.0) or 0.0)
+
+    if recovery_time <= 0.0:
+        return {"status": "SKIP", "message": "No recovery step (recovery_time = 0)"}
+    if time is None or ke is None or ie is None or len(time) < 2:
+        return {"status": "SKIP", "message": "Time/ALLKE/ALLIE not in outputs"}
+
+    ie_peak = _peak(ie)
+    if ie_peak < 1e-20:
+        return {"status": "SKIP", "message": "ALLIE is zero everywhere"}
+
+    # Expected end of the active (indent + scratch) phase from the metadata.
+    st = float(metadata.get("scratch_time", 0.0) or 0.0)
+    it = float(metadata.get("indentation_time", 0.0) or 0.0)
+    constant_mode = not str(metadata.get("depth_mode", "")).lower().startswith("prog")
+    t_active_end = st + (it if constant_mode else 0.0)
+
+    covers_recovery = t_active_end > 0.0 and float(time[-1]) > 1.05 * t_active_end
+    ke_final_pct = abs(float(ke[-1])) / ie_peak * 100.0
+
+    if not covers_recovery:
+        return {
+            "status": "WARN",
+            "ke_final_percent": ke_final_pct,
+            "message": (
+                "Energy history stops at the end of the scratch (deactivated in "
+                "unload/recovery): settling of the recovery phase cannot be "
+                "verified, so the residual depth is measured on a possibly "
+                "still-ringing state (mass scaling slows settling by sqrt(MS)). "
+                "Keep the substrate energy history active (low frequency) "
+                "through recovery to enable this check."
+            ),
+        }
+
+    passed = ke_final_pct < SETTLE_KE_PCT
+    return {
+        "status": "PASS" if passed else "FAIL",
+        "ke_final_percent": ke_final_pct,
+        "message": (
+            "Final ALLKE = %.2f%% of peak ALLIE (threshold %.1f%%). %s"
+            % (ke_final_pct, SETTLE_KE_PCT,
+               "Settled -- residual profile trustworthy" if passed else
+               "Still ringing -- extend recovery_time or reduce mass_scale "
+               "before trusting the residual depth")
+        ),
+    }
+
+
 #  Checks — Mooney-Rivlin material consistency
 
 def check_d1_validity(metadata):
@@ -384,6 +624,28 @@ def check_d1_validity(metadata):
         ),
     }
 
+def _contact_radius(depth, R, cone_angle_deg=None):
+    """
+    Geometric contact radius of the Rockwell tip at a given penetration depth.
+    cone_angle_deg is the HALF-apex angle measured from the axis (60 deg =>
+    included angle 120 deg); the sphere-to-cone transition occurs at
+    delta* = R*(1 - sin(alpha)) with the flank widening at tan(alpha) beyond.
+    """
+    depth = float(depth)
+    if depth <= 0.0:
+        return 0.0
+    if cone_angle_deg:
+        alpha = np.radians(float(cone_angle_deg))
+        delta_star = R * (1.0 - np.sin(alpha))
+    else:
+        alpha, delta_star = None, float("inf")
+    if alpha is None or depth <= delta_star:
+        d = min(depth, R)
+        return float(np.sqrt(max(2.0 * R * d - d * d, 0.0)))
+    r_t = R * np.cos(alpha)
+    return float(r_t + (depth - delta_star) * np.tan(alpha))
+
+
 def _normal_force_series(timeseries, metadata):
 
     """
@@ -423,65 +685,82 @@ def _normal_force_series(timeseries, metadata):
 
 
 
-def check_force_magnitude(timeseries, metadata, nodes):
+def check_force_magnitude(timeseries, metadata, nodes, is_dissipative=None):
     """
-    Order-of-magnitude check of the peak normal force against Hertz:
+    Order-of-magnitude check of the peak normal force.
 
-        F_hertz = (4/3) * E_star * sqrt(R) * depth^1.5,   E_star = E_0/(1-nu_0^2)
+      * Elastic families (hyperelastic base): Hertz,
+          F = (4/3) * E_star * sqrt(R) * depth^1.5,  E_star = E_0/(1-nu_0^2)
+      * Dissipative families (plasticity): scratch hardness,
+          F = C * sigma_y0 * A_proj,  A_proj = pi*a^2,  C ~ 2 (Tabor, polymers)
+        Hertz is meaningless once the contact is dominated by plastic flow,
+        which is why the old x10 tolerance detected almost nothing; the
+        hardness estimate allows a x3 tolerance.
 
-    The depth must be the penetration at the instant of peak normal force
-    (force and depth synchronised), taken from the IndenterU2 trace. Remains
-    an order-of-magnitude check for a large-strain polymer / conical tip.
-    The normal force is RF2 in displacement-controlled mode, or CFN2 in
-    force-controlled mode (see _normal_force_series).
+    The depth is the penetration at the instant of peak normal force
+    (IndenterU2 trace, force and depth synchronised). The normal force is RF2
+    in displacement-controlled mode or CFN2 in force-controlled mode (see
+    _normal_force_series). Analytical estimates are halved (half-symmetry).
     """
 
-    # rf2, force_src = _normal_force_series(timeseries, metadata)
-    rf2 = timeseries.get("RF2")
+    force, force_src = _normal_force_series(timeseries, metadata)
     props = material_properties(metadata)
 
-    if rf2 is None:
-        return {"status": "SKIP", "message": "Normal force (RF2/CFN2) not in outputs"}
+    if force is None:
+        return {"status": "SKIP", "message": "Normal force (RF2/CFN2) not in outputs or zero"}
     if props is None:
         return {"status": "SKIP", "message": "Material params not in metadata"}
     if "tip_radius" not in metadata:
         return {"status": "SKIP", "message": "Tip radius not in metadata"}
 
-    R = metadata["tip_radius"]
-    E_star = props["E_0"] / (1.0 - props["nu_0"] ** 2)
+    if is_dissipative is None:
+        family = str(metadata.get("family", "")).lower()
+        is_dissipative = ("sigma_y0" in metadata
+                          or any(t in family for t in
+                                 ("j2", "mises", "plast", "semicryst", "glassy", "thermoset")))
 
-    rf2_peak = float(np.max(np.abs(rf2)))
-    if rf2_peak < 1e-20:
+    R = metadata["tip_radius"]
+    f_peak = float(np.max(np.abs(force)))
+    if f_peak < 1e-20:
         return {"status": "SKIP", "message": "%s is zero" % force_src}
-    
+
     depth, dsrc = _penetration_depth(timeseries, metadata, nodes, at_peak_force=True)
     if depth < 1e-9:
         return {"status": "SKIP",
                 "message": "No penetration depth available"}
 
-    f_hertz = (4.0 / 3.0) * E_star * np.sqrt(R) * depth ** 1.5 / 2.0   # /2 for  half model
-    ratio = rf2_peak / f_hertz if f_hertz > 0 else float("inf")
-    ok = (1.0 / HERTZ_TOLERANCE_FACTOR) < ratio < HERTZ_TOLERANCE_FACTOR
+    if is_dissipative and "sigma_y0" in metadata:
+        a = _contact_radius(depth, R, metadata.get("cone_angle"))
+        f_model = CONSTRAINT_FACTOR * metadata["sigma_y0"] * np.pi * a ** 2 / 2.0  # /2 half model
+        model_name = "hardness C*sy*A (C=%.1f, a=%.4f mm)" % (CONSTRAINT_FACTOR, a)
+        tol = HARDNESS_TOLERANCE_FACTOR
+    else:
+        E_star = props["E_0"] / (1.0 - props["nu_0"] ** 2)
+        f_model = (4.0 / 3.0) * E_star * np.sqrt(R) * depth ** 1.5 / 2.0           # /2 half model
+        model_name = "Hertz"
+        tol = HERTZ_TOLERANCE_FACTOR
+
+    ratio = f_peak / f_model if f_model > 0 else float("inf")
+    ok = (1.0 / tol) < ratio < tol
 
     note = ""
     if "residual" in dsrc:
-        note = " [depth is residual, not peak."
+        note = " [depth is residual, not peak]"
 
     return {
         "status": "PASS" if ok else "WARN",
-        "rf2_peak_N": rf2_peak,
-        # "force_source": force_src,
-        "f_hertz_N": f_hertz,
+        "force_peak_N": f_peak,
+        "force_source": force_src,
+        "f_model_N": f_model,
+        "model": model_name,
         "ratio": ratio,
         "depth_mm": depth,
         "depth_source": dsrc,
         "message": (
-            "RF2 peak = %.3e N | Hertz = %.3e N (depth %.4f mm at %s) | ratio %.2f. %s%s"
-            % (rf2_peak, f_hertz, depth, dsrc, ratio,
-            #"%s peak = %.3e N | Hertz = %.3e N (depth %.4f mm at %s) | ratio %.2f. %s%s"
-            #% (force_src, rf2_peak, f_hertz, depth, dsrc, ratio,
+            "%s peak = %.3e N | %s = %.3e N (depth %.4f mm at %s) | ratio %.2f (tol x%.0f). %s%s"
+            % (force_src, f_peak, model_name, f_model, depth, dsrc, ratio, tol,
                "Order of magnitude OK" if ok else
-               "Force inconsistent with stiffness",
+               "Force inconsistent with material strength/stiffness",
                note)
         ),
     }
@@ -490,19 +769,16 @@ def check_force_magnitude(timeseries, metadata, nodes):
 
 def _penetration_depth(timeseries, metadata, nodes, at_peak_force=False):
     """
-    Return (depth_mm, source) for the peak penetration.
+    Return (depth_mm, source) for the peak penetration. The synchronising
+    force is RF2 or CFN2 depending on the control mode (_normal_force_series).
     """
 
     u2 = timeseries.get("IndenterU2")
-    rf2 = timeseries.get("RF2")
-    # force, force_src = _normal_force_series(timeseries, metadata)
+    force, force_src = _normal_force_series(timeseries, metadata)
     if u2 is not None and len(u2) and float(np.max(np.abs(u2))) > 1e-12:
-        if at_peak_force and rf2 is not None and float(np.max(np.abs(rf2))) > 1e-20:
-            idx = int(np.argmax(np.abs(rf2)))
-            return abs(float(u2[idx])), "indenter U2 at peak RF2"
-        #if at_peak_force and force is not None and float(np.max(np.abs(force))) > 1e-20:
-        #    idx = int(np.argmax(np.abs(force)))
-        #    return abs(float(u2[idx])), "indenter U2 at peak %s" % force_src
+        if at_peak_force and force is not None and float(np.max(np.abs(force))) > 1e-20:
+            idx = int(np.argmax(np.abs(force)))
+            return abs(float(u2[idx])), "indenter U2 at peak %s" % force_src
         return abs(float(np.min(u2))), "indenter U2 (max penetration)"
     d = abs(float(metadata.get("scratch_depth", 0.0)))
     if d > 1e-12:
@@ -549,7 +825,11 @@ def check_strain_level(timeseries, metadata, nodes):
     # Regime-aware Tabor representative strain (sphere vs cone).
     cone_angle = metadata.get("cone_angle", None)
     if cone_angle:
-        alpha = np.radians(float(cone_angle) / 2.0)        # half-apex from axis
+        # cone_angle IS the half-apex angle measured from the axis (60 deg =>
+        # included angle 120 deg, attack angle 30 deg) -- see Rockwell_coords.
+        # The former /2 treated it as a full apex angle and misclassified the
+        # regime (delta* = 0.100 mm instead of 0.027 mm for R = 0.2 mm).
+        alpha = np.radians(float(cone_angle))              # half-apex from axis
         delta_star = R * (1.0 - np.sin(alpha))
     else:
         alpha = None
@@ -611,9 +891,8 @@ def check_friction_physics(timeseries, metadata):
       (b) SCOF <= mu_input + 0.5  — mu_plough ~ (2/pi)*(a/R) << 1 for a << R
     """
 
-    rf2, rf3 = timeseries.get("RF2"), timeseries.get("RF3")
-    #rf3 = timeseries.get("RF3")
-    #rf2, force_src = _normal_force_series(timeseries, metadata)
+    rf3 = timeseries.get("RF3")
+    rf2, force_src = _normal_force_series(timeseries, metadata)
     mu_input = metadata.get("mu_friction", metadata.get("mu", None))
 
     if rf2 is None or rf3 is None:
@@ -623,6 +902,15 @@ def check_friction_physics(timeseries, metadata):
 
     rf2_abs = np.abs(rf2)
     mask = rf2_abs > np.max(rf2_abs) * 0.10
+
+    # Restrict to the scratch phase in constant depth_mode: during indentation
+    # RF3 ~ 0 while RF2 already carries the full normal force, so including
+    # those samples biases the mean SCOF downwards (false "SCOF < mu" alarms).
+    time = timeseries.get("Time")
+    st = metadata.get("scratch_time")
+    constant_mode = not str(metadata.get("depth_mode", "")).lower().startswith("prog")
+    if constant_mode and time is not None and st and float(st) > 0.0:
+        mask = mask & (time >= float(time[-1]) - float(st))
 
     if not mask.any():
         return {"status": "SKIP", "message": "RF2 never exceeds 10% of peak"}
@@ -643,15 +931,13 @@ def check_friction_physics(timeseries, metadata):
     return {
         "status": "PASS" if not issues else "WARN",
         "mu_input": mu_input,
-        #"normal_force_source": force_src,
+        "normal_force_source": force_src,
         "scof_mean": scof_mean,
         "scof_std": scof_std,
         "ploughing_contribution_percent": plough_pct,
         "message": (
-            "mu_input=%.2f | SCOF=%.3f +/- %.3f | ploughing adds %.0f%%. %s"
-            % (mu_input, scof_mean, scof_std, plough_pct,
-           #"mu_input=%.2f | SCOF=|RF3|/|%s|=%.3f +/- %.3f | ploughing adds %.0f%%. %s"
-           # % (mu_input, force_src, scof_mean, scof_std, plough_pct,
+            "mu_input=%.2f | SCOF=|RF3|/|%s|=%.3f +/- %.3f | ploughing adds %.0f%%. %s"
+            % (mu_input, force_src, scof_mean, scof_std, plough_pct,
                "Physically consistent" if not issues else " ; ".join(issues))
         ),
     }
@@ -677,14 +963,8 @@ def check_full_recovery(nodes, metadata, is_dissipative=None, timeseries=None):
     residual_raw = abs(min(float(np.min(y_def)), 0.0))   # kept for reference
     pile_up = max(float(np.max(y_def)), 0.0)
 
-    # Reference depth (peak commanded depth; valid for the progressive ramp) 
-    ref = abs(float(metadata.get("scratch_depth", 0.0)))
-    ref_is_guess = ref < 1e-12
-    if ref_is_guess:
-        ref = metadata.get("tip_radius", 0.2) * 0.1
-    # Reference depth: peak commanded depth in displacement mode (valid for the progressive ramp), 
-    # measured peak penetration in force mode
-    """
+    # Reference depth: peak commanded depth in displacement mode (valid for
+    # the progressive ramp), measured peak penetration in force mode.
     control_mode = str(metadata.get("control_mode", "displacement"))
     if control_mode == "force":
         ref, ref_src = (0.0, "unavailable")
@@ -703,9 +983,8 @@ def check_full_recovery(nodes, metadata, is_dissipative=None, timeseries=None):
             ref = metadata.get("tip_radius", 0.2) * 0.1
         guess_note = (" [ref is a guess: scratch_depth absent from metadata]"
                       if ref_is_guess else "")
-    """
+
     rel = residual / ref * 100.0
-    guess_note = (" [ref is a guess: scratch_depth absent from metadata]" if ref_is_guess else "")
 
 
 
@@ -782,20 +1061,23 @@ _FALLBACK_FAMILIES = {
     "elastomer_mr": {
         "label": "Unfilled elastomer (Mooney-Rivlin)",
         "dissipative": False,
-        "checks": ("quasi_static", "hourglass", "energy_total", "d1_validity",
-                   "force_magnitude", "strain_level", "friction_physics", "recovery"),
+        "checks": ("quasi_static", "hourglass", "energy_total", "artificial_energy",
+                   "d1_validity", "force_magnitude", "strain_level",
+                   "friction_physics", "steady_state", "settling", "recovery"),
     },
     "semicrystalline_j2": {
         "label": "Soft semicrystalline (linear elastic + J2 plasticity)",
         "dissipative": True,
-        "checks": ("quasi_static", "hourglass", "energy_total",
-                   "force_magnitude", "strain_level", "friction_physics", "recovery"),
+        "checks": ("quasi_static", "hourglass", "energy_total", "artificial_energy",
+                   "force_magnitude", "strain_level",
+                   "friction_physics", "steady_state", "settling", "recovery"),
     },
     "glassy_dp": {
-        "label": "Glassy amorphous thermoplastic (elastic + Drucker-Prager + Prony)",
+        "label": "Glassy amorphous thermoplastic (linear elastic + Drucker-Prager)",
         "dissipative": True,
-        "checks": ("quasi_static", "hourglass", "energy_total",
-                   "force_magnitude", "strain_level", "friction_physics", "recovery"),
+        "checks": ("quasi_static", "hourglass", "energy_total", "artificial_energy",
+                   "force_magnitude", "strain_level",
+                   "friction_physics", "steady_state", "settling", "recovery"),
     },
 
 }
@@ -835,14 +1117,17 @@ def verify_results(filepath, print_report=True):
     # the family's "checks" are run; recovery is told explicitly whether the
     # family is dissipative so its pass/fail logic matches the family.
     registry = {
-        "quasi_static":     ("Quasi-static (KE/IE)",      lambda: check_quasi_static(timeseries)),
-        "hourglass":        ("Hourglass (AE/IE)",         lambda: check_hourglass(timeseries)),
-        "energy_total":     ("Energy total (ETOTAL)",     lambda: check_energy_total(timeseries)),
-        "d1_validity":      ("D1 validity (K/mu window)", lambda: check_d1_validity(metadata)),
-        "force_magnitude":  ("Force magnitude (Hertz)",   lambda: check_force_magnitude(timeseries, metadata, nodes)),
-        "strain_level":     ("Strain level",              lambda: check_strain_level(timeseries, metadata, nodes)),
-        "friction_physics": ("Friction physics (SCOF)",   lambda: check_friction_physics(timeseries, metadata)),
-        "recovery":         ("Recovery",                  lambda: check_full_recovery(nodes, metadata, fam["dissipative"], timeseries)),
+        "quasi_static":      ("Quasi-static (KE/IE)",             lambda: check_quasi_static(timeseries)),
+        "hourglass":         ("Hourglass (AE/IE)",                lambda: check_hourglass(timeseries)),
+        "energy_total":      ("Energy total (ETOTAL)",            lambda: check_energy_total(timeseries)),
+        "artificial_energy": ("Artificial energy (ALLMW/ALLPW)",  lambda: check_artificial_energy(timeseries)),
+        "d1_validity":       ("D1 validity (K/mu window)",        lambda: check_d1_validity(metadata)),
+        "force_magnitude":   ("Force magnitude (Hertz/hardness)", lambda: check_force_magnitude(timeseries, metadata, nodes, fam["dissipative"])),
+        "strain_level":      ("Strain level",                     lambda: check_strain_level(timeseries, metadata, nodes)),
+        "friction_physics":  ("Friction physics (SCOF)",          lambda: check_friction_physics(timeseries, metadata)),
+        "steady_state":      ("Steady state (scratch plateau)",   lambda: check_steady_state(timeseries, metadata)),
+        "settling":          ("Settling (recovery phase)",        lambda: check_settling(timeseries, metadata)),
+        "recovery":          ("Recovery",                         lambda: check_full_recovery(nodes, metadata, fam["dissipative"], timeseries)),
     }
 
     for name in fam["checks"]:

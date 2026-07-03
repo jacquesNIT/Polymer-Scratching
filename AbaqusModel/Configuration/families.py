@@ -27,10 +27,13 @@ _ELASTOMER_CHECKS = (
     "quasi_static",      
     "hourglass",         
     "energy_total",      
+    "artificial_energy", # ALLMW (mass scaling) / ALLPW (contact penalty) contamination
     "d1_validity",       # Specifically for Mooney-Rivlin
     "force_magnitude",   
     "strain_level",      
     "friction_physics", 
+    "steady_state",      # RF/SCOF plateau over the second half of the scratch
+    "settling",          # kinetic energy decayed before trusting the residual profile
     "recovery",          # residual ~ 0 (pure hyperelastic)
 )
 
@@ -39,9 +42,12 @@ _SEMICRYSTALLINE_CHECKS = (
     "quasi_static",      
     "hourglass",         
     "energy_total",      
+    "artificial_energy", # ALLMW (mass scaling) / ALLPW (contact penalty) contamination
     "force_magnitude",   
     "strain_level",      
     "friction_physics",  
+    "steady_state",      # RF/SCOF plateau over the second half of the scratch
+    "settling",          # kinetic energy decayed before trusting the residual profile
     "recovery",          # residual groove expected (plastic)
 )
 
@@ -49,9 +55,12 @@ _GLASSY_CHECKS = (
     "quasi_static",      
     "hourglass",         
     "energy_total",      # ETOTAL drift (now includes viscous dissipation ALLVD)
+    "artificial_energy", # ALLMW (mass scaling) / ALLPW (contact penalty) contamination
     "force_magnitude",   
     "strain_level",      
     "friction_physics",  
+    "steady_state",      # RF/SCOF plateau over the second half of the scratch
+    "settling",          # kinetic energy decayed before trusting the residual profile
     "recovery",          # residual groove expected (dissipative)
 )
 
@@ -67,8 +76,8 @@ Currently available models :
 def _semicrystalline_config():
     cfg = Simulation_Config.polymer_default()
     cfg.material = Material_Config(
-        rho=0.93e-9,                                            # 930kg/m3 for soft, 950kg/m3 for rigid
-        hyperelastic=LinearElastic_Config(E=200.0, nu=0.40),    # (200,0.4) for soft, (1000,0.42) for rigid
+        rho=0.95e-9,                                            # 930kg/m3 for soft, 950kg/m3 for rigid
+        hyperelastic=LinearElastic_Config(E=1000.0, nu=0.42),    # (200,0.4) for soft, (1000,0.42) for rigid
         plasticity=J2Plasticity_Config(
             yield_table=((28.0, 0.0), (30.0, 0.2), (40.0, 1.0), (60.0, 1.9))),           # For rigid, Coherent paramters for the study, need to adjust later
             # yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6))),                      # For soft
@@ -90,7 +99,7 @@ def _glassy_config():
         friction=Friction_Config(mu=0.3),
         family="glassy_dp",
     )
-    cfg.solver.mass_scale = 5000       # E much higher than elastomers, need to compensate with more mass scaling (to be decided)
+    cfg.solver.mass_scale = 500        # MS convergence study: < 5% only for MS <= 500. 
     return cfg
 
 ELASTOMER_MR = PolymerFamily(
@@ -115,12 +124,14 @@ SEMICRYSTALLINE_J2 = PolymerFamily(
 
 GLASSY_DP = PolymerFamily(
     key="glassy_dp",
-    label="Glassy amorphous thermoplastic (elastic + Drucker-Prager or elastic + Prony)",
+    label="Glassy amorphous thermoplastic (linear elastic + Drucker-Prager)",
     config_factory=_glassy_config,
     checks=_GLASSY_CHECKS,
     sampling=None,
     description=("Linear-elastic base + pressure-dependent Drucker-Prager "
-                 "plasticity + Prony viscoelasticity; permanent groove expected. "),
+                 "plasticity; permanent groove expected. (Prony removed: "
+                 "*VISCOELASTIC is incompatible with any plasticity option "
+                 "in Abaqus/Explicit.)"),
 )
 
 

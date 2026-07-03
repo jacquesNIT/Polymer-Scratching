@@ -45,7 +45,7 @@ class Substrate_Config:
     def __init__(self,
                  xs1=0.0, ys1=0.0, zs1=0.0,             # Substrate box  (origin at xs1, ys1, zs1)
                  xs2=0.6, ys2=0.5, zs2=3.0,             # Width, height  and depth of the box [mm] (z is the scratch direction)
-                 dpo_x=0.24, dpo_y=0.18, dpo_z=0.25 ):  # Partition offsets (from edges of refined zone) 
+                 dpo_x=0.25, dpo_y=0.25, dpo_z=0.25 ):  # Partition offsets (from edges of refined zone) 
 
         self.xs1 = xs1
         self.ys1 = ys1
@@ -196,8 +196,10 @@ class Scratch_Config:
                  scratch_depth=-40e-3,                                                                          # [mm] for dispalcement driven scratch (<0)
                  scratch_time=0.01, indentation_time=0.001, unload_time=0.0001, recovery_time=1.0,              # [s] To be studied
                  recovery_lift=0.05,                                                                            # [mm] clearance above surface during recovery
-                 n_field_frames=20, n_field_frames_recovery=50, n_history_points=100 ):                         # Number of frames / field outputs for each step
-        
+                 n_field_frames=20, n_field_frames_recovery=50, n_history_points=100,                           # Number of frames / field outputs for each step
+                 amplitude_smoothing=0.25 ):                                                                    # [-] SMOOTH fraction of the tabular amplitudes (0-0.5, None = solver default).
+                                                                                                                # Rounds the velocity discontinuities at the amplitude kinks (t1/t2/t3).
+                                                                                                                 
         if depth_mode not in (self.PROGRESSIVE, self.CONSTANT):
             raise ValueError("depth_mode must be 'progressive' or 'constant', got '%s'" % depth_mode)
         
@@ -209,6 +211,9 @@ class Scratch_Config:
         
         if control_mode == self.FORCE and scratch_force <= 0.0:
             raise ValueError("scratch_force must be positive for force-controlled scratch, got %s" % scratch_force)
+
+        if amplitude_smoothing is not None and not (0.0 <= amplitude_smoothing <= 0.5):
+            raise ValueError("amplitude_smoothing must be in [0, 0.5] or None, got %s" % amplitude_smoothing)
 
 
             
@@ -225,6 +230,7 @@ class Scratch_Config:
         self.n_field_frames = n_field_frames
         self.n_field_frames_recovery = n_field_frames_recovery
         self.n_history_points = n_history_points
+        self.amplitude_smoothing = amplitude_smoothing
 
 
     # Functions to gather information about the Scratching for other files
@@ -554,12 +560,12 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.020,       
-                fine_size_y=0.020,
-                fine_size_z=0.020,    
-                coarse_size_0=0.04,     # *2
-                coarse_size_1=0.8,     # *2
-                coarse_size_2=0.16,     # *2
+                fine_size_x=0.040,       
+                fine_size_y=0.040,
+                fine_size_z=0.040,    
+                coarse_size_0=0.08,     # *2
+                coarse_size_1=0.16,     # *2 
+                coarse_size_2=0.32,     # *2
                 hourglass_control="RELAX STIFFNESS",      # RELAX STIFFNESS Might be innacurate but only one usable for now
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
@@ -580,7 +586,7 @@ class Simulation_Config:
                 mass_scale=500,    
                 target_time_increment=0.0,
                 use_ALE=False,
-                num_cpus=36,
+                num_cpus=6,
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
                 ale_frequency=20,
@@ -589,7 +595,7 @@ class Simulation_Config:
                 ale_smoothing_algorithm="GEOMETRY_ENHANCED",
             ),
             scratch=Scratch_Config(
-                depth_mode=Scratch_Config.PROGRESSIVE,
+                depth_mode=Scratch_Config.CONSTANT,
                 control_mode=Scratch_Config.DISPLACEMENT,
                 scratch_length=2.0,
                 scratch_force=40e-3,

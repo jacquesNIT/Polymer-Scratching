@@ -78,6 +78,52 @@ Changes for force driven
 modelbuilder : ligns 421 434, 347-357
 extractor : ligns 81, 94 95, 111 112, 126-137, 200, 217
 
+Les conseils de l'ami :
+
+Pour les familles dissipatives, le drift énergetique est bien trop haut. Essayer des combinaisons {ALE,Precision,MS} différentes
+NB : Abaqus conseil DOUBLE PRECISION au dela de 300k incréments
+
+Pour les familles plastiques, il n'y a aucun plateau pour les valeurs de force et de pile-up
+NB : Le conseil général est d'affiner le maillage afin d'avoir au moins 10elmts dans la rayon de contact et 5 dans la profondeur de contact
+
+Pour les familles hyperélastique, l'hourglass est trop élevé
+NB : Revoir l'utilisation de RELAX STIFFNESS qui est connu comme mauvais en hyperelastique
+
+
+Faire l'étude du facteur rhéologique de Bucaille-Felder : Très bon indicateur de la part de déformation plastique contre élastique
+
+La profondeur de scratch va rendre les modèles hyperélastique indiscernables (MR, AB..).
+L'impact des paramètres C01 et lambda_m ne sont visibles qu'en grandes déformations. On peut attendre des différences très faibles dans les résultats du sampling de r.
+
+Les élastomères sont étudiés sans dissipation, ce qui est fondamentalement faux. Leur comportement est viscoélastique et adhésif. ( adhésion éngligeable ici)
+Essayer de combiner Hyperélastique avec viscoélastique, ce qui est possible sur Abaqus. 
+NB : Faire attention à ce que le nombre de Deborah balaie la zone d'intérets
+
+
+base.py
+Added a smoothing of the scratching speed across stages to avoid kinetic energy peaks
+
+families.py
+added the 3 new checks of result_verifier
+
+assigment.py
+Added validation of the model combinations
+
+extractor.py
+Corrected the extraction of values in constant scratch depth (was missing scratching phase)
+Added data for new checks
+
+modelbuilder.py
+Scoped the mass scaling to the substrate only, was an issue for force driven tests
+Solidified the the force values extraction
+
+Physic_verifier.py
+New File used to verify that every simulation/material parameters are correctly set and coherent before starting the simulation
+Includes newly discovered indicators to predict the material behavior 
+
+Result_verifier.py
+Added some verifications and corrected parts that weren't working for constant depth
+
 
 SOLVED
 Partionninbg :

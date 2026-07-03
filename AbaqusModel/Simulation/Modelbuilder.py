@@ -34,8 +34,8 @@ def build_scratch_model(cfg):
     asm.translate(instanceList=(names.indenter_instance,), vector=(0.0, sub.ys2, 0.0))
     asm.translate(instanceList=(names.indenter_instance,), vector=(0.0, 0.0, sub.dpo_z))
 
-    #  3. Steps
-    steps = _create_steps(model, cfg)
+    #  3. Steps (needs asm: mass scaling is scoped to the substrate instance set)
+    steps = _create_steps(model, asm, cfg)
 
     #  4. Boundary conditions (substrate)
     _apply_boundary_conditions(model, asm, ind_inst, sub_inst, cfg, steps["first"])
@@ -57,7 +57,7 @@ def build_scratch_model(cfg):
 
 
 #  Step creation
-def _create_steps(model, cfg):
+def _create_steps(model, asm, cfg):
     # Create all analysis steps based on the scratch configuration.
     # Returns a dict with step names keyed by role (first, indent, scratch, unload, recovery, all_active, all)
    
@@ -65,11 +65,16 @@ def _create_steps(model, cfg):
     solver = cfg.solver
     names = cfg.naming
 
-    # Mass scaling tuple (shared by all active steps)
+    # Mass scaling tuple (shared by all active steps).
+    # Scoped to the SUBSTRATE element set only: MODEL scope also multiplies the
+    # rigid indenter's point mass by the scaling factor, which (i) makes the
+    # indenter inertia-dominated in force-controlled mode (zero-penetration
+    # failure) and (ii) inflates the WM_ALLKE baseline of the energy balance.
+    ms_region = asm.instances[names.substrate_instance].sets[names.substrate_set]
     use_variable = solver.target_time_increment > 0.0
     ms_tuple = (
         SEMI_AUTOMATIC,
-        MODEL,
+        ms_region,
         THROUGHOUT_STEP if use_variable else AT_BEGINNING,
         0.0 if use_variable else solver.mass_scale,
         solver.target_time_increment,
@@ -161,6 +166,14 @@ def _apply_loading(model, ind_inst, cfg, first_step):
     names = cfg.naming
     region = ind_inst.sets[names.indenter_set]
 
+    # Tabular-amplitude smoothing: rounds the velocity discontinuities at the
+    # amplitude kinks (t1/t2/t3) -- the main source of inertial ringing in
+    # explicit quasi-static loading -- while keeping constant velocity in the
+    # middle of each segment. None -> solver default.
+    smooth_val = getattr(scratch, "amplitude_smoothing", None)
+    if smooth_val is None:
+        smooth_val = SOLVER_DEFAULT
+
     if scratch.is_force_controlled:
 
         # U2 is force-driven,a ConcentratedForce (cf2) is applied below. 
@@ -168,7 +181,7 @@ def _apply_loading(model, ind_inst, cfg, first_step):
         model.TabularAmplitude(
             data=scratch.length_amplitude(),
             name=names.amp_length,
-            smooth=SOLVER_DEFAULT,
+            smooth=smooth_val,
             timeSpan=TOTAL,
         )
 
@@ -187,7 +200,7 @@ def _apply_loading(model, ind_inst, cfg, first_step):
         model.TabularAmplitude(
             data=scratch.force_amplitude(),
             name=names.amp_force,
-            smooth=SOLVER_DEFAULT,
+            smooth=smooth_val,
             timeSpan=TOTAL,
         )
 
@@ -208,7 +221,7 @@ def _apply_loading(model, ind_inst, cfg, first_step):
         model.TabularAmplitude(
             data=scratch.depth_amplitude(),
             name=names.amp_single,
-            smooth=SOLVER_DEFAULT,
+            smooth=smooth_val,
             timeSpan=TOTAL,
         )
         model.DisplacementBC(
@@ -227,13 +240,13 @@ def _apply_loading(model, ind_inst, cfg, first_step):
         model.TabularAmplitude(
             data=scratch.depth_amplitude(),
             name=names.amp_depth,
-            smooth=SOLVER_DEFAULT,
+            smooth=smooth_val,
             timeSpan=TOTAL,
         )
         model.TabularAmplitude(
             data=scratch.length_amplitude(),
             name=names.amp_length,
-            smooth=SOLVER_DEFAULT,
+            smooth=smooth_val,
             timeSpan=TOTAL,
         )
         model.DisplacementBC(
@@ -342,19 +355,13 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
         variables=out.history_force_variables,
     )
 
-    # Contact-pair force history (CFN/CFS)
-    # NB: In Force-driven scratchs, RF2 = 0. Need an unconditionnal substitute.
-    """
-    model.HistoryOutputRequest(
-        createStepName=first_active, name=names.out_contact_pair,
-        region=asm.surfaces[names.slave_surface],
-        timeInterval=scratch.history_interval,
-        variables=getattr(
-            out, "history_contact_pair_variables",
-            ("CFN1", "CFN2", "CFN3", "CFNM", "CFS1", "CFS2", "CFS3", "CFSM", "CAREA")
-        ),
-    )
-    """
+    # Contact-pair force history (CFN/CFS).
+    # In force-driven scratches RF2 ~ 0 (u2 carries no displacement BC), so the
+    # normal force must be read from the contact pair (CFN2). The exact
+    # variable identifiers / domain form depend on the Abaqus version (flagged
+    # for CAE verification), so the request is created defensively: a rejected
+    # request prints a warning instead of breaking displacement-driven builds.
+    contact_pair_ok = _request_contact_pair_history(model, asm, cfg, first_active)
 
     model.HistoryOutputRequest(
         createStepName=first_active, name=names.out_indenter_disp,
@@ -418,7 +425,8 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
     model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["unload"])
     model.historyOutputRequests[names.out_energy_whole].deactivate(steps["unload"])
     model.historyOutputRequests[names.out_reaction].deactivate(steps["unload"])
-    #  model.historyOutputRequests[names.out_contact_pair].deactivate(steps["unload"])
+    if contact_pair_ok:
+        model.historyOutputRequests[names.out_contact_pair].deactivate(steps["unload"])
     model.historyOutputRequests[names.out_indenter_disp].deactivate(steps["unload"])
 
     # Recovery step (if exists): coarser field output, no history/contact
@@ -431,8 +439,53 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
         model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["recovery"])
         model.historyOutputRequests[names.out_energy_whole].deactivate(steps["recovery"])
         model.historyOutputRequests[names.out_reaction].deactivate(steps["recovery"])
-        # model.historyOutputRequests[names.out_contact_pair].deactivate(steps["recovery"])
+        if contact_pair_ok:
+            model.historyOutputRequests[names.out_contact_pair].deactivate(steps["recovery"])
         model.historyOutputRequests[names.out_indenter_disp].deactivate(steps["recovery"])
+
+
+def _request_contact_pair_history(model, asm, cfg, first_active):
+    # Defensive creation of the CFN/CFS contact-pair history request.
+    # For general contact the interaction-domain form is attempted first, then
+    # the surface-region form; returns False (with a printed warning) if both
+    # are rejected, so the rest of the model build is never compromised.
+    # Exact CFN/CFS identifiers still flagged for verification in CAE.
+    names = cfg.naming
+    scratch = cfg.scratch
+    out = cfg.output
+    variables = getattr(
+        out, "history_contact_pair_variables",
+        ("CFN1", "CFN2", "CFN3", "CFNM", "CFS1", "CFS2", "CFS3", "CFSM", "CAREA"))
+
+    err1 = err2 = None
+    try:
+        model.HistoryOutputRequest(
+            createStepName=first_active, name=names.out_contact_pair,
+            interactions=(names.contact_interaction,),
+            timeInterval=scratch.history_interval,
+            variables=variables)
+        return True
+    except Exception as exc:
+        err1 = str(exc)
+        if names.out_contact_pair in model.historyOutputRequests.keys():
+            del model.historyOutputRequests[names.out_contact_pair]
+
+    try:
+        model.HistoryOutputRequest(
+            createStepName=first_active, name=names.out_contact_pair,
+            region=asm.surfaces[names.slave_surface],
+            timeInterval=scratch.history_interval,
+            variables=variables)
+        return True
+    except Exception as exc:
+        err2 = str(exc)
+        if names.out_contact_pair in model.historyOutputRequests.keys():
+            del model.historyOutputRequests[names.out_contact_pair]
+
+    print("Warning: contact-pair force history (CFN/CFS) could not be requested "
+          "(interaction form: %s / surface form: %s). CFN* columns will be zero; "
+          "force-controlled verification falls back to RF2." % (err1, err2))
+    return False
 
 
 #  Contact

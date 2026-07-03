@@ -19,9 +19,9 @@ class SubstrateMaterialAssignment:
         self.update_friction()
         return self
     
+    # NB: each registry must be defined exactly once -- a duplicated definition
+    # silently shadows the first one (previous source of the masked guard).
     _HYPERELASTIC_BUILDERS = {"mooney_rivlin": "_mooney_rivlin", "elastic": "_linear_elastic", "arruda_boyce": "_arruda_boyce"}
-    _VISCOELASTIC_BUILDERS = {"none": "_skip"}
-    _PLASTICITY_BUILDERS   = {"none": "_skip", "mises": "_j2_plasticity"}
     _VISCOELASTIC_BUILDERS = {"none": "_skip", "prony": "_prony"}
     _PLASTICITY_BUILDERS   = {"none": "_skip", "mises": "_j2_plasticity", "drucker_prager": "_drucker_prager"}
     _DAMAGE_BUILDERS       = {"none": "_skip"}
@@ -133,5 +133,7 @@ class SubstrateMaterialAssignment:
         if f.pressure_dependent:
             raise NotImplementedError
         else:
-            # Constant Coulomb friction
-            self.model.interactionProperties["IntProp-1"].tangentialBehavior.setValues(table=((f.mu,),))
+            # Constant Coulomb friction (property looked up by its configured
+            # name -- "IntProp-1" was hardcoded and only worked by accident
+            # while Naming_Config kept its default value)
+            self.model.interactionProperties[self.names.contact_property].tangentialBehavior.setValues(table=((f.mu,),))

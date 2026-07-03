@@ -75,29 +75,51 @@ def post_process(job_name, file_name, cfg):
         d = displacements.get(label, np.array([0.0, 0.0, 0.0]))
         deformed.append((label, x + d[0], y + d[1], z + d[2]))
 
-    indenter_region = None
     substrate_region = None
     whole_model_region = None     # Needed for Etotal drift calculations
     contact_pair_region = None    # Contact-pair force history (CFN/CFS)
     history_step = None
 
+    # Indenter region detection, two priority levels:
+    #   strong -- a 'Node ...' region on the indenter INSTANCE carrying RF keys
+    #             (the reference point of the rigid indenter);
+    #   weak   -- any region with RF-like keys (legacy fallback). The old
+    #             substring test  any("RF" in k)  could latch onto a parasitic
+    #             region (e.g. one created by the contact-pair request) and
+    #             then silently write zero RF2/IndenterU2 columns.
+    indenter_strong = None
+    indenter_weak = None
+    strong_step = weak_step = None
+    indenter_hint = names.indenter_instance.upper()
+
     for sname in odb.steps.keys():
         for rk in odb.steps[sname].historyRegions.keys():
             hop = list(odb.steps[sname].historyRegions[rk].historyOutputs.keys())
-            if indenter_region is None and any("RF" in k for k in hop):
-                indenter_region = rk
-                history_step = sname
-            if whole_model_region is None and "ETOTAL" in hop:
+            has_rf = any(_key_matches(k, n) for n in ("RF1", "RF2", "RF3") for k in hop)
+            if has_rf:
+                rku = rk.upper()
+                if indenter_strong is None and rku.startswith("NODE") and indenter_hint in rku:
+                    indenter_strong, strong_step = rk, sname
+                if indenter_weak is None:
+                    indenter_weak, weak_step = rk, sname
+            if whole_model_region is None and any(_key_matches(k, "ETOTAL") for k in hop):
                 whole_model_region = rk
-            if (substrate_region is None and "ALLIE" in hop and "ETOTAL" not in hop):
+            if (substrate_region is None
+                    and any(_key_matches(k, "ALLIE") for k in hop)
+                    and not any(_key_matches(k, "ETOTAL") for k in hop)):
                 substrate_region = rk
-            if contact_pair_region is None and any(k.startswith("CFN") for k in hop):
+            if contact_pair_region is None and any(
+                    _key_matches(k, n) for n in ("CFN1", "CFN2", "CFN3", "CFNM") for k in hop):
                 contact_pair_region = rk
-        if (indenter_region is not None and substrate_region is not None
-                and whole_model_region is not None):
-            break
+
+    indenter_region = indenter_strong if indenter_strong is not None else indenter_weak
+    history_step = strong_step if indenter_strong is not None else weak_step
+    if indenter_strong is None and indenter_weak is not None:
+        print("Warning: no 'Node <%s>' history region found; falling back to "
+              "region '%s' for the indenter forces." % (indenter_hint, indenter_weak))
 
     if history_step is None:
+        _dump_history_layout(odb)
         odb.close()
         raise ValueError("No history output with RF data found in any step.")
 
@@ -115,39 +137,58 @@ def post_process(job_name, file_name, cfg):
 
 
     #  History data — forces (indenter region)
-    time_arr, force_data = _get_history(odb, history_step, indenter_region)
-    rf1 = force_data.get("RF1", np.zeros_like(time_arr))
-    rf2 = force_data.get("RF2", np.zeros_like(time_arr))
-    rf3 = force_data.get("RF3", np.zeros_like(time_arr))
+    # Concatenated across ALL steps: single-step extraction reads only the
+    # first step holding the region (IndentationStep in constant depth_mode)
+    # and silently misses the whole scratch phase.
+    time_arr, force_data = _get_history_multi(odb, indenter_region)
+    if time_arr.size == 0:
+        odb.close()
+        raise ValueError("Indenter history region '%s' contains no data in any step." % indenter_region)
+    n_t = len(time_arr)
+    rf1 = _pick(force_data, "RF1", np.zeros_like(time_arr))
+    rf2 = _pick(force_data, "RF2", np.zeros_like(time_arr))
+    rf3 = _pick(force_data, "RF3", np.zeros_like(time_arr))
 
-    ind_u2 = force_data.get("U2", np.zeros_like(time_arr))   # indenter penetration trace
+    ind_u2 = _pick(force_data, "U2", np.zeros_like(time_arr))   # indenter penetration trace
+
+    # Self-diagnosis: a zero RF2 AND a zero U2 on a moving indenter is
+    # impossible for the true RP region -- dump the ODB history layout into
+    # the job log so the mismatch (wrong region / renamed keys) is visible.
+    if (float(np.max(np.abs(rf2))) < 1e-20
+            and float(np.max(np.abs(ind_u2))) < 1e-20):
+        print("Warning: RF2 and IndenterU2 both read as zero from region '%s'. "
+              "This region is probably NOT the indenter reference point, or its "
+              "output keys are not named 'RF2'/'U2'. History layout dump follows:"
+              % indenter_region)
+        _dump_history_layout(odb)
 
     #  History data — contact-pair force (CFN/CFS). Used in place of RF2 by results_verifier.py when control_mode == "force"
     if contact_pair_region is not None:
-        _, contact_data = _get_history(odb, history_step, contact_pair_region)
-        cfn1 = _align(contact_data.get("CFN1", np.zeros_like(time_arr)), len(time_arr))
-        cfn2 = _align(contact_data.get("CFN2", np.zeros_like(time_arr)), len(time_arr))
-        cfn3 = _align(contact_data.get("CFN3", np.zeros_like(time_arr)), len(time_arr))
-        cfs1 = _align(contact_data.get("CFS1", np.zeros_like(time_arr)), len(time_arr))
-        cfs2 = _align(contact_data.get("CFS2", np.zeros_like(time_arr)), len(time_arr))
-        cfs3 = _align(contact_data.get("CFS3", np.zeros_like(time_arr)), len(time_arr))
+        _, contact_data = _get_history_multi(odb, contact_pair_region)
+        cfn1 = _align(_pick(contact_data, "CFN1", np.zeros_like(time_arr)), n_t)
+        cfn2 = _align(_pick(contact_data, "CFN2", np.zeros_like(time_arr)), n_t)
+        cfn3 = _align(_pick(contact_data, "CFN3", np.zeros_like(time_arr)), n_t)
+        cfs1 = _align(_pick(contact_data, "CFS1", np.zeros_like(time_arr)), n_t)
+        cfs2 = _align(_pick(contact_data, "CFS2", np.zeros_like(time_arr)), n_t)
+        cfs3 = _align(_pick(contact_data, "CFS3", np.zeros_like(time_arr)), n_t)
     else:
         cfn1 = cfn2 = cfn3 = cfs1 = cfs2 = cfs3 = np.zeros_like(time_arr)
 
     #  History data — substrate energies (deformable body only)
-    _, sub_data = _get_history(odb, history_step, substrate_region)
+    _, sub_data = _get_history_multi(odb, substrate_region)
     z = np.zeros_like(time_arr)
-    ke = sub_data.get("ALLKE", z.copy())     # substrate kinetic energy
-    ie = sub_data.get("ALLIE", z.copy())     # substrate internal energy
-    ae = sub_data.get("ALLAE", z.copy())     # substrate artificial (hourglass) energy
+    ke = _align(_pick(sub_data, "ALLKE", z.copy()), n_t)     # substrate kinetic energy
+    ie = _align(_pick(sub_data, "ALLIE", z.copy()), n_t)     # substrate internal energy
+    ae = _align(_pick(sub_data, "ALLAE", z.copy()), n_t)     # substrate artificial (hourglass) energy
 
     #  History data — whole-model energy balance
-    _, wm_data = _get_history(odb, history_step, whole_model_region)
+    _, wm_data = _get_history_multi(odb, whole_model_region)
 
     def _wm(name):
-        if name not in wm_data and name != "ETOTAL":
+        series = _pick(wm_data, name, None)
+        if series is None and name != "ETOTAL":
             print("Warning: whole-model term %s absent." % name)
-        return wm_data.get(name, z.copy())
+        return _align(series if series is not None else z.copy(), n_t)
 
     # ETOTAL = ALLIE + ALLVD + ALLFD + ALLKE - ALLWK - ALLPW - ALLCW - ALLMW
     wm_ke  = _wm("ALLKE")    # incl. rigid-driver KE (the ~constant baseline)
@@ -158,9 +199,11 @@ def post_process(job_name, file_name, cfg):
     wm_pw  = _wm("ALLPW")    # contact penalty work
     wm_cw  = _wm("ALLCW")    # constraint penalty work
     wm_mw  = _wm("ALLMW")    # mass-scaling work
-    etotal = wm_data.get("ETOTAL", None)
+    etotal = _pick(wm_data, "ETOTAL", None)
     if etotal is None:
         etotal = wm_ie + wm_vd + wm_fd + wm_ke - wm_wk - wm_pw - wm_cw - wm_mw
+    else:
+        etotal = _align(etotal, n_t)
 
 
     #  Wallclock time from .sta file
@@ -186,10 +229,13 @@ def post_process(job_name, file_name, cfg):
         f.write("# Material parameters: %s\n" % mat_str)
         f.write("# family = %s\n" % getattr(cfg.material, "family", "elastomer_mr"))
         f.write("# Simulation Parameters:depth_mode=%s, control_mode=%s, scratch_depth=%.6g, "
-                "scratch_force=%.6g, scratch_time=%.6g, "
+                "scratch_force=%.6g, scratch_length=%.6g, scratch_time=%.6g, "
+                "indentation_time=%.6g, unload_time=%.6g, "
                 "recovery_time=%.6g, mass_scale=%.6g, fine_size_x=%.6g\n"
                 % (depth_mode, scratch.control_mode, abs(scratch.scratch_depth), scratch.scratch_force,
-                scratch.scratch_time, scratch.recovery_time, solver.mass_scale, mesh.fine_size_x)
+                scratch.scratch_length, scratch.scratch_time,
+                scratch.indentation_time, scratch.unload_time,
+                scratch.recovery_time, solver.mass_scale, mesh.fine_size_x)
         )
         f.write("# WallclockTime=%.2f s\n" % wallclock)
 
@@ -226,6 +272,58 @@ def post_process(job_name, file_name, cfg):
 
 
 #  Helpers
+def _key_matches(key, name):
+    """
+    True when a history-output key IS `name` or contains it as a separate
+    token. Handles verbose ODB keys such as 'RF2 at Node INST.1' or
+    'Reaction force: RF2 PI: ... Node 1', which the exact dict lookup misses
+    while a naive substring test over-matches.
+    """
+    if key == name:
+        return True
+    cleaned = key.upper().replace(":", " ").replace(",", " ").replace(";", " ")
+    return name.upper() in cleaned.split()
+
+
+def _pick(data, name, default=None):
+    """
+    Robust series lookup: exact key first, else the UNIQUE key matching by
+    token (see _key_matches). Ambiguous (>1 candidate) returns default.
+    """
+    if name in data:
+        return data[name]
+    cands = [k for k in data if _key_matches(k, name)]
+    if len(cands) == 1:
+        return data[cands[0]]
+    return default
+
+
+def _dump_history_layout(odb):
+    """
+    Compact diagnostic dump of every history region and its output keys
+    (with peak absolute value), printed into the job log. Zero-cost insurance:
+    whenever the extraction reads suspicious zeros, the next .log tells the
+    whole story without a manual odb_diag run.
+    """
+    try:
+        for sname in odb.steps.keys():
+            hrs = odb.steps[sname].historyRegions
+            print("  [layout] Step '%s': %d history regions" % (sname, len(hrs.keys())))
+            for rk in hrs.keys():
+                keys = list(hrs[rk].historyOutputs.keys())
+                peaks = []
+                for k in keys[:12]:
+                    try:
+                        arr = np.array(hrs[rk].historyOutputs[k].data)
+                        peaks.append("%s(max|v|=%.3g)" % (k, float(np.max(np.abs(arr[:, 1]))) if arr.size else 0.0))
+                    except Exception:
+                        peaks.append("%s(?)" % k)
+                print("  [layout]   region '%s' -> %s%s"
+                      % (rk, ", ".join(peaks), " ..." if len(keys) > 12 else ""))
+    except Exception as e:
+        print("  [layout] dump failed: %s" % e)
+
+
 def _align(arr, n):
     """
     Pad (with the last value) or truncate so arr has exactly n samples.
@@ -243,7 +341,9 @@ def _align(arr, n):
     return np.concatenate([arr, np.full(n - arr.size, pad_value)])
 
 def _get_history(odb, step_name, region_name):
-    """Extract time + history-output dict from a given history region."""
+    """Extract time + history-output dict from a given history region.
+    (Legacy single-step helper, kept for compatibility; post_process now
+    uses _get_history_multi.)"""
     hr = odb.steps[step_name].historyRegions[region_name]
     keys = list(hr.historyOutputs.keys())
     # Time is stored as the first column of every output — use the first key
@@ -252,6 +352,76 @@ def _get_history(odb, step_name, region_name):
     for key in keys:
         out = np.array(hr.historyOutputs[key].data).T
         data[key] = out[1, :]
+    return time_arr, data
+
+
+def _get_history_multi(odb, region_name):
+    """
+    Extract time + history-output dict for a region, concatenated across ALL
+    ODB steps, with time rebasing when a step stores step-time (axis restarts
+    near 0) instead of total time. Duplicated boundary samples are dropped.
+
+    Rationale: single-step extraction reads only the first step holding the
+    region -- in constant depth_mode that is IndentationStep, so the scratch
+    phase was silently missing from the CSV.
+    """
+    step_names = list(odb.steps.keys())
+
+    # Union of output keys over the steps that contain the region (a request
+    # deactivated in a step simply removes the region from that step).
+    all_keys = []
+    for sname in step_names:
+        hrs = odb.steps[sname].historyRegions
+        if region_name in hrs.keys():
+            for k in hrs[region_name].historyOutputs.keys():
+                if k not in all_keys:
+                    all_keys.append(k)
+    if not all_keys:
+        return np.array([]), {}
+
+    time_parts = []
+    data_parts = {}
+    t_end = 0.0
+
+    for sname in step_names:
+        hrs = odb.steps[sname].historyRegions
+        if region_name not in hrs.keys():
+            continue
+        hr = hrs[region_name]
+        keys = list(hr.historyOutputs.keys())
+        if not keys:
+            continue
+        t = np.array(hr.historyOutputs[keys[0]].data).T[0, :]
+        if t.size == 0:
+            continue
+
+        # Rebase when the step stores step-time (restarts near 0); keep as-is
+        # when the axis already carries total time.
+        offset = t_end if (time_parts and t[0] < 0.5 * t_end) else 0.0
+        t = t + offset
+
+        # Drop a duplicated boundary sample at the step junction.
+        tol = 1e-12 + 1e-9 * max(abs(t_end), 1.0)
+        start = 1 if (time_parts and t.size > 1 and abs(t[0] - t_end) <= tol) else 0
+        n = t.size - start
+        if n <= 0:
+            continue
+
+        time_parts.append(t[start:])
+        for key in all_keys:
+            if key in keys:
+                col = np.array(hr.historyOutputs[key].data).T[1, :][start:]
+            else:
+                col = np.zeros(n)
+            data_parts.setdefault(key, []).append(col)
+
+        t_end = t[-1]
+
+    if not time_parts:
+        return np.array([]), {}
+
+    time_arr = np.concatenate(time_parts)
+    data = dict((k, np.concatenate(v)) for k, v in data_parts.items())
     return time_arr, data
 
 
