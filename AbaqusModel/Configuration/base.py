@@ -122,6 +122,58 @@ class AB_Model_Config:
     def params(self):
         return {"mu_AB": self.mu, "lambda_m": self.lambda_m, "D_AB": self.D}
 
+# 4d. Yeoh (reduced 3rd-order polynomial, I1-only) hyper-elastic model
+class Yeoh_Model_Config:
+    #  W = sum_{i=1..3} Ci0 * (I1_bar - 3)^i + sum_{i=1..3} (1/Di) * (J_el - 1)^(2i)
+    # Abaqus table order: (C10, C20, C30, D1, D2, D3).
+    # I1-only: cheap and stable up to large strains; C20 < 0 reproduces the
+    # mid-strain softening of filled rubbers, C30 > 0 the final upturn.
+    # Initial shear modulus mu_0 = 2*C10 (C20/C30 do not contribute at I1=3).
+    MODEL = "yeoh"
+
+    def __init__(self, C10=1.1, C20=-0.055, C30=0.0055, D1=0.0165):
+        self.C10 = C10   # [MPa]
+        self.C20 = C20   # [MPa]  (usually < 0)
+        self.C30 = C30   # [MPa]  (usually > 0, upturn)
+        self.D1 = D1     # [1/MPa], D1 = 2/K0 ; D2 = D3 = 0 (single volumetric term)
+
+    def params(self):
+        return {"C10_Y": self.C10, "C20_Y": self.C20,
+                "C30_Y": self.C30, "D1_Y": self.D1}
+
+
+# 4e. Ogden (principal-stretch based) hyper-elastic model
+class Ogden_Model_Config:
+    #  W = sum_{i=1..N} 2*mu_i/alpha_i^2 * (lam1_bar^alpha_i + lam2_bar^alpha_i + lam3_bar^alpha_i - 3) + sum_{i=1..N} (1/Di) * (J_el - 1)^(2i)
+    # Abaqus N=2 table order: (mu1, alpha1, mu2, alpha2, D1, D2).
+    # In the Abaqus convention the initial shear modulus is mu_0 = sum(mu_i)
+    # regardless of the alpha_i. Principal-stretch formulation: the only one
+    # of the four that is NOT a pure I1/I2 function -- discriminates in
+    # non-equibiaxial states like the scratch bow-wave.
+    MODEL = "ogden"
+
+    def __init__(self, mu=(1.87, 0.33), alpha=(1.6, 5.5), D1=0.0165):
+        mu = tuple(float(m) for m in mu)
+        alpha = tuple(float(a) for a in alpha)
+        if len(mu) != len(alpha):
+            raise ValueError("Ogden: mu and alpha must have the same length "
+                             "(got %d and %d)" % (len(mu), len(alpha)))
+        if not (1 <= len(mu) <= 6):
+            raise ValueError("Ogden order N must be in [1, 6], got %d" % len(mu))
+        if any(a == 0.0 for a in alpha):
+            raise ValueError("Ogden: alpha_i must be non-zero")
+        self.mu = mu          # [MPa] per-term moduli, mu_0 = sum(mu)
+        self.alpha = alpha    # [-]   per-term exponents
+        self.D1 = D1          # [1/MPa], D1 = 2/K0 ; D2..DN = 0
+        self.N = len(mu)
+
+    def params(self):
+        d = {"ogden_N": self.N, "D1_O": self.D1}
+        for i, (m, a) in enumerate(zip(self.mu, self.alpha), start=1):
+            d["mu%d_O" % i] = m
+            d["alpha%d_O" % i] = a
+        return d
+
 
 # 5. Visco-elastic Models (empty)
 class VE_Model_Config:
@@ -155,12 +207,17 @@ class P_Model_Config:
 class J2Plasticity_Config:
     MODEL = "mises"
 
-    def __init__(self, yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6))): # (yield_stress [MPa], plastic_strain [-])
+    def __init__(self, yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6)),  # (yield_stress [MPa], plastic_strain [-])
+                 rate_dependent=None):                                       # RateDependent_Config or None
         self.yield_table = tuple(tuple(pt) for pt in yield_table)
+        self.rate_dependent = rate_dependent
 
     def params(self):
         # Expose the initial yield stress for the CSV / verifier; the full hardening table is used only by the material assignment.
-        return {"sigma_y0": self.yield_table[0][0]}
+        d = {"sigma_y0": self.yield_table[0][0]}
+        if self.rate_dependent is not None:
+            d.update(self.rate_dependent.params())
+        return d
     
 # 6c. Drucker-Prager pressure-dependent plasticity (glassy / thermoset bases)
 class DruckerPrager_Config:
@@ -168,16 +225,76 @@ class DruckerPrager_Config:
 
     def __init__(self, friction_angle=25.0, flow_stress_ratio=0.85,
                  dilation_angle=10.0,
-                 yield_table=((60.0, 0.0), (70.0, 0.1), (80.0, 0.4))):
+                 yield_table=((60.0, 0.0), (70.0, 0.1), (80.0, 0.4)),
+                 rate_dependent=None):                          # RateDependent_Config or None
         self.friction_angle = friction_angle            # friction_angle beta [deg]
         self.flow_stress_ratio = flow_stress_ratio      # flow_stress_ratio K [-]
         self.dilation_angle = dilation_angle            # dilation_angle psi [deg]
         self.yield_table = tuple(tuple(pt) for pt in yield_table)
+        self.rate_dependent = rate_dependent
 
     def params(self):
-        return {"sigma_y0": self.yield_table[0][0],
-                "friction_angle": self.friction_angle,
-                "dilation_angle": self.dilation_angle}
+        d = {"sigma_y0": self.yield_table[0][0],
+             "friction_angle": self.friction_angle,
+             "dilation_angle": self.dilation_angle}
+        if self.rate_dependent is not None:
+            d.update(self.rate_dependent.params())
+        return d
+
+
+# 6d. Rate dependence of the yield surface (Cowper-Symonds overstress power law)
+class RateDependent_Config:
+    """
+    *RATE DEPENDENT, TYPE=POWER LAW -- valid with *PLASTIC and *DRUCKER PRAGER
+    HARDENING in Abaqus/Explicit (unlike *VISCOELASTIC, which is forbidden
+    with plasticity). The dynamic yield ratio is
+
+        R(eps_rate) = sigma_dyn / sigma_stat = 1 + (eps_rate / D)**(1/n)
+
+    Polymers are usually characterised by an EYRING line instead:
+        sigma_y(eps_rate) = sigma_y0 + S * log10(eps_rate / rate_qs)
+    with S [MPa/decade] from the literature (indicative, compression, RT:
+    HDPE ~ 2-3, PC ~ 4-5 below the beta-transition, PMMA ~ 8-11 MPa/decade).
+    Use from_eyring() to convert (sigma_y0, S) into a Cowper-Symonds pair
+    fitted over a rate window -- the fit is exact at both window ends and
+    within ~2% inside it, but MUST NOT be extrapolated far outside.
+    """
+    MODEL = "cowper_symonds"
+
+    def __init__(self, D=1.0e6, n=10.0, fit_window=None, S_per_decade=None):
+        if D <= 0.0 or n <= 0.0:
+            raise ValueError("Cowper-Symonds parameters must be positive (D=%s, n=%s)" % (D, n))
+        self.D = float(D)                     # reference rate [1/s]
+        self.n = float(n)                     # exponent [-]
+        self.fit_window = fit_window          # (rate_lo, rate_hi) of the Eyring fit, for the verifier
+        self.S_per_decade = S_per_decade      # traceability [MPa/decade]
+
+    @classmethod
+    def from_eyring(cls, sigma_y0, S_per_decade, rate_qs=1e-3, rate_lo=1.0, rate_hi=1e3):
+        """
+        Two-point closed-form fit of the Cowper-Symonds law on the Eyring line
+        at rate_lo and rate_hi (quasi-static calibration rate rate_qs, where
+        the yield table itself was measured).
+        """
+        if not (rate_qs < rate_lo < rate_hi):
+            raise ValueError("Need rate_qs < rate_lo < rate_hi")
+        R1 = 1.0 + (S_per_decade / float(sigma_y0)) * np.log10(rate_lo / rate_qs)
+        R2 = 1.0 + (S_per_decade / float(sigma_y0)) * np.log10(rate_hi / rate_qs)
+        if not (R2 > R1 > 1.0):
+            raise ValueError("Eyring fit requires R2 > R1 > 1 (got %.3f, %.3f)" % (R1, R2))
+        inv_n = np.log((R2 - 1.0) / (R1 - 1.0)) / np.log(rate_hi / rate_lo)
+        n = 1.0 / inv_n
+        D = rate_lo / (R1 - 1.0) ** n
+        return cls(D=D, n=n, fit_window=(rate_lo, rate_hi), S_per_decade=S_per_decade)
+
+    def ratio(self, eps_rate):
+        """Dynamic/static yield ratio R at a given plastic strain rate [1/s]."""
+        if eps_rate <= 0.0:
+            return 1.0
+        return 1.0 + (eps_rate / self.D) ** (1.0 / self.n)
+
+    def params(self):
+        return {"cs_D": self.D, "cs_n": self.n}
 
 # 7. Scratching (Progressive and Constant)
 class Scratch_Config:
@@ -365,16 +482,59 @@ class Damage_Config:
     def params(self):
         return {}
 
-# 9. Friction Models (Pressure independent)
+# 9. Friction Models (constant Coulomb, or tabular mu(slip rate, pressure))
 class Friction_Config:
-    # For now, pressure independent
+    """
+    mu_table row layout follows the Abaqus *FRICTION column order:
+        (mu[, slip_rate][, contact_pressure])
+    with the optional columns present exactly when the corresponding flag
+    (slip_rate_dependent / pressure_dependent) is True. Units: mm/s, MPa.
 
-    def __init__(self, mu=0.3, formulation="penalty", elastic_slip_fraction=0.005, pressure_dependent=False):
+    For polymers the interfacial shear stress follows Briscoe:
+        tau = tau0 + alpha * p   =>   mu(p) = tau0 / p + alpha
+    so the apparent friction DECREASES with contact pressure toward the
+    asymptote alpha (indicative, RT: tau0 ~ 0.5-5 MPa, alpha ~ 0.05-0.3
+    depending on the polymer). Use Friction_Config.briscoe() to build the
+    table; self.mu is then set to the asymptote alpha so that the verifier
+    lower bound SCOF >= mu stays meaningful.
+    """
+
+    def __init__(self, mu=0.3, formulation="penalty", elastic_slip_fraction=0.005,
+                 pressure_dependent=False, slip_rate_dependent=False, mu_table=None):
 
         self.mu = mu
         self.formulation = formulation
         self.elastic_slip_fraction = elastic_slip_fraction
         self.pressure_dependent = pressure_dependent
+        self.slip_rate_dependent = slip_rate_dependent
+        self.mu_table = tuple(tuple(r) for r in mu_table) if mu_table else None
+
+        if self.mu_table:
+            expected = 1 + int(bool(slip_rate_dependent)) + int(bool(pressure_dependent))
+            for row in self.mu_table:
+                if len(row) != expected:
+                    raise ValueError(
+                        "mu_table rows must have %d columns (mu%s%s), got %d"
+                        % (expected,
+                           ", slip_rate" if slip_rate_dependent else "",
+                           ", pressure" if pressure_dependent else "",
+                           len(row)))
+
+    @classmethod
+    def briscoe(cls, tau0=2.0, alpha=0.2, p_min=1.0, p_max=600.0, n_points=12,
+                mu_cap=1.0, elastic_slip_fraction=0.005):
+        """
+        Pressure-dependent Coulomb table from the Briscoe interfacial shear
+        model, mu(p) = tau0/p + alpha, sampled log-uniformly on [p_min, p_max]
+        MPa (scratch mean pressures reach ~2-3*sigma_y, i.e. 50-100 MPa for
+        semicrystallines and 150-300 MPa for glassy polymers). mu is capped
+        at mu_cap to avoid unphysically large values at vanishing pressure.
+        """
+        p = np.logspace(np.log10(p_min), np.log10(p_max), n_points)
+        rows = tuple((float(round(min(tau0 / pv + alpha, mu_cap), 4)), float(round(pv, 3)))
+                     for pv in p)
+        return cls(mu=alpha, pressure_dependent=True, mu_table=rows,
+                   elastic_slip_fraction=elastic_slip_fraction)
 
 # 10. Material specification
 class Material_Config:
@@ -404,7 +564,10 @@ class Material_Config:
         d.update(self.viscoelastic.params())
         d.update(self.plasticity.params())
         d.update(self.damage.params())
+        d["he_model"] = self.hyperelastic.MODEL
         d["mu_friction"] = self.friction.mu
+        d["mu_pressure_dep"] = 1.0 if getattr(self.friction, "pressure_dependent", False) else 0.0
+        d["mu_rate_dep"] = 1.0 if getattr(self.friction, "slip_rate_dependent", False) else 0.0
 
         return d
 
@@ -416,20 +579,29 @@ class Solver_Config:
                  target_time_increment=0.0,
                  use_ALE=True,
                  num_cpus=6,
+                 time_scale_factor=1.0,
                  linear_bulk_viscosity=0.06, quad_bulk_viscosity=1.2, # Default Abaqus values
                  ale_frequency=20, ale_mesh_sweeps=1, ale_smoothing_priority="GRADED", ale_smoothing_algorithm="GEOMETRY_ENHANCED"): # ALE parameters
     
+        if time_scale_factor < 1.0:
+            raise ValueError("time_scale_factor must be >= 1 (lab time / simulated time)")
         self.mass_scale = mass_scale
         self.target_time_increment = target_time_increment
         self.use_ALE = use_ALE
         self.num_cpus = num_cpus
         self.num_domains = num_cpus
+        self.time_scale_factor = float(time_scale_factor)
         self.linear_bulk_viscosity = linear_bulk_viscosity
         self.quad_bulk_viscosity = quad_bulk_viscosity
         self.ale_frequency = ale_frequency
         self.ale_mesh_sweeps = ale_mesh_sweeps
         self.ale_smoothing_priority = ale_smoothing_priority
         self.ale_smoothing_algorithm = ale_smoothing_algorithm
+
+        # Time-dependent simulations will be faster than lab experiments, added "time_scale_factor = t_lab / t_sim = v_sim / v_lab" to capture that.
+        # The Prony relaxation factor must be scaled with "tau_sim,i = tau_lab,i / time_scale_factor".
+        # Cowper-Symonds must see the true simulated strain rates, it is not scaled.
+        # Not used for Rate_independent materials.
 
 # 12. Outputs
 class Output_Config:
@@ -560,12 +732,12 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.040,       
-                fine_size_y=0.040,
-                fine_size_z=0.040,    
-                coarse_size_0=0.08,     # *2
-                coarse_size_1=0.16,     # *2 
-                coarse_size_2=0.32,     # *2
+                fine_size_x=0.020,       
+                fine_size_y=0.020,
+                fine_size_z=0.020,    
+                coarse_size_0=0.04,     # *2
+                coarse_size_1=0.08,     # *2 
+                coarse_size_2=0.16,     # *2
                 hourglass_control="RELAX STIFFNESS",      # RELAX STIFFNESS Might be innacurate but only one usable for now
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
@@ -583,7 +755,7 @@ class Simulation_Config:
                 family="elastomer_mr",
             ),
             solver=Solver_Config(
-                mass_scale=500,    
+                mass_scale=300,    
                 target_time_increment=0.0,
                 use_ALE=False,
                 num_cpus=6,
@@ -595,7 +767,7 @@ class Simulation_Config:
                 ale_smoothing_algorithm="GEOMETRY_ENHANCED",
             ),
             scratch=Scratch_Config(
-                depth_mode=Scratch_Config.CONSTANT,
+                depth_mode=Scratch_Config.PROGRESSIVE,
                 control_mode=Scratch_Config.DISPLACEMENT,
                 scratch_length=2.0,
                 scratch_force=40e-3,
@@ -614,3 +786,78 @@ class Simulation_Config:
             job_name="PolymerScratch",
             sheet_size=10,
         )
+    
+# 15. Module-level generators (helpers that build configurations)
+def _ab_mu0_correction(lambda_m):
+    # Initial-shear-modulus correction of the Arruda-Boyce eight-chain model (mu_0 = mu * corr; ~1.11 at lambda_m = 2.5, -> 1 as lambda_m -> inf).
+    # Used for models comparaison
+    if not lambda_m or lambda_m <= 0.0:
+        return 1.0
+    l2 = float(lambda_m) ** 2
+    return (1.0 + 3.0 / (5.0 * l2) + 99.0 / (175.0 * l2 ** 2)
+            + 513.0 / (875.0 * l2 ** 3) + 42039.0 / (67375.0 * l2 ** 4))
+
+# G'Sell-Jonas dense hardening-table generator (used for the yield tables)
+def gsell_jonas_table(sigma_y0, h, Q=0.0, b=0.0, soft_drop=0.0, eps_soft=0.05,
+                      eps_max=3.0, n_points=60):
+    # Dense (sigma_y, eps_p) table for *PLASTIC / *DRUCKER PRAGER HARDENING:
+    # sigma(eps_p) = [sigma_y0 - soft_drop*(1 - exp(-eps_p/eps_soft)) + Q*(1 - exp(-b*eps_p))] * exp(h*eps_p^2)
+
+    # * exp(h*eps_p^2) : G'Sell-Jonas orientation hardening (the term Bucaille et al. identified as controlling pile-up and scratch resistance)
+    # * soft_drop/eps_soft : intrinsic post-yield softening of glassy polymers (NB: softening makes the response mesh-dependent through localisation)
+    # * Q/b : Voce-type initial hardening (semicrystallines).
+
+    # A dense table up to eps_p ~ 3 avoids the perfectly-plastic plateau that Abaqus extrapolates beyond the last point.
+
+    if sigma_y0 <= 0.0:
+        raise ValueError("sigma_y0 must be positive")
+    n_lo = max(n_points // 3, 8)
+    eps = np.unique(np.concatenate([
+        np.linspace(0.0, min(0.25, eps_max), n_lo),
+        np.linspace(min(0.25, eps_max), eps_max, n_points - n_lo + 1),
+    ]))
+    sig = (sigma_y0
+           - soft_drop * (1.0 - np.exp(-eps / max(eps_soft, 1e-9)))
+           + Q * (1.0 - np.exp(-b * eps))) * np.exp(h * eps ** 2)
+    if np.any(sig <= 0.0):
+        raise ValueError("gsell_jonas_table produced non-positive stresses; check soft_drop")
+    return tuple((float(round(sv, 4)), float(round(ev, 6))) for sv, ev in zip(sig, eps))
+
+
+def matched_hyperelastic_set(mu0=2.2, K_mu=55.0,
+                             models=("mooney_rivlin", "arruda_boyce", "yeoh", "ogden"),
+                             mr_ratio=0.1, ab_lambda_m=2.5,
+                             yeoh_c20_ratio=-0.05, yeoh_c30_ratio=0.005,
+                             ogden_alphas=(1.6, 5.5), ogden_weights=(0.85, 0.15)):
+    
+    #Hyperelastic model set calibrated to the same small-strain response (identical mu_0 and K_0 = K_mu * mu_0 for every model)
+    #Scratch comparison isolates the model form: I2-dependence (MR), locking (AB), higher-order I1 (Yeoh), principal-stretch formulation (Ogden)
+    
+    K0 = K_mu * mu0
+    D = 2.0 / K0
+    out = []
+    for m in models:
+        if m == "mooney_rivlin":
+            C10 = mu0 / (2.0 * (1.0 + mr_ratio))
+            out.append(("MR", HE_Model_Config(C10=round(C10, 6),
+                                              C01=round(mr_ratio * C10, 6), D1=D)))
+        elif m == "arruda_boyce":
+            mu_ab = mu0 / _ab_mu0_correction(ab_lambda_m)
+            out.append(("AB", AB_Model_Config(mu=round(mu_ab, 6),
+                                              lambda_m=ab_lambda_m, D=D)))
+        elif m == "yeoh":
+            C10 = mu0 / 2.0
+            out.append(("Yeoh", Yeoh_Model_Config(C10=round(C10, 6),
+                                                  C20=round(yeoh_c20_ratio * C10, 6),
+                                                  C30=round(yeoh_c30_ratio * C10, 6),
+                                                  D1=D)))
+        elif m == "ogden":
+            wsum = float(sum(ogden_weights))
+            mus = tuple(round(mu0 * w / wsum, 6) for w in ogden_weights)
+            out.append(("Ogden%d" % len(mus),
+                        Ogden_Model_Config(mu=mus, alpha=ogden_alphas, D1=D)))
+        else:
+            raise ValueError("Unknown model '%s' for matched_hyperelastic_set" % m)
+    # plain list of pairs keeps insertion order on Py2 (Abaqus kernel) and Py3
+    return out
+

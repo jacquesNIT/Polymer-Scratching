@@ -217,13 +217,54 @@ def ab_properties(metadata):
         "K_mu_ratio": K0 / mu0 if mu0 > 0 else float("inf"),
     }
 
+def yeoh_properties(metadata):
+    """
+    Small-strain elastic properties from the Yeoh parameters (C10_Y, D1_Y):
+    mu_0 = 2*C10 (C20/C30 vanish at I1 = 3), K_0 = 2/D1.
+    """
+    if "C10_Y" not in metadata or "D1_Y" not in metadata:
+        return None
+    mu0 = 2.0 * float(metadata["C10_Y"])
+    K0 = 2.0 / float(metadata["D1_Y"]) if float(metadata["D1_Y"]) > 0 else float("inf")
+    return _props_from_mu_K(mu0, K0)
+
+def ogden_properties(metadata):
+    """
+    Small-strain elastic properties from the Ogden parameters
+    (mu1_O..muN_O, D1_O): in the Abaqus convention mu_0 = sum(mu_i).
+    """
+    if "D1_O" not in metadata:
+        return None
+    mus = []
+    i = 1
+    while ("mu%d_O" % i) in metadata:
+        mus.append(float(metadata["mu%d_O" % i]))
+        i += 1
+    if not mus:
+        return None
+    mu0 = sum(mus)
+    K0 = 2.0 / float(metadata["D1_O"]) if float(metadata["D1_O"]) > 0 else float("inf")
+    return _props_from_mu_K(mu0, K0)
+
+
+def _props_from_mu_K(mu0, K0):
+    if K0 == float("inf"):
+        E0, nu0 = 3.0 * mu0, 0.5
+    else:
+        E0 = 9.0 * K0 * mu0 / (3.0 * K0 + mu0)
+        nu0 = (3.0 * K0 - 2.0 * mu0) / (2.0 * (3.0 * K0 + mu0))
+    return {"mu_0": mu0, "K_0": K0, "E_0": E0, "nu_0": nu0,
+            "K_mu_ratio": K0 / mu0 if mu0 > 0 else float("inf")}
+
+
+
 
 def material_properties(metadata):
     """
     Small-strain isotropic elastic properties, from the linear-elastic
-    parameters (E, nu) when present, else the Mooney-Rivlin parameters
-    (C10, C01, D1), else the Arruda-Boyce parameters (mu_AB, lambda_m, D_AB).
-    Returns None if no set is available.
+    parameters (E, nu) when present, else Mooney-Rivlin (C10, C01, D1), else
+    Arruda-Boyce (mu_AB, lambda_m, D_AB), else Yeoh (C10_Y, D1_Y), else
+    Ogden (mu*_O, D1_O). Returns None if no set is available.
     """
     if "E" in metadata and "nu" in metadata:
         E0 = float(metadata["E"])
@@ -234,10 +275,13 @@ def material_properties(metadata):
             "mu_0": mu0, "K_0": K0, "E_0": E0, "nu_0": nu0,
             "K_mu_ratio": K0 / mu0 if mu0 > 0 else float("inf"),
         }
-    props = mr_properties(metadata)
-    if props is not None:
-        return props
-    return ab_properties(metadata)
+    for fn in (mr_properties, ab_properties, yeoh_properties, ogden_properties):
+        props = fn(metadata)
+        if props is not None:
+            return props
+    return None
+
+
 
 
 #  Checks — numerical quality
@@ -919,8 +963,18 @@ def check_friction_physics(timeseries, metadata):
     scof_mean, scof_std = np.mean(scof), np.std(scof)
 
     issues = []
+    mu_p_dep = float(metadata.get("mu_pressure_dep", 0.0) or 0.0) > 0.5
     if scof_mean < mu_input * 0.95:
-        issues.append("SCOF < mu_input — NON-PHYSICAL (ploughing cannot reduce friction)")
+        if mu_p_dep:
+            # Pressure-dependent (Briscoe) friction: mu(p) = tau0/p + alpha
+            # decreases with contact pressure; metadata mu_friction stores the
+            # asymptote alpha, so SCOF slightly below it only means the mean
+            # pressure did not fully reach the asymptotic regime.
+            issues.append("SCOF < mu asymptote (alpha) despite pressure-dependent "
+                          "friction -- check the mu(p) table against the actual "
+                          "contact pressures")
+        else:
+            issues.append("SCOF < mu_input — NON-PHYSICAL (ploughing cannot reduce friction)")
     if scof_mean > mu_input + 0.5:
         issues.append("Ploughing term too large")
     if scof_mean > 0 and scof_std / scof_mean > 0.30:
@@ -1079,6 +1133,29 @@ _FALLBACK_FAMILIES = {
                    "force_magnitude", "strain_level",
                    "friction_physics", "steady_state", "settling", "recovery"),
     },
+    "elastomer_ve": {
+        "label": "Viscoelastic elastomer (Arruda-Boyce + Prony)",
+        "dissipative": False,
+        # recovery excluded: delayed viscoelastic recovery fits neither the
+        # full-recovery nor the permanent-groove logic at finite recovery_time
+        "checks": ("quasi_static", "hourglass", "energy_total", "artificial_energy",
+                   "d1_validity", "force_magnitude", "strain_level",
+                   "friction_physics", "steady_state", "settling"),
+    },
+    "glassy_pc": {
+        "label": "Polycarbonate (elastic + Drucker-Prager, rate-dependent)",
+        "dissipative": True,
+        "checks": ("quasi_static", "hourglass", "energy_total", "artificial_energy",
+                   "force_magnitude", "strain_level",
+                   "friction_physics", "steady_state", "settling", "recovery"),
+    },
+    "glassy_pmma": {
+        "label": "PMMA (elastic + Drucker-Prager, rate-dependent)",
+        "dissipative": True,
+        "checks": ("quasi_static", "hourglass", "energy_total", "artificial_energy",
+                   "force_magnitude", "strain_level",
+                   "friction_physics", "steady_state", "settling", "recovery"),
+    },
 
 }
 _DEFAULT_FAMILY = "elastomer_mr"
@@ -1161,8 +1238,10 @@ def _print_report(report):
         print("  Control: force-driven, target = %.4g N" % meta.get("scratch_force", float("nan")))
     else:
         print("  Control: displacement-driven, target depth = %.4g mm" % abs(meta.get("scratch_depth", 0.0)))
-    mat_keys = [k for k in ("rho", "C10", "C01", "D1", "E", "nu",
-                            "sigma_y0", "mu_friction", "mu")
+    mat_keys = [k for k in ("rho", "he_model", "C10", "C01", "D1",
+                            "mu_AB", "lambda_m", "C10_Y", "C20_Y", "C30_Y",
+                            "mu1_O", "mu2_O", "alpha1_O", "alpha2_O",
+                            "E", "nu", "sigma_y0", "mu_friction", "mu")
                 if k in meta]
     
     if mat_keys:

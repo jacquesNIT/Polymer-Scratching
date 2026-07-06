@@ -18,6 +18,7 @@ except NameError:
 from ScratchSimulation.AbaqusModel.abaqus_env import *          
 from ScratchSimulation.AbaqusModel.Configuration import Simulation_Config
 from ScratchSimulation.AbaqusModel.Configuration import get_family
+from ScratchSimulation.AbaqusModel.Configuration import matched_hyperelastic_set
 from ScratchSimulation.AbaqusModel.Simulation import build_scratch_model
 from ScratchSimulation.AbaqusModel.Material import SubstrateMaterialAssignment
 from ScratchSimulation.AbaqusModel.Postprocessing import post_process
@@ -135,10 +136,34 @@ def material_study(parameters):
         label=lambda p: "Material_%s" % p["id"],
     )
 
+def model_study(mu0=2.2, K_mu=55.0):
+    """
+    Hyperelastic model-form comparison: one scratch per constitutive model (Mooney-Rivlin, Arruda-Boyce, Yeoh, Ogden N=2), 
+    mu_0, K_0 = K_mu*mu_0 matched by matched_hyperelastic_set(). 
 
+    Only meaningful on hyperelastic families (elastomer_mr / elastomer_ve)
+    """
+    model_set = matched_hyperelastic_set(mu0=mu0, K_mu=K_mu)
+
+    def apply(cfg, case):
+        _label, he_cfg = case
+        if cfg.material.plasticity.MODEL != "none":
+            raise ValueError(
+                "model_study swaps hyperelastic bases: family '%s' carries "
+                "plasticity '%s' (forbidden combination in Abaqus). Run it on "
+                "elastomer_mr / elastomer_ve."
+                % (getattr(cfg.material, "family", "?"), cfg.material.plasticity.MODEL))
+        cfg.material.hyperelastic = he_cfg
+
+    return ParameterStudy(
+        name="ModelComparison",
+        cases=list(model_set),
+        apply_case=apply,
+        label=lambda case: "Model_%s" % case[0],
+    )
 
 # Defaults + selection.
-DEFAULT_FAMILY = "semicrystalline_j2" 
+DEFAULT_FAMILY = "glassy_pc" 
 DEFAULT_MESH_SIZES = [
     [0.04, 0.04, 0.04],
     [0.03, 0.03, 0.03],
@@ -160,6 +185,7 @@ STUDIES = {
     "mass_scale": lambda: mass_scale_study(DEFAULT_MASS_SCALES),
     "friction":   lambda: friction_study(DEFAULT_MU_VALUES),
     # "material":   lambda: material_study(_load_material_parameters()),
+    "models":     lambda: model_study(),
 }
 
 def _selected_study_name(default=DEFAULT_STUDY):

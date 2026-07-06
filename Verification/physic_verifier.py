@@ -89,6 +89,13 @@ def _elastic_props(mat):
     elif model == "arruda_boyce":
         mu0 = float(h.mu) * _ab_mu0_correction(getattr(h, "lambda_m", 0.0))
         K0 = 2.0 / float(h.D) if h.D > 0 else float("inf")
+    elif model == "yeoh":
+        mu0 = 2.0 * float(h.C10)                       # C20/C30 vanish at I1 = 3
+        K0 = 2.0 / float(h.D1) if h.D1 > 0 else float("inf")
+    elif model == "ogden":
+        mu0 = float(sum(h.mu))                         # Abaqus convention: mu_0 = sum(mu_i)
+        K0 = 2.0 / float(h.D1) if h.D1 > 0 else float("inf")
+
     else:
         return None
 
@@ -373,6 +380,15 @@ def check_contact_regime(cfg, geo):
         if lam_m > 0 and eps_local < 0.3:
             notes.append("local strains well below locking: lambda_m weakly "
                          "identifiable at this depth (MR/AB nearly equivalent)")
+            
+    elif model in ("yeoh", "ogden"):
+        # Both remain valid at large strains; the question is discrimination.
+        if eps_local < 0.3:
+            notes.append("at this depth the higher-order terms (C20/C30, alpha_i) "
+                         "barely work: all matched hyperelastic models are nearly "
+                         "equivalent -- deepen the scratch to discriminate them")
+
+
 
     verdict = "OK" if not issues else " ; ".join(issues)
     if notes:
@@ -573,23 +589,51 @@ def check_rate_consistency(cfg, geo):
         parts.append("eps_rate ~ %.1e /s (contact transit 2a/v = %.2e s)"
                      % (geo["eps_rate"], geo["t_contact"]))
 
-    if yinfo and geo["eps_rate"] > RATE_INDEP_WARN:
+    rate_cfg = getattr(mat.plasticity, "rate_dependent", None) if yinfo else None
+
+    if yinfo and rate_cfg is None and geo["eps_rate"] > RATE_INDEP_WARN:
         status = "WARN"
         issues.append("rate-INDEPENDENT yield table used at ~%.0f /s: a table "
                       "calibrated quasi-statically underestimates the flow stress "
                       "by ~5-10%% per decade (polymers, Eyring) -- calibrate at this "
                       "rate or add *RATE DEPENDENT" % geo["eps_rate"])
+    elif yinfo and rate_cfg is not None and geo["eps_rate"] > 0:
+        # Cowper-Symonds active: report the predicted overstress and verify the
+        # working rate sits inside the Eyring fit window (the power-law fit is
+        # only trustworthy inside it).
+        try:
+            R = rate_cfg.ratio(geo["eps_rate"])
+            parts.append("Cowper-Symonds active: R = sigma_dyn/sigma_stat ~ %.2f "
+                         "at %.0f /s (D=%.3g, n=%.2f)"
+                         % (R, geo["eps_rate"], rate_cfg.D, rate_cfg.n))
+            win = getattr(rate_cfg, "fit_window", None)
+            if win and not (win[0] / 10.0 <= geo["eps_rate"] <= win[1] * 10.0):
+                if status != "FAIL":
+                    status = "WARN"
+                issues.append("working strain rate %.1e /s is far outside the "
+                              "Eyring fit window [%g, %g] /s: refit from_eyring "
+                              "over the relevant decades"
+                              % (geo["eps_rate"], win[0], win[1]))
+        except Exception as exc:
+            parts.append("rate model present but unreadable (%s)" % exc)
 
     if visco_model == "prony":
         table = tuple(getattr(visco, "prony_table", ()) or ())
+        # Prony_Config stores LAB relaxation times; the material builder
+        # divides them by solver.time_scale_factor at build time -- the
+        # Deborah analysis must therefore use the SIMULATED taus.
+        tsf = float(getattr(cfg.solver, "time_scale_factor", 1.0) or 1.0)
         de_list = []
         active = 0
         for (_g, _k, tau) in table:
-            de = float(tau) * geo["v"] / (2.0 * geo["a_geo"]) if geo["a_geo"] > 0 else 0.0
+            tau_sim = float(tau) / tsf
+            de = tau_sim * geo["v"] / (2.0 * geo["a_geo"]) if geo["a_geo"] > 0 else 0.0
             de_list.append(de)
             if DEBORAH_ACTIVE[0] <= de <= DEBORAH_ACTIVE[1]:
                 active += 1
-        parts.append("Deborah numbers: %s" % ", ".join("%.2g" % d for d in de_list))
+        tsf_note = "" if tsf == 1.0 else " (lab taus / time_scale_factor=%g)" % tsf
+        parts.append("Deborah numbers%s: %s"
+                     % (tsf_note, ", ".join("%.2g" % d for d in de_list)))
         if table and active == 0:
             status = "WARN"
             issues.append("no Prony term with De in [%.2g, %.2g]: the viscoelasticity "
