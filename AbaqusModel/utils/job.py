@@ -22,7 +22,7 @@ def run_job_and_wait(job_name, cfg):
         contactPrint=OFF,
         description="",
         echoPrint=OFF,
-        explicitPrecision=SINGLE,
+        explicitPrecision=DOUBLE,             # Important factor for high number of increments ( SINGLE for small sims, DOUBLE for bigger ones)
         historyPrint=OFF,
         memory=90,
         memoryUnits=PERCENTAGE,
