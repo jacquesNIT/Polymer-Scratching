@@ -422,8 +422,11 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
         timeInterval=scratch.field_interval_unload,
     )
     model.fieldOutputRequests[names.out_contact].deactivate(steps["unload"])
-    model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["unload"])
-    model.historyOutputRequests[names.out_energy_whole].deactivate(steps["unload"])
+    #model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["unload"])
+    #model.historyOutputRequests[names.out_energy_whole].deactivate(steps["unload"])
+    _low_freq = max(float(scratch.unload_time), float(scratch.recovery_time)) / 10.0
+    model.historyOutputRequests[names.out_energy_substrate].setValuesInStep(stepName=steps["unload"], timeInterval=_low_freq)
+    model.historyOutputRequests[names.out_energy_whole].setValuesInStep(stepName=steps["unload"], timeInterval=_low_freq)
     model.historyOutputRequests[names.out_reaction].deactivate(steps["unload"])
     if contact_pair_ok:
         model.historyOutputRequests[names.out_contact_pair].deactivate(steps["unload"])
@@ -436,8 +439,12 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
             timeInterval=scratch.field_interval_recovery,
         )
         model.fieldOutputRequests[names.out_contact].deactivate(steps["recovery"])
-        model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["recovery"])
-        model.historyOutputRequests[names.out_energy_whole].deactivate(steps["recovery"])
+        #model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["recovery"])
+        #model.historyOutputRequests[names.out_energy_whole].deactivate(steps["recovery"])
+        model.historyOutputRequests[names.out_energy_substrate].setValuesInStep(
+            stepName=steps["recovery"], timeInterval=_low_freq)
+        model.historyOutputRequests[names.out_energy_whole].setValuesInStep(
+            stepName=steps["recovery"], timeInterval=_low_freq)
         model.historyOutputRequests[names.out_reaction].deactivate(steps["recovery"])
         if contact_pair_ok:
             model.historyOutputRequests[names.out_contact_pair].deactivate(steps["recovery"])
