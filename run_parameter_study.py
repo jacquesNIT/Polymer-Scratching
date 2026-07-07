@@ -216,7 +216,7 @@ def material_study(parameters):
 
 
 # Defaults + selection.
-DEFAULT_FAMILY = "glassy_pc" 
+DEFAULT_FAMILY = "elastomer_ve" 
 DEFAULT_MESH_SIZES = [
     #[0.04, 0.04, 0.04],
     [0.03, 0.03, 0.03],
@@ -226,7 +226,7 @@ DEFAULT_MESH_SIZES = [
 ]
 DEFAULT_MASS_SCALES = [1000, 500, 300]
 DEFAULT_MU_VALUES = [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
-DEFAULT_STUDY = "mass_scale"
+DEFAULT_STUDY = "models"
 DEFAULT_SWEEP_CSV = os.path.join("material_parameters", "polymer_MR_material_parameter_sweep.csv")
 
 def _load_material_parameters(csv_path=None):
