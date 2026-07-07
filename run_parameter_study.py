@@ -216,7 +216,7 @@ def material_study(parameters):
 
 
 # Defaults + selection.
-DEFAULT_FAMILY = "elastomer_ve" 
+DEFAULT_FAMILY = "elastomer_mr" 
 DEFAULT_MESH_SIZES = [
     #[0.04, 0.04, 0.04],
     [0.03, 0.03, 0.03],
