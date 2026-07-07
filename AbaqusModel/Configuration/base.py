@@ -757,7 +757,7 @@ class Simulation_Config:
             solver=Solver_Config(
                 mass_scale=500,    
                 target_time_increment=0.0,
-                use_ALE=False,
+                use_ALE=True,
                 num_cpus=36,
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
