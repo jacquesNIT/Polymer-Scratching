@@ -772,7 +772,7 @@ class Simulation_Config:
                 scratch_length=2.0,
                 scratch_force=40e-3,
                 scratch_depth=-40e-3,
-                scratch_time=0.01,
+                scratch_time=0.1,
                 indentation_time=0.01,
                 unload_time=0.01,
                 recovery_time=0.01,
