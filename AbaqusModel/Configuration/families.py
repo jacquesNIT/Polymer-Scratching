@@ -71,7 +71,7 @@ _GLASSY_CHECKS = (
 # Configurations of polymer families using polymer_defaut and then adding the wanted models
 """
 Currently available models :
-- Linear Elasticity, Mooney-Rivlin, Arruda-Boyce
+- Linear Elasticity, Mooney-Rivlin, Arruda-Boyce, Yeoh, Ogden
 - Von Mises, Drucker-Prager
 - Prony Series
 """
@@ -98,23 +98,6 @@ def _semicrystalline_config():
     )
     return cfg
 
-def _glassy_config():
-    cfg = Simulation_Config.polymer_default()
-    cfg.material = Material_Config(
-        rho=1.18e-9,                                            # 1180 kg/m3 
-        hyperelastic=LinearElastic_Config(E=2400.0, nu=0.38),  
-        plasticity=DruckerPrager_Config(
-            friction_angle=25.0, flow_stress_ratio=0.85, dilation_angle=10.0,
-            yield_table=((60.0, 0.0), (70.0, 0.1), (80.0, 0.4)),
-            rate_dependent=RateDependent_Config.from_eyring(sigma_y0=60.0, S_per_decade=5.0)),   # usual glassy Eyring slope
-        viscoelastic=None,                                                                       # Viscoelastic cannot be combined with plasticity
-                     # Prony_Config(prony_table=((0.2, 0.0, 0.1), (0.1, 0.0, 0.001))),
-        friction=Friction_Config(mu=0.3),
-        family="glassy_dp",
-    )
-    # cfg.solver.mass_scale = 500        # MS convergence study: < 5% only for MS <= 500. 
-    return cfg
-
 def _elastomer_ve_config():
     # Arruda-Boyce + Prony viscoelasticity . The hyperelastic
     # constants define the INSTANTANEOUS response; long-term modulus is
@@ -131,6 +114,22 @@ def _elastomer_ve_config():
     cfg.material.family = "elastomer_ve"
     return cfg
 
+def _glassy_config():
+    cfg = Simulation_Config.polymer_default()
+    cfg.material = Material_Config(
+        rho=1.18e-9,                                            # 1180 kg/m3 
+        hyperelastic=LinearElastic_Config(E=2400.0, nu=0.38),  
+        plasticity=DruckerPrager_Config(
+            friction_angle=25.0, flow_stress_ratio=0.85, dilation_angle=10.0,
+            yield_table=((60.0, 0.0), (70.0, 0.1), (80.0, 0.4)),
+            rate_dependent=RateDependent_Config.from_eyring(sigma_y0=60.0, S_per_decade=5.0)),   # usual glassy Eyring slope
+        viscoelastic=None,                                                                       # Viscoelastic cannot be combined with plasticity
+                     # Prony_Config(prony_table=((0.2, 0.0, 0.1), (0.1, 0.0, 0.001))),
+        friction=Friction_Config(mu=0.3),
+        family="glassy_dp",
+    )
+    # cfg.solver.mass_scale = 500        # MS convergence study: < 5% only for MS <= 500. 
+    return cfg
 
 def _glassy_pc_config():
     # Polycarbonate: E = 2300 MPa, nu = 0.37, rho = 1200 kg/m3
