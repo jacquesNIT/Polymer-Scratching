@@ -36,7 +36,7 @@ def run_job_and_wait(job_name, cfg):
         parallelizationMethodExplicit=DOMAIN,
         queue=None,
         resultsFormat=ODB,
-        scratch="",
+        scratch=os.environ.get("SLURM_TMPDIR", os.getcwd()),
         type=ANALYSIS,
         userSubroutine="",
         waitHours=0,
