@@ -86,14 +86,15 @@ def _semicrystalline_config():
     
     cfg = Simulation_Config.polymer_default()
     cfg.material = Material_Config(
-        rho=0.95e-9,                                             # 930kg/m3 for soft, 950kg/m3 for rigid
-        hyperelastic=LinearElastic_Config(E=1000.0, nu=0.42),    # (200,0.4) for soft, (1000,0.42) for rigid
+        rho=0.95e-9,                                                                                      # 930kg/m3 for soft, 950kg/m3 for rigid
+        hyperelastic=LinearElastic_Config(E=1000.0, nu=0.42),                                             # (200,0.4) for soft, (1000,0.42) for rigid
         plasticity=J2Plasticity_Config(
             yield_table=gsell_jonas_table(sigma_y0=28.0, h=0.22, Q=5.0, b=8.0, eps_max=3.0, n_points=60), # for rigid
-            # yield_table=gsell_jonas_table(sigma_y0=10.0, h=0.20, Q=6.0, b=6.0, eps_max=3.0, n_points=60), # for soft 
-            # yield_table=((28.0, 0.0), (30.0, 0.2), (40.0, 1.0), (60.0, 1.9)) without gsell_jonas
+          # yield_table=gsell_jonas_table(sigma_y0=10.0, h=0.20, Q=6.0, b=6.0, eps_max=3.0, n_points=60), # for soft 
+          # yield_table=((28.0, 0.0), (30.0, 0.2), (40.0, 1.0), (60.0, 1.9)) without gsell_jonas
             rate_dependent=RateDependent_Config.from_eyring(sigma_y0=28.0, S_per_decade=2.5)), # usual semicrystalline Eyring slope
-        friction=Friction_Config(mu=0.3),
+        friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
+        # friction=Friction_Config(mu=0.3),
         family="semicrystalline_j2",
     )
     return cfg
@@ -125,7 +126,8 @@ def _glassy_config():
             rate_dependent=RateDependent_Config.from_eyring(sigma_y0=60.0, S_per_decade=5.0)),   # usual glassy Eyring slope
         viscoelastic=None,                                                                       # Viscoelastic cannot be combined with plasticity
                      # Prony_Config(prony_table=((0.2, 0.0, 0.1), (0.1, 0.0, 0.001))),
-        friction=Friction_Config(mu=0.3),
+        friction=Friction_Config.briscoe(tau0=3.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
+        # friction=Friction_Config(mu=0.3),
         family="glassy_dp",
     )
     # cfg.solver.mass_scale = 500        # MS convergence study: < 5% only for MS <= 500. 
@@ -151,6 +153,7 @@ def _glassy_pc_config():
                                           eps_max=2.5, n_points=60),
             rate_dependent=RateDependent_Config.from_eyring(
                 sigma_y0=70.0, S_per_decade=4.5)),
+        friction=Friction_Config.briscoe(tau0=3.5, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
         friction=Friction_Config(mu=0.3),
         family="glassy_pc",
     )

@@ -220,10 +220,6 @@ class J2Plasticity_Config:
         return d
     
 # 6c. Drucker-Prager pressure-dependent plasticity (glassy / thermoset bases)
-"""
-
-
-"""
 class DruckerPrager_Config:
     MODEL = "drucker_prager"
 
@@ -489,18 +485,8 @@ class Damage_Config:
 # 9. Friction Models (constant Coulomb, or tabular mu(slip rate, pressure))
 class Friction_Config:
     """
-    mu_table row layout follows the Abaqus *FRICTION column order:
+    mu_table follows the Abaqus friction column order: (mm/s, MPa)
         (mu[, slip_rate][, contact_pressure])
-    with the optional columns present exactly when the corresponding flag
-    (slip_rate_dependent / pressure_dependent) is True. Units: mm/s, MPa.
-
-    For polymers the interfacial shear stress follows Briscoe:
-        tau = tau0 + alpha * p   =>   mu(p) = tau0 / p + alpha
-    so the apparent friction DECREASES with contact pressure toward the
-    asymptote alpha (indicative, RT: tau0 ~ 0.5-5 MPa, alpha ~ 0.05-0.3
-    depending on the polymer). Use Friction_Config.briscoe() to build the
-    table; self.mu is then set to the asymptote alpha so that the verifier
-    lower bound SCOF >= mu stays meaningful.
     """
 
     def __init__(self, mu=0.3, formulation="penalty", elastic_slip_fraction=0.005,
@@ -525,14 +511,19 @@ class Friction_Config:
                            len(row)))
 
     @classmethod
-    def briscoe(cls, tau0=2.0, alpha=0.2, p_min=1.0, p_max=600.0, n_points=12,
-                mu_cap=1.0, elastic_slip_fraction=0.005):
+    def briscoe(cls, 
+                tau0=2.0,                       # [MPa] Briscoe's adhesive shear stress (between 0.5 and 5 depending on the polymer)
+                alpha=0.2,                      # [-] Pressure coefficient, mu asymptote at high pressure
+                p_min=1.0, p_max=600.0,         # [Mpa] Pressure Bounds for the table, covers most polymers
+                n_points=12,                    # Number of points in the table (log sampled)
+                mu_cap=1.0,                     # Ceiling to avoid mu divergence
+                elastic_slip_fraction=0.005):
         """
-        Pressure-dependent Coulomb table from the Briscoe interfacial shear
-        model, mu(p) = tau0/p + alpha, sampled log-uniformly on [p_min, p_max]
-        MPa (scratch mean pressures reach ~2-3*sigma_y, i.e. 50-100 MPa for
-        semicrystallines and 150-300 MPa for glassy polymers). mu is capped
-        at mu_cap to avoid unphysically large values at vanishing pressure.
+        Pressure-dependent Coulomb table from the Briscoe interfacial shear model: 
+            mu(p) = tau0/p + alpha
+
+        The apparent friction decreases with contact pressure toward the asymptote alpha.
+        NB : Scratch pressures reach ~2-3*sigma_y = 50-100 MPa for semicrystallines and 150-300 MPa for glassy polymers. 
         """
         p = np.logspace(np.log10(p_min), np.log10(p_max), n_points)
         rows = tuple((float(round(min(tau0 / pv + alpha, mu_cap), 4)), float(round(pv, 3)))
@@ -736,12 +727,12 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.020,       
-                fine_size_y=0.020,
-                fine_size_z=0.020,    
-                coarse_size_0=0.04,     # *2
-                coarse_size_1=0.08,     # *2 
-                coarse_size_2=0.16,     # *2
+                fine_size_x=0.030,       
+                fine_size_y=0.030,
+                fine_size_z=0.030,    
+                coarse_size_0=0.06,     # *2
+                coarse_size_1=0.12,     # *2 
+                coarse_size_2=0.32,     # *2
                 hourglass_control="RELAX STIFFNESS",      # RELAX STIFFNESS Might be innacurate but only one usable for now
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
