@@ -43,6 +43,20 @@ class ParameterStudy(object):
         self.label = label
         self.configure = configure
 
+def _makedirs_safe(path):
+    # Race-safe mkdir -p (Python 2 has no exist_ok): concurrent SLURM jobs
+    # starting together both try to create "runs/", and the loser used to
+    # crash with OSError before its os.chdir -- leaving it in the repo root so
+    # Abaqus wrote/looked for the .inp in the wrong place ("could not be
+    # located"). Tolerating an already-existing directory removes the race.
+    if path and not os.path.isdir(path):
+        try:
+            os.makedirs(path)
+        except OSError:
+            if not os.path.isdir(path):
+                raise
+
+
 def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
                          output_subdir="SimDataOutputs", move_exts=(".sta", ".odb"),
                          chunk=None, cpus=None, tag=None):
@@ -86,13 +100,12 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
         print(">>> solver.num_cpus overridden to %d." % int(cpus))
 
     run_dir = os.path.join("runs", study.name + fam_tag + suffix)
-    if not os.path.exists(run_dir):
-        os.makedirs(run_dir)
+    _makedirs_safe(run_dir)
     os.chdir(run_dir)
     run_dir_abs = os.path.abspath(os.getcwd())
 
-    if output_subdir and not os.path.exists(output_subdir):
-        os.makedirs(output_subdir)
+    if output_subdir:
+        _makedirs_safe(output_subdir)
 
     n_total = len(cases)
     for i, case in enumerate(cases, start=1):
@@ -211,9 +224,9 @@ def model_study(mu0=2.2, K_mu=55.0):
 DEFAULT_FAMILY = "elastomer_ve" 
 DEFAULT_MESH_SIZES = [
     [0.04, 0.04, 0.04],
-    #[0.03, 0.03, 0.03],
-    #[0.02, 0.02, 0.02],
-    #[0.015, 0.015, 0.015],
+    [0.03, 0.03, 0.03],
+    [0.02, 0.02, 0.02],
+    [0.015, 0.015, 0.015],
     #[0.01, 0.01, 0.01],
 ]
 DEFAULT_MASS_SCALES = [5000]
