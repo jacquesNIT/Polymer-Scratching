@@ -37,7 +37,7 @@ import sys
 JOBS = [
     ("mesh", "glassy_pc"),
     #("mesh", "glassy_dp"),        
-    ("mesh", "glassy_pmma"),
+    #("mesh", "glassy_pmma"),
     # ("mesh", "semicrystalline_j2"),
     # ("mass_scale", "glassy_pc"),
     # ("models", "elastomer_mr"),

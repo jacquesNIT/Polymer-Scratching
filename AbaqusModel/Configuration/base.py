@@ -762,7 +762,7 @@ class Simulation_Config:
                 mass_scale=500,    
                 target_time_increment=0.0,
                 use_ALE=False,
-                num_cpus=18,
+                num_cpus=12,
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
                 ale_frequency=20,
