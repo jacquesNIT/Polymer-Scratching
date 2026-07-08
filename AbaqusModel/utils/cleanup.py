@@ -3,25 +3,33 @@
 import os
 import glob
 
-def cleanup_abaqus_junk():
+def cleanup_abaqus_junk(base_dir=None):
+    # Remove Abaqus scratch files. 
+    # base_dir bounds the cleanup to a single job's run directory for simultaneous job submissions
+    prev_cwd = os.getcwd()
+    if base_dir is not None:
+        try:
+            os.chdir(base_dir)
+        except OSError:
+            pass
 
-    exception_files = glob.glob("*.exception")
-    if exception_files:
-        return
+    try:
+        if glob.glob("*.exception"):
+            return
 
-    extensions = [
-        "*.abq", "*.cid", "*.com", "*.ipm", "*.log",
-        "*.mdl", "*.pac", "*.prt", "*.res", "*.sel",
-        "*.simlog", "*.stt", "*.rpy*", "*.env",
-    ]
-    for ext in extensions:
-        for f in glob.glob(ext):
-            os.remove(f)
-
-    # Also clean up two levels above 
-    os.chdir("../..")
-    for f in glob.glob("*.rec"):
-        os.remove(f)
-    for f in glob.glob("*.rpy*"):
-        if f != "abaqus.rpy":
-            os.remove(f)
+        extensions = [
+            "*.abq", "*.cid", "*.com", "*.ipm", "*.log",
+            "*.mdl", "*.pac", "*.prt", "*.res", "*.sel",
+            "*.simlog", "*.stt", "*.rpy*", "*.env", "*.rec",
+        ]
+        for ext in extensions:
+            for f in glob.glob(ext):
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
+    finally:
+        try:
+            os.chdir(prev_cwd)
+        except OSError:
+            pass

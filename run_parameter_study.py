@@ -71,7 +71,12 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
     if not cases:
         raise SystemExit("Chunk %s selects no case (study has %d cases)." % (chunk, n_global))
 
-    cfg.job_name = (job_name or study.name) + suffix
+    # Family is part of the run directory AND the job name: two studies that
+    # differ only by family (e.g. "mesh glassy_pc" vs "mesh elastomer_mr")
+    # produce identical case labels, so without this they would overwrite each
+    # other's CSVs in a shared runs/<study>/ folder.
+    fam_tag = ("_" + str(family)) if family else ""
+    cfg.job_name = (job_name or study.name) + fam_tag + suffix
     if study.configure:
         study.configure(cfg)
 
@@ -80,10 +85,11 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
         cfg.solver.num_domains = int(cpus)
         print(">>> solver.num_cpus overridden to %d." % int(cpus))
 
-    run_dir = os.path.join("runs", study.name + suffix)
+    run_dir = os.path.join("runs", study.name + fam_tag + suffix)
     if not os.path.exists(run_dir):
         os.makedirs(run_dir)
     os.chdir(run_dir)
+    run_dir_abs = os.path.abspath(os.getcwd())
 
     if output_subdir and not os.path.exists(output_subdir):
         os.makedirs(output_subdir)
@@ -110,7 +116,7 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
 
         print(">>> [%d/%d] %s -> %s done." % (i, n_total, study.name, stem))
 
-    cleanup_abaqus_junk()
+    cleanup_abaqus_junk(base_dir=run_dir_abs)
 
 
 
@@ -205,9 +211,9 @@ def model_study(mu0=2.2, K_mu=55.0):
 DEFAULT_FAMILY = "elastomer_ve" 
 DEFAULT_MESH_SIZES = [
     [0.04, 0.04, 0.04],
-    [0.03, 0.03, 0.03],
-    [0.02, 0.02, 0.02],
-    [0.015, 0.015, 0.015],
+    #[0.03, 0.03, 0.03],
+    #[0.02, 0.02, 0.02],
+    #[0.015, 0.015, 0.015],
     #[0.01, 0.01, 0.01],
 ]
 DEFAULT_MASS_SCALES = [5000]
