@@ -220,6 +220,10 @@ class J2Plasticity_Config:
         return d
     
 # 6c. Drucker-Prager pressure-dependent plasticity (glassy / thermoset bases)
+"""
+
+
+"""
 class DruckerPrager_Config:
     MODEL = "drucker_prager"
 
@@ -758,7 +762,7 @@ class Simulation_Config:
                 mass_scale=500,    
                 target_time_increment=0.0,
                 use_ALE=False,
-                num_cpus=18,
+                num_cpus=36,
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
                 ale_frequency=20,
