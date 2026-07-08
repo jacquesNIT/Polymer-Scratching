@@ -1,24 +1,20 @@
 # Unified driver for every scratch-test parameter study.
 #
-# " abaqus cae noGUI=run_parameter_study.py -- single / mesh / mass_scale / friction / material"
-# " abaqus cae noGUI=run_parameter_study.py -- models "
-#     -> one scratch per model (MR / AB / Yeoh / Ogden) calibrated to the same (mu_0, K_0). (hyperelastic-only families)
+# " abaqus cae noGUI=run_parameter_study.py -- single "
+# " abaqus cae noGUI=run_parameter_study.py -- mesh "
+# " abaqus cae noGUI=run_parameter_study.py -- mass_scale "
 # " abaqus cae noGUI=run_parameter_study.py -- material "
-#     -> QMC material sweep loaded from material_parameters/*.csv.
+# " abaqus cae noGUI=run_parameter_study.py -- friction "
 #
-# CLUSTER CHUNKING (tokens after '--', any order; used by launch_cluster_jobs.py):
+# JOB-SPLITTING TOKENS (after '--', any order; used by launch_cluster_jobs.py):
 #   <study> [family] [i/N] [cpus=K] [tag=NAME]
-#     i/N     -> run only the round-robin slice cases[i::N] of the study, in
-#                an ISOLATED directory runs/<name>_c{i}of{N} with a unique
-#                job name (mandatory for concurrent SLURM jobs: .odb/.sta/
-#                .lck/.rpy collide otherwise). Round-robin balances the load
-#                when case costs vary (e.g. mesh refinement sweeps).
-#     cpus=K  -> overrides solver.num_cpus/num_domains; MUST match the -c
-#                passed to the site wrapper, otherwise Abaqus oversubscribes
-#                or under-uses the SLURM allocation.
-#     tag=X   -> extra suffix for the run directory / job name (lets the same
-#                study be launched several times side by side).
-# Example: abaqus cae noGUI=run_parameter_study.py -- material elastomer_mr 3/32 cpus=18
+#     i/N     -> run only the round-robin slice cases[i::N], in an ISOLATED
+#                directory runs/<name>_c{i}of{N} with a unique job name
+#                (mandatory for concurrent SLURM jobs: .odb/.sta/.lck collide
+#                otherwise).
+#     cpus=K  -> overrides solver.num_cpus/num_domains.
+#     tag=X   -> free suffix (same study launched twice without collision).
+# Example: abaqus cae noGUI=run_parameter_study.py -- material elastomer_mr 3/8
 
 import sys
 import os
@@ -53,7 +49,7 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
     """
     chunk=(i, N) runs only the round-robin slice cases[i::N] inside an
     isolated directory (concurrent-job safe); cpus overrides the solver CPU
-    count (must equal the wrapper -c); tag adds a free suffix.
+    count; tag adds a free suffix.
     """
 
     cfg = base_cfg or get_family(family or DEFAULT_FAMILY).build_config()
@@ -82,7 +78,7 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
     if cpus:
         cfg.solver.num_cpus = int(cpus)
         cfg.solver.num_domains = int(cpus)
-        print(">>> solver.num_cpus overridden to %d (must match the wrapper -c)." % int(cpus))
+        print(">>> solver.num_cpus overridden to %d." % int(cpus))
 
     run_dir = os.path.join("runs", study.name + suffix)
     if not os.path.exists(run_dir):
@@ -165,19 +161,26 @@ def friction_study(mu_values):
     )
 
 
+def material_study(parameters):
+    def apply(cfg, p):
+        cfg.material.rho = p["rho"]
+        cfg.material.hyperelastic.C10 = p["C10"]
+        cfg.material.hyperelastic.C01 = p["C01"]
+        cfg.material.hyperelastic.D1 = p["D1"]
+        cfg.material.friction.mu = p["mu"]
+    return ParameterStudy(
+        name="MaterialSweep",
+        cases=parameters,
+        apply_case=apply,
+        label=lambda p: "Material_%s" % p["id"],
+    )
+
 def model_study(mu0=2.2, K_mu=55.0):
     """
-    Hyperelastic MODEL-FORM comparison: one scratch per constitutive model
-    (Mooney-Rivlin, Arruda-Boyce, Yeoh, Ogden N=2 by default), every model
-    matched to the same small-strain response (mu_0, K_0 = K_mu*mu_0) by
-    matched_hyperelastic_set(). Any difference between the resulting CSVs
-    (RF2, SCOF, pile-up, residual profile) is then attributable to the model
-    form only: I2-dependence (MR), network locking (AB), higher-order I1
-    (Yeoh), principal-stretch formulation (Ogden).
+    Hyperelastic model-form comparison: one scratch per constitutive model (Mooney-Rivlin, Arruda-Boyce, Yeoh, Ogden N=2), 
+    mu_0, K_0 = K_mu*mu_0 matched by matched_hyperelastic_set(). 
 
-    Only meaningful on hyperelastic families (elastomer_mr / elastomer_ve):
-    swapping a hyperelastic base onto a plastic family is refused early here
-    (and would anyway be rejected by the material validation guard).
+    Only meaningful on hyperelastic families (elastomer_mr / elastomer_ve)
     """
     model_set = matched_hyperelastic_set(mu0=mu0, K_mu=K_mu)
 
@@ -198,36 +201,24 @@ def model_study(mu0=2.2, K_mu=55.0):
         label=lambda case: "Model_%s" % case[0],
     )
 
-
-def material_study(parameters):
-    def apply(cfg, p):
-        cfg.material.rho = p["rho"]
-        cfg.material.hyperelastic.C10 = p["C10"]
-        cfg.material.hyperelastic.C01 = p["C01"]
-        cfg.material.hyperelastic.D1 = p["D1"]
-        cfg.material.friction.mu = p["mu"]
-    return ParameterStudy(
-        name="MaterialSweep",
-        cases=parameters,
-        apply_case=apply,
-        label=lambda p: "Material_%s" % p["id"],
-    )
-
-
-
 # Defaults + selection.
-DEFAULT_FAMILY = "glassy_pc" 
+DEFAULT_FAMILY = "elastomer_ve" 
 DEFAULT_MESH_SIZES = [
-    #[0.04, 0.04, 0.04],
+    [0.04, 0.04, 0.04],
     #[0.03, 0.03, 0.03],
     #[0.02, 0.02, 0.02],
     #[0.015, 0.015, 0.015],
-    [0.01, 0.01, 0.01],
+    #[0.01, 0.01, 0.01],
 ]
-DEFAULT_MASS_SCALES = [1000, 500, 300]
+DEFAULT_MASS_SCALES = [5000]
 DEFAULT_MU_VALUES = [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
-DEFAULT_STUDY = "mesh"
-DEFAULT_SWEEP_CSV = os.path.join("material_parameters", "polymer_MR_material_parameter_sweep.csv")
+DEFAULT_STUDY = "single"
+
+# QMC material sweep produced by MR_parameter_sampling.py, loaded from the
+# CSV (no pandas in the Abaqus kernel); resolved relative to THIS script
+# because run_parameter_study() chdirs into runs/ afterwards.
+DEFAULT_SWEEP_CSV = os.path.join("material_parameters",
+                                 "polymer_MR_material_parameter_sweep.csv")
 
 def _load_material_parameters(csv_path=None):
     import csv as _csv
@@ -251,15 +242,14 @@ STUDIES = {
     "mesh":       lambda: mesh_study(DEFAULT_MESH_SIZES),
     "mass_scale": lambda: mass_scale_study(DEFAULT_MASS_SCALES),
     "friction":   lambda: friction_study(DEFAULT_MU_VALUES),
-    "models":     lambda: model_study(),
     "material":   lambda: material_study(_load_material_parameters()),
+    "models":     lambda: model_study(),
 }
 
 def _parse_cli(argv, default_study=DEFAULT_STUDY, default_family=DEFAULT_FAMILY):
     """
     Tokens after '--' in any order: <study> [family] [i/N] [cpus=K] [tag=X].
-    Without '--' (plain 'abaqus cae noGUI=...'), only study names are scanned
-    in argv (legacy behaviour: Abaqus flags must not be mistaken for tokens).
+    Without '--', only study names are scanned in argv (legacy behaviour).
     """
     out = {"study": default_study, "family": default_family,
            "chunk": None, "cpus": None, "tag": None}
