@@ -35,9 +35,9 @@ import sys
 # mass_scale, friction, models, material. Available families: elastomer_mr,
 # elastomer_ve, semicrystalline_j2, glassy_dp, glassy_pc, glassy_pmma.
 JOBS = [
-    ("mesh", "glassy_pc"),
-    ("mesh", "glassy_dp"),        
-    #("mesh", "glassy_pmma"),
+    ("mesh", "glassy_pc"),       
+    ("mesh", "glassy_pmma"),
+    ("mesh", "glassy_dp"),       
     # ("mesh", "semicrystalline_j2"),
     # ("mass_scale", "glassy_pc"),
     # ("models", "elastomer_mr"),
