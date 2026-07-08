@@ -36,7 +36,7 @@ import sys
 # elastomer_ve, semicrystalline_j2, glassy_dp, glassy_pc, glassy_pmma.
 JOBS = [
     ("mesh", "glassy_pc"),
-    #("mesh", "glassy_dp"),        
+    ("mesh", "glassy_dp"),        
     #("mesh", "glassy_pmma"),
     # ("mesh", "semicrystalline_j2"),
     # ("mass_scale", "glassy_pc"),
