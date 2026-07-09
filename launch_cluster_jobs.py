@@ -17,11 +17,11 @@ import time
 # Configuration: (study, family)
 # NB : make sure that the number of jobs * CPUs per job < CPUs of the node 
 JOBS = [
-    ("mesh", "elastomer_mr"),       
-    ("mesh", "glassy_pmma"),
-    ("mesh", "glassy_dp"),       
-    ("mesh", "semicrystalline_j2"),
-    ("mesh", "glassy_pc"),
+    ("gsell_h", "semicrystalline_j2"),       
+    ("depth", "glassy_pc"),
+    #("mesh", "glassy_dp"),       
+    #("mesh", "semicrystalline_j2"),
+    #("mesh", "glassy_pc"),
     # ("models", "elastomer_mr"),
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
@@ -30,7 +30,7 @@ DRY_RUN = False                 # True for testing only
 
 
 # Valid tokens 
-_VALID_STUDIES = ("single", "mesh", "mass_scale", "friction", "material", "models")
+_VALID_STUDIES = ("single", "mesh", "mass_scale", "friction", "material", "models", "depth", "gsell_h")
 _VALID_FAMILIES = ("elastomer_mr", "elastomer_ve", "semicrystalline_j2",
                    "glassy_dp", "glassy_pc", "glassy_pmma")
 

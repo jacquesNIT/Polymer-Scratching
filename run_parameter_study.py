@@ -30,6 +30,7 @@ from ScratchSimulation.AbaqusModel.abaqus_env import *
 from ScratchSimulation.AbaqusModel.Configuration import Simulation_Config
 from ScratchSimulation.AbaqusModel.Configuration import get_family
 from ScratchSimulation.AbaqusModel.Configuration import matched_hyperelastic_set
+from ScratchSimulation.AbaqusModel.Configuration import gsell_jonas_table
 from ScratchSimulation.AbaqusModel.Simulation import build_scratch_model
 from ScratchSimulation.AbaqusModel.Material import SubstrateMaterialAssignment
 from ScratchSimulation.AbaqusModel.Postprocessing import post_process
@@ -220,6 +221,71 @@ def model_study(mu0=2.2, K_mu=55.0):
         label=lambda case: "Model_%s" % case[0],
     )
 
+
+def depth_study(depths):
+    """
+    Scratch-depth sweep: one scratch per prescribed penetration depth.
+    Each case sets cfg.scratch.scratch_depth (in mm; negative = into the
+    surface, matching Scratch_Config). ALE is forced on like the mesh/
+    mass-scale studies, because deeper grooves drive larger element
+    distortion in the contact zone.
+    """
+    return ParameterStudy(
+        name="DepthSweep",
+        cases=depths,
+        apply_case=lambda cfg, d: setattr(cfg.scratch, "scratch_depth", d),
+        label=lambda d: "Depth_%s" % d,
+        configure=lambda cfg: setattr(cfg.solver, "use_ALE", True),
+    )
+
+
+# Base G'Sell-Jonas parameters held FIXED while h is swept -- only the
+# orientation-hardening term exp(h*eps_p^2) changes between cases. These match
+# the rigid semicrystalline (semicrystalline_j2) calibration; edit them to fit
+# the family you actually run the study on.
+GSELL_SIGMA_Y0  = 28.0    # initial yield stress [MPa]
+GSELL_Q         = 5.0     # Voce initial-hardening amplitude [MPa]
+GSELL_B         = 8.0     # Voce initial-hardening rate [-]
+GSELL_SOFT_DROP = 0.0     # intrinsic post-yield softening [MPa] (0 = off)
+GSELL_EPS_SOFT  = 0.05    # softening strain scale [-]
+GSELL_EPS_MAX   = 3.0     # max plastic strain tabulated [-]
+GSELL_N_POINTS  = 60      # points in the yield table
+
+
+def gsell_h_study(h_values):
+    """
+    G'Sell strain-hardening sweep: one scratch per h in the G'Sell reference
+    table (h = 0, 0.22, 0.45). Each case regenerates the J2 yield table with
+    gsell_jonas_table(), holding sigma_y0/Q/b/... fixed (see GSELL_* above) and
+    varying only the orientation-hardening term exp(h*eps_p^2) -- the term
+    Bucaille et al. tie to pile-up and scratch resistance.
+
+    Only meaningful on a family whose plasticity exposes a yield_table
+    (palier 2, e.g. semicrystalline_j2). Run it as:
+        abaqus cae noGUI=run_parameter_study.py -- gsell_h semicrystalline_j2
+    """
+    def apply(cfg, h):
+        pl = cfg.material.plasticity
+        if not hasattr(pl, "yield_table"):
+            raise ValueError(
+                "gsell_h_study rewrites the J2 yield table but family '%s' "
+                "plasticity (%s) exposes no yield_table. Run it on a palier-2 "
+                "family such as semicrystalline_j2."
+                % (getattr(cfg.material, "family", "?"),
+                   getattr(pl, "MODEL", type(pl).__name__)))
+        pl.yield_table = gsell_jonas_table(
+            sigma_y0=GSELL_SIGMA_Y0, h=h, Q=GSELL_Q, b=GSELL_B,
+            soft_drop=GSELL_SOFT_DROP, eps_soft=GSELL_EPS_SOFT,
+            eps_max=GSELL_EPS_MAX, n_points=GSELL_N_POINTS)
+
+    return ParameterStudy(
+        name="GSellHardening",
+        cases=h_values,
+        apply_case=apply,
+        label=lambda h: "GSell_h_%s" % h,
+    )
+
+
 # Defaults + selection.
 DEFAULT_FAMILY = "elastomer_mr" 
 DEFAULT_MESH_SIZES = [
@@ -232,6 +298,8 @@ DEFAULT_MESH_SIZES = [
 ]
 DEFAULT_MASS_SCALES = [5000]
 DEFAULT_MU_VALUES = [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+DEFAULT_DEPTHS = [-20e-3, -40e-3, -60e-3, -80e-3, -100e-3]
+DEFAULT_GSELL_H = [0.0, 0.22, 0.45]
 DEFAULT_STUDY = "single"
 
 # QMC material sweep produced by MR_parameter_sampling.py, loaded from the
@@ -264,6 +332,8 @@ STUDIES = {
     "friction":   lambda: friction_study(DEFAULT_MU_VALUES),
     "material":   lambda: material_study(_load_material_parameters()),
     "models":     lambda: model_study(),
+    "depth":      lambda: depth_study(DEFAULT_DEPTHS),
+    "gsell_h":    lambda: gsell_h_study(DEFAULT_GSELL_H),
 }
 
 def _parse_cli(argv, default_study=DEFAULT_STUDY, default_family=DEFAULT_FAMILY):
