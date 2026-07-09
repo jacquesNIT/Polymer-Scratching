@@ -8,10 +8,11 @@ import pandas as pd
 # Add your values as you go. Leave np.nan for empty cells.
 data = {
     "Mesh_Sizes": [3300, 10000, 32000, 83000, 240000],
+    48: [np.nan, np.nan, np.nan, 56, 194],
     36: [6.0, 10.0, 21.0, 55.0, 200.0],
-    24: [8.0, 11.0, 24.0, 69.0, np.nan],
-    16: [np.nan, np.nan, np.nan, np.nan, np.nan],
-    12: [np.nan, np.nan, np.nan, np.nan, np.nan],
+    24: [8.0, 11.0, 24.0, 69.0, 245],
+    16: [4.0, 9.0, 27.0, 82.0, 307.0],
+    12: [4.0, 9.0, 29.0, np.nan, np.nan],
     10: [np.nan, np.nan, np.nan, np.nan, np.nan],
     8: [np.nan, np.nan, np.nan, np.nan, np.nan],
     6: [np.nan, np.nan, np.nan, np.nan, np.nan],
