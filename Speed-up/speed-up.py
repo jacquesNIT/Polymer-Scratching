@@ -8,16 +8,13 @@ import pandas as pd
 # Add your values as you go. Leave np.nan for empty cells.
 data = {
     "Mesh_Sizes": [3300, 10000, 32000, 83000, 240000],
-    48: [np.nan, np.nan, np.nan, 56, 194],
+    64: [np.nan, np.nan, np.nan, 57.0, 200.0],
+    48: [np.nan, np.nan, np.nan, 56.0, 194.0],
     36: [6.0, 10.0, 21.0, 55.0, 200.0],
     24: [8.0, 11.0, 24.0, 69.0, 245],
     16: [4.0, 9.0, 27.0, 82.0, 307.0],
     12: [4.0, 9.0, 29.0, np.nan, np.nan],
-    10: [np.nan, np.nan, np.nan, np.nan, np.nan],
-    8: [np.nan, np.nan, np.nan, np.nan, np.nan],
-    6: [np.nan, np.nan, np.nan, np.nan, np.nan],
-    4: [np.nan, np.nan, np.nan, np.nan, np.nan],
-    2: [np.nan, np.nan, np.nan, np.nan, np.nan],
+    8: [4.0, 11.0, 38.0, np.nan, np.nan],
 }
 
 # Convert to DataFrame
@@ -35,23 +32,19 @@ df_long["CPUs"] = df_long["CPUs"].astype(int)
 # Temporarily drop rows that don't have a value yet (np.nan)
 df_long = df_long.dropna(subset=["Walltime"]).sort_values(by=["Mesh_Sizes", "CPUs"])
 
+# Find the reference (minimum) CPU and its corresponding Walltime for each Mesh Size
+df_ref = df_long.loc[df_long.groupby("Mesh_Sizes")["CPUs"].idxmin()][
+    ["Mesh_Sizes", "CPUs", "Walltime"]
+]
+df_ref = df_ref.rename(columns={"CPUs": "Min_CPUs", "Walltime": "Ref_Time"})
 
-def compute_hpc_metrics(group):
-    # Find the minimum number of CPUs available for this specific mesh size
-    min_cpu = group["CPUs"].min()
-    ref_time = group.loc[group["CPUs"] == min_cpu, "Walltime"].values[0]
+# Merge the reference data back into the main DataFrame (Avoids groupby.apply version bugs)
+df_metrics = df_long.merge(df_ref, on="Mesh_Sizes")
 
-    # Calculate Speed-up relative to the minimum available CPU
-    group["Speedup"] = ref_time / group["Walltime"]
-
-    # Calculate relative Efficiency: S(P) / (P / P_min)
-    group["Efficiency"] = group["Speedup"] / (group["CPUs"] / min_cpu)
-    return group
-
-
-# Apply calculations per Mesh Size group
-df_metrics = df_long.groupby("Mesh_Sizes", group_keys=False).apply(
-    compute_hpc_metrics
+# Calculate Speed-up and Parallel Efficiency
+df_metrics["Speedup"] = df_metrics["Ref_Time"] / df_metrics["Walltime"]
+df_metrics["Efficiency"] = df_metrics["Speedup"] / (
+    df_metrics["CPUs"] / df_metrics["Min_CPUs"]
 )
 
 # ==========================================
