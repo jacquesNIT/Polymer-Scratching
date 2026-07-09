@@ -203,11 +203,16 @@ class P_Model_Config:
     def params(self):
         return {}
 
-# 6b. J2 / von Mises plasticity (isochoric, pressure-independent)
+# 6b. Von Mises plasticity (isochoric, pressure-independent)
 class J2Plasticity_Config:
+    """
+    Usually used for metals.
+    Plasticity is driven by distortion energy only.
+    """
     MODEL = "mises"
 
-    def __init__(self, yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6)),  # (yield_stress [MPa], plastic_strain [-])
+    def __init__(self, 
+                 yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6)),        # (yield_stress [MPa], plastic_strain [-])
                  rate_dependent=None):                                       # RateDependent_Config or None
         self.yield_table = tuple(tuple(pt) for pt in yield_table)
         self.rate_dependent = rate_dependent
@@ -221,15 +226,20 @@ class J2Plasticity_Config:
     
 # 6c. Drucker-Prager pressure-dependent plasticity (glassy / thermoset bases)
 class DruckerPrager_Config:
+    """
+    Makes the Simulation Pressure Dependent (linearly), better for polymers.
+    """
     MODEL = "drucker_prager"
 
-    def __init__(self, friction_angle=25.0, flow_stress_ratio=0.85,
-                 dilation_angle=10.0,
+    def __init__(self, 
+                 friction_angle=25.0,                                   # [deg] angle of the indenter
+                 flow_stress_ratio=0.85,                                # [-] flow_stress_ratio (usually between 0.8 and 1.0)
+                 dilation_angle=10.0,                                   # [deg] Control the change of volume when exposed to shearing
                  yield_table=((60.0, 0.0), (70.0, 0.1), (80.0, 0.4)),
-                 rate_dependent=None):                          # RateDependent_Config or None
-        self.friction_angle = friction_angle            # friction_angle beta [deg]
-        self.flow_stress_ratio = flow_stress_ratio      # flow_stress_ratio K [-]
-        self.dilation_angle = dilation_angle            # dilation_angle psi [deg]
+                 rate_dependent=None):                          
+        self.friction_angle = friction_angle            
+        self.flow_stress_ratio = flow_stress_ratio      
+        self.dilation_angle = dilation_angle           
         self.yield_table = tuple(tuple(pt) for pt in yield_table)
         self.rate_dependent = rate_dependent
 
@@ -482,9 +492,11 @@ class Damage_Config:
     def params(self):
         return {}
 
-# 9. Friction Models (constant Coulomb, or tabular mu(slip rate, pressure))
+# 9. Friction Models 
 class Friction_Config:
     """
+    Uses either a constant Coulomb mu or a mu_table from Briscoe
+
     mu_table follows the Abaqus friction column order: (mm/s, MPa)
         (mu[, slip_rate][, contact_pressure])
     """
@@ -571,7 +583,7 @@ class Solver_Config:
 
     def __init__(self,
                  mass_scale=1000,
-                 target_time_increment=0.0,
+                 target_time_increment=1e-8,
                  use_ALE=True,
                  num_cpus=6,
                  time_scale_factor=1.0,
@@ -741,8 +753,8 @@ class Simulation_Config:
             ),
             material=Material_Config(
                 rho=1.2e-9,
-                # hyperelastic=HE_Model_Config(C10=1.0, C01=0.1, D1=1.8e-2),
-                hyperelastic=AB_Model_Config(mu=2.0, lambda_m=2.5, D=1.8e-2),
+                hyperelastic=HE_Model_Config(C10=1.0, C01=0.1, D1=1.8e-2),
+                #hyperelastic=AB_Model_Config(mu=2.0, lambda_m=2.5, D=1.8e-2),
                 viscoelastic=None,
                 plasticity=None,
                 damage=None,
@@ -767,10 +779,10 @@ class Simulation_Config:
                 scratch_length=2.0,
                 scratch_force=40e-3,
                 scratch_depth=-40e-3,
-                scratch_time=0.1,
-                indentation_time=0.01,
-                unload_time=0.01,
-                recovery_time=0.01,
+                scratch_time=0.01,
+                indentation_time=0.001,
+                unload_time=0.001,
+                recovery_time=0.001,
                 recovery_lift=0.05,
                 n_field_frames=40,
                 n_field_frames_recovery=10,

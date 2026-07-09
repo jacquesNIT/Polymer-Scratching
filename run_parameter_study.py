@@ -221,7 +221,7 @@ def model_study(mu0=2.2, K_mu=55.0):
     )
 
 # Defaults + selection.
-DEFAULT_FAMILY = "elastomer_ve" 
+DEFAULT_FAMILY = "elastomer_mr" 
 DEFAULT_MESH_SIZES = [
     [0.04, 0.04, 0.04],
     [0.03, 0.03, 0.03],

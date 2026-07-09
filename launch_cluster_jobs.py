@@ -12,12 +12,13 @@ import re
 import subprocess
 import sys
 
+
 # Configuration: (study, family)
 # NB : make sure that the number of jobs * CPUs per job < CPUs of the node 
 JOBS = [
-    ("mesh", "glassy_pc"),       
-    ("mesh", "glassy_pmma"),
-    ("mesh", "glassy_dp"),       
+    ("mesh", "elastomer_mr"),       
+    #("mesh", "glassy_pmma"),
+    #("mesh", "glassy_dp"),       
     # ("mesh", "semicrystalline_j2"),
     # ("mass_scale", "glassy_pc"),
     # ("models", "elastomer_mr"),
