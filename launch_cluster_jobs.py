@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 
 # Configuration: (study, family)
@@ -124,6 +125,10 @@ def main():
             rc = subprocess.call(cmd, cwd=here)
             if rc != 0:
                 print("  !! sbatch returned %d for %s" % (rc, label))
+            elif label != jobs[-1][0]:      
+                delay = 30                  
+                print("  ... sleeping %ds before next submit" % delay)
+                time.sleep(delay)
 
     if DRY_RUN:
         print(">>> DRY_RUN: files generated, nothing submitted.")
