@@ -20,8 +20,8 @@ JOBS = [
     ("mesh", "elastomer_mr"),       
     ("mesh", "glassy_pmma"),
     ("mesh", "glassy_dp"),       
-    #("mesh", "semicrystalline_j2"),
-    #("mass_scale", "glassy_pc"),
+    ("mesh", "semicrystalline_j2"),
+    ("mesh", "glassy_pc"),
     # ("models", "elastomer_mr"),
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
@@ -126,8 +126,7 @@ def main():
             if rc != 0:
                 print("  !! sbatch returned %d for %s" % (rc, label))
             elif label != jobs[-1][0]:      
-                delay = 30                  
-                print("  ... sleeping %ds before next submit" % delay)
+                delay = 10                  
                 time.sleep(delay)
 
     if DRY_RUN:
