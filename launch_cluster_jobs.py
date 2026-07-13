@@ -17,8 +17,9 @@ import time
 # Configuration: (study, family)
 # NB : make sure that the number of jobs * CPUs per job < CPUs of the node 
 JOBS = [
-    ("gsell_h", "semicrystalline_j2"),       
-    ("depth", "glassy_pc"),
+    #("gsell_h", "semicrystalline_j2"),       
+    #("depth", "glassy_pc"),
+    ("target_dt", "glassy_pc")
     #("mesh", "glassy_dp"),       
     #("mesh", "semicrystalline_j2"),
     #("mesh", "glassy_pc"),
@@ -26,7 +27,7 @@ JOBS = [
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"
-DRY_RUN = False                 # True for testing only
+DRY_RUN = True                 # True for testing only
 
 
 # Valid tokens 
