@@ -27,7 +27,7 @@ JOBS = [
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"
-DRY_RUN = True                 # True for testing only
+DRY_RUN = False                 # True for testing only
 
 
 # Valid tokens 
