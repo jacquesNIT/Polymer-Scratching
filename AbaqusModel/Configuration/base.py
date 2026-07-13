@@ -251,7 +251,6 @@ class DruckerPrager_Config:
             d.update(self.rate_dependent.params())
         return d
 
-
 # 6d. Rate dependence of the yield surface (Cowper-Symonds overstress power law)
 class RateDependent_Config:
     """
@@ -739,12 +738,12 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.020,       
-                fine_size_y=0.020,
-                fine_size_z=0.020,    
-                coarse_size_0=0.04,     # *2
-                coarse_size_1=0.08,     # *2 
-                coarse_size_2=0.16,     # *2
+                fine_size_x=0.015,       
+                fine_size_y=0.015,
+                fine_size_z=0.015,    
+                coarse_size_0=0.03,     # *2
+                coarse_size_1=0.06,     # *2 
+                coarse_size_2=0.12,     # *2
                 hourglass_control="RELAX STIFFNESS",      # RELAX STIFFNESS Might be innacurate but only one usable for now
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
@@ -778,7 +777,7 @@ class Simulation_Config:
                 control_mode=Scratch_Config.DISPLACEMENT,
                 scratch_length=2.0,
                 scratch_force=40e-3,
-                scratch_depth=-40e-3,
+                scratch_depth=-100e-3,
                 scratch_time=0.1,
                 indentation_time=0.01,
                 unload_time=0.01,
