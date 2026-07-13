@@ -19,8 +19,8 @@ import time
 JOBS = [
     # ("gsell_h", "semicrystalline_j2"),       
     ("depth", "glassy_pc"),
-    #("depth", "glassy_dp"),       
-    #("mesh", "semicrystalline_j2"),
+    ("depth", "glassy_pmma"),       
+    ("gsell_h", "semicrystalline_j2"),
     #("mesh", "glassy_pc"),
     ("models", "elastomer_mr"),
 ]
