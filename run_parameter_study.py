@@ -31,6 +31,7 @@ from ScratchSimulation.AbaqusModel.Configuration import Simulation_Config
 from ScratchSimulation.AbaqusModel.Configuration import get_family
 from ScratchSimulation.AbaqusModel.Configuration import matched_hyperelastic_set
 from ScratchSimulation.AbaqusModel.Configuration import gsell_jonas_table
+from ScratchSimulation.AbaqusModel.Configuration import natural_dt
 from ScratchSimulation.AbaqusModel.Simulation import build_scratch_model
 from ScratchSimulation.AbaqusModel.Material import SubstrateMaterialAssignment
 from ScratchSimulation.AbaqusModel.Postprocessing import post_process
@@ -170,6 +171,57 @@ def mass_scale_study(scales):
         configure=lambda cfg: setattr(cfg.solver, "use_ALE", True),
     )
 
+
+def target_dt_study(s_values):
+    """
+    Variable-mass-scaling convergence sweep: one scratch per target-dt scale
+    factor s, with
+
+        solver.target_time_increment = s * dt_nat(material, L_min)
+
+    where dt_nat is the a-priori stable increment (Configuration.natural_dt)
+    of the FAMILY's material at the fine mesh size, so the same s maps to a
+    different absolute target per family (elastomers: K = 2/D1 governs;
+    glassy/semicrystalline: M(E, nu)). Modelbuilder switches to
+    SEMI_AUTOMATIC / THROUGHOUT_STEP / BELOW_MIN variable mass scaling
+    (substrate scope) as soon as target_time_increment > 0.
+
+    s <= 0 runs the BASELINE: fixed mass scaling with the family's default
+    mass_scale (exactly what production runs use today) -- the reference case
+    for the RF / energy / residual-profile comparison. Note the equivalence
+    dt_fixed ~ sqrt(mass_scale) * dt_nat: with mass_scale = 500 the baseline
+    already sits at s ~ 22, hence the default ladder brackets it.
+
+    ALE forced on, mirroring mesh/mass_scale studies. Run e.g.:
+        abaqus cae noGUI=run_parameter_study.py -- target_dt glassy_pc
+    """
+    def apply(cfg, s):
+        L_min = min(cfg.mesh.fine_size_x, cfg.mesh.fine_size_y,
+                    cfg.mesh.fine_size_z)
+        dt_nat = natural_dt(cfg.material, L_min)
+        s = float(s)
+        if s > 0.0:
+            cfg.solver.target_time_increment = s * dt_nat
+            print(">>> target_dt: s=%g, dt_nat=%.3e s -> target dt=%.3e s "
+                  "(variable mass scaling, substrate scope)"
+                  % (s, dt_nat, cfg.solver.target_time_increment))
+        else:
+            cfg.solver.target_time_increment = 0.0   # fixed-factor baseline
+            print(">>> target_dt: BASELINE fixed mass_scale=%g "
+                  "(dt_nat=%.3e s, equivalent fixed dt ~ %.3e s, s_eq ~ %.1f)"
+                  % (cfg.solver.mass_scale, dt_nat,
+                     dt_nat * cfg.solver.mass_scale ** 0.5,
+                     cfg.solver.mass_scale ** 0.5))
+
+    return ParameterStudy(
+        name="TargetDtConvergence",
+        cases=s_values,
+        apply_case=apply,
+        label=lambda s: "TargetDt_s%g" % float(s),
+        configure=lambda cfg: setattr(cfg.solver, "use_ALE", True),
+    )
+
+
 def friction_study(mu_values):
     def apply(cfg, mu):
         cfg.material.friction.mu = mu
@@ -297,9 +349,13 @@ DEFAULT_MESH_SIZES = [
     #[0.007, 0.007, 0.007],
 ]
 DEFAULT_MASS_SCALES = [5000]
+# target-dt scale ladder: 0 = fixed-MS baseline (family default mass_scale);
+# 10 = strict anchor (~2x baseline cost on glassy); 20 ~ baseline-equivalent
+# (sqrt(500) ~ 22); 40/80 = the candidates that actually buy wallclock.
+DEFAULT_DT_SCALES = [0, 10, 20, 40, 80]
 DEFAULT_MU_VALUES = [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
-DEFAULT_DEPTHS = [-100e-3, -140e-3 -180e-3] 
-DEFAULT_GSELL_H = [0.0, 0.22, 0.45] 
+DEFAULT_DEPTHS = [-40e-3, -60e-3, -80e-3, -100e-3] # add -20e-3 (check yesterday results first)
+DEFAULT_GSELL_H = [0.22, 0.45] # add 0.0
 DEFAULT_STUDY = "single"
 
 # QMC material sweep produced by MR_parameter_sampling.py, loaded from the
@@ -329,6 +385,7 @@ STUDIES = {
     "single":     lambda: single_study(),
     "mesh":       lambda: mesh_study(DEFAULT_MESH_SIZES),
     "mass_scale": lambda: mass_scale_study(DEFAULT_MASS_SCALES),
+    "target_dt":  lambda: target_dt_study(DEFAULT_DT_SCALES),
     "friction":   lambda: friction_study(DEFAULT_MU_VALUES),
     "material":   lambda: material_study(_load_material_parameters()),
     "models":     lambda: model_study(),

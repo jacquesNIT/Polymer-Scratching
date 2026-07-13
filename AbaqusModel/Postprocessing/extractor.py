@@ -231,11 +231,13 @@ def post_process(job_name, file_name, cfg):
         f.write("# Simulation Parameters:depth_mode=%s, control_mode=%s, scratch_depth=%.6g, "
                 "scratch_force=%.6g, scratch_length=%.6g, scratch_time=%.6g, "
                 "indentation_time=%.6g, unload_time=%.6g, "
-                "recovery_time=%.6g, mass_scale=%.6g, time_scale_factor=%.6g, fine_size_x=%.6g\n"
+                "recovery_time=%.6g, mass_scale=%.6g, target_time_increment=%.6g, "
+                "time_scale_factor=%.6g, fine_size_x=%.6g\n"
                 % (depth_mode, scratch.control_mode, abs(scratch.scratch_depth), scratch.scratch_force,
                 scratch.scratch_length, scratch.scratch_time,
                 scratch.indentation_time, scratch.unload_time,
                 scratch.recovery_time, solver.mass_scale,
+                getattr(solver, "target_time_increment", 0.0),
                 getattr(solver, "time_scale_factor", 1.0), mesh.fine_size_x)
         )
         f.write("# WallclockTime=%.2f s\n" % wallclock)

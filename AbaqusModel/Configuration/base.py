@@ -251,6 +251,7 @@ class DruckerPrager_Config:
             d.update(self.rate_dependent.params())
         return d
 
+
 # 6d. Rate dependence of the yield surface (Cowper-Symonds overstress power law)
 class RateDependent_Config:
     """
@@ -738,12 +739,12 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.015,       
-                fine_size_y=0.015,
-                fine_size_z=0.015,    
-                coarse_size_0=0.03,     # *2
-                coarse_size_1=0.06,     # *2 
-                coarse_size_2=0.12,     # *2
+                fine_size_x=0.030,       
+                fine_size_y=0.030,
+                fine_size_z=0.030,    
+                coarse_size_0=0.06,     # *2
+                coarse_size_1=0.12,     # *2 
+                coarse_size_2=0.32,     # *2
                 hourglass_control="RELAX STIFFNESS",      # RELAX STIFFNESS Might be innacurate but only one usable for now
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
@@ -777,8 +778,8 @@ class Simulation_Config:
                 control_mode=Scratch_Config.DISPLACEMENT,
                 scratch_length=2.0,
                 scratch_force=40e-3,
-                scratch_depth=-100e-3,
-                scratch_time=0.1,
+                scratch_depth=-40e-3,
+                scratch_time=0.05,
                 indentation_time=0.01,
                 unload_time=0.01,
                 recovery_time=0.01,
@@ -802,6 +803,48 @@ def _ab_mu0_correction(lambda_m):
     l2 = float(lambda_m) ** 2
     return (1.0 + 3.0 / (5.0 * l2) + 99.0 / (175.0 * l2 ** 2)
             + 513.0 / (875.0 * l2 ** 3) + 42039.0 / (67375.0 * l2 ** 4))
+
+def elastic_moduli(material):
+    # Small-strain bulk/shear moduli (K0, G0) [MPa] of the BASE elasticity of
+    # a Material_Config, dispatched on hyperelastic.MODEL. Pure numpy
+    # (Abaqus-free): usable by the CPython samplers and the Abaqus kernel.
+    # Viscoelastic (Prony) families: the hyperelastic constants are the
+    # INSTANTANEOUS moduli, which are exactly what the stable-increment
+    # estimate must use in Explicit.
+    he = material.hyperelastic
+    m = he.MODEL
+    if m == "elastic":
+        K = he.E / (3.0 * (1.0 - 2.0 * he.nu))
+        G = he.E / (2.0 * (1.0 + he.nu))
+    elif m == "mooney_rivlin":
+        G = 2.0 * (he.C10 + he.C01)
+        K = 2.0 / he.D1
+    elif m == "arruda_boyce":
+        G = he.mu * _ab_mu0_correction(he.lambda_m)
+        K = 2.0 / he.D
+    elif m == "yeoh":
+        G = 2.0 * he.C10
+        K = 2.0 / he.D1
+    elif m == "ogden":
+        G = float(sum(he.mu))
+        K = 2.0 / he.D1
+    else:
+        raise ValueError("elastic_moduli: unsupported base elasticity '%s'" % m)
+    return K, G
+
+def natural_dt(material, L_min):
+    # A-priori estimate of the smallest stable explicit time increment [s]:
+    #     dt_nat = L_min / c_d,   c_d = sqrt(M / rho),   M = K0 + 4*G0/3
+    # (dilatational wave speed on the smallest element edge). For the
+    # quasi-incompressible elastomers M is dominated by K0 = 2/D1, NOT by
+    # mu0 -- so dt_nat varies strongly across the MR sweep (r_K in [10, 100]).
+    # This is a MESH-BASED estimate: the increment actually reported in the
+    # .sta/.msg can be lower (element distortion, contact penalty stiffness);
+    # use it to SCALE a target (target_dt_study), not as an exact value.
+    K, G = elastic_moduli(material)
+    M = K + 4.0 * G / 3.0
+    c_d = np.sqrt(M / material.rho)
+    return float(L_min) / c_d
 
 # G'Sell-Jonas dense hardening-table generator (used for the yield tables)
 def gsell_jonas_table(sigma_y0, h, Q=0.0, b=0.0, soft_drop=0.0, eps_soft=0.05,
@@ -828,7 +871,6 @@ def gsell_jonas_table(sigma_y0, h, Q=0.0, b=0.0, soft_drop=0.0, eps_soft=0.05,
     if np.any(sig <= 0.0):
         raise ValueError("gsell_jonas_table produced non-positive stresses; check soft_drop")
     return tuple((float(round(sv, 4)), float(round(ev, 6))) for sv, ev in zip(sig, eps))
-
 
 def matched_hyperelastic_set(mu0=2.2, K_mu=55.0,
                              models=("mooney_rivlin", "arruda_boyce", "yeoh", "ogden"),
@@ -866,4 +908,3 @@ def matched_hyperelastic_set(mu0=2.2, K_mu=55.0,
             raise ValueError("Unknown model '%s' for matched_hyperelastic_set" % m)
     # plain list of pairs keeps insertion order on Py2 (Abaqus kernel) and Py3
     return out
-
