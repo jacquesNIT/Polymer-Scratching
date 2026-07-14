@@ -92,7 +92,8 @@ def _semicrystalline_config():
             yield_table=gsell_jonas_table(sigma_y0=28.0, h=0.22, Q=5.0, b=8.0, eps_max=3.0, n_points=60), # for rigid
           # yield_table=gsell_jonas_table(sigma_y0=10.0, h=0.20, Q=6.0, b=6.0, eps_max=3.0, n_points=60), # for soft 
           # yield_table=((28.0, 0.0), (30.0, 0.2), (40.0, 1.0), (60.0, 1.9)) without gsell_jonas
-            rate_dependent=RateDependent_Config.from_eyring(sigma_y0=28.0, S_per_decade=2.5)), # usual semicrystalline Eyring slope
+            rate_dependent=None),
+            # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=28.0, S_per_decade=2.5)), # usual semicrystalline Eyring slope
         friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
         # friction=Friction_Config(mu=0.3),
         family="semicrystalline_j2",
@@ -123,7 +124,8 @@ def _glassy_config():
         plasticity=DruckerPrager_Config(
             friction_angle=25.0, flow_stress_ratio=0.85, dilation_angle=10.0,
             yield_table=((60.0, 0.0), (70.0, 0.1), (80.0, 0.4)),
-            rate_dependent=RateDependent_Config.from_eyring(sigma_y0=60.0, S_per_decade=5.0)),   # usual glassy Eyring slope
+            rate_dependent=None),
+            # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=60.0, S_per_decade=5.0)),   # usual glassy Eyring slope
         viscoelastic=None,                                                                       # Viscoelastic cannot be combined with plasticity
                      # Prony_Config(prony_table=((0.2, 0.0, 0.1), (0.1, 0.0, 0.001))),
         friction=Friction_Config.briscoe(tau0=3.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
@@ -151,8 +153,8 @@ def _glassy_pc_config():
             yield_table=gsell_jonas_table(sigma_y0=70.0, h=0.35,
                                           soft_drop=12.0, eps_soft=0.05,
                                           eps_max=2.5, n_points=60),
-            rate_dependent=RateDependent_Config.from_eyring(
-                sigma_y0=70.0, S_per_decade=4.5)),
+            rate_dependent=None),
+            # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=70.0, S_per_decade=4.5)),
         friction=Friction_Config.briscoe(tau0=3.5, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
         #friction=Friction_Config(mu=0.3),
         family="glassy_pc",
@@ -179,8 +181,8 @@ def _glassy_pmma_config():
             yield_table=gsell_jonas_table(sigma_y0=105.0, h=0.45,
                                           soft_drop=25.0, eps_soft=0.06,
                                           eps_max=2.0, n_points=60),
-            rate_dependent=RateDependent_Config.from_eyring(
-                sigma_y0=105.0, S_per_decade=9.0)),
+            rate_dependent=None),
+            #rate_dependent=RateDependent_Config.from_eyring(sigma_y0=105.0, S_per_decade=9.0)),
         friction=Friction_Config.briscoe(tau0=4.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
         #friction=Friction_Config(mu=0.3),
         family="glassy_pmma",
