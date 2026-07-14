@@ -19,7 +19,7 @@ import time
 JOBS = [
     ("target_dt", "semicrystalline_j2"),       
     #("depth", "glassy_pc"),
-    ("target_dt", "glassy_pc")
+    ("target_dt", "glassy_pc"),
     ("target_dt", "glassy_pmma"),       
     #("mesh", "semicrystalline_j2"),
     #("mesh", "glassy_pc"),
