@@ -583,7 +583,7 @@ class Solver_Config:
 
     def __init__(self,
                  mass_scale=1000,
-                 target_time_increment=1e-8,
+                 target_time_increment=0,
                  use_ALE=True,
                  num_cpus=6,
                  time_scale_factor=1.0,
