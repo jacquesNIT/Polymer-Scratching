@@ -745,7 +745,7 @@ class Simulation_Config:
                 coarse_size_0=0.06,     # *2
                 coarse_size_1=0.12,     # *2 
                 coarse_size_2=0.32,     # *2
-                hourglass_control="RELAX STIFFNESS",      # RELAX STIFFNESS Might be innacurate but only one usable for now
+                hourglass_control="ENHANCED",      # RELAX STIFFNESS Might be innacurate but only one usable for now
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
                 element_deletion=False,

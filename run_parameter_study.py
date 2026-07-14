@@ -218,7 +218,7 @@ def target_dt_study(s_values):
         cases=s_values,
         apply_case=apply,
         label=lambda s: "TargetDt_s%g" % float(s),
-        configure=lambda cfg: setattr(cfg.solver, "use_ALE", True),
+        configure=lambda cfg: setattr(cfg.solver, "use_ALE", False),
     )
 
 

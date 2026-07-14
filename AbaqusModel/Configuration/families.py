@@ -181,8 +181,8 @@ def _glassy_pmma_config():
                                           eps_max=2.0, n_points=60),
             rate_dependent=RateDependent_Config.from_eyring(
                 sigma_y0=105.0, S_per_decade=9.0)),
-        #friction=Friction_Config.briscoe(tau0=4.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
-        friction=Friction_Config(mu=0.3),
+        friction=Friction_Config.briscoe(tau0=4.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
+        #friction=Friction_Config(mu=0.3),
         family="glassy_pmma",
     )
     # cfg.solver.mass_scale = 500
