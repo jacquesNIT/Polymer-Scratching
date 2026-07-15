@@ -6,7 +6,9 @@ add the elastomer_mr config for easier reading
 
 Redo the different scratching time results with the new models (rate independent)
 
+(Add the new sweeps but need to know the parameters)
 
+investiguer le petit bug sur le job 0.01 crys
 
 
 
