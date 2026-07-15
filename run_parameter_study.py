@@ -341,21 +341,18 @@ def gsell_h_study(h_values):
 # Defaults + selection.
 DEFAULT_FAMILY = "elastomer_mr" 
 DEFAULT_MESH_SIZES = [
-    [0.04, 0.04, 0.04],
-    [0.03, 0.03, 0.03],
-    [0.02, 0.02, 0.02],
-    [0.015, 0.015, 0.015],
-    #[0.01, 0.01, 0.01],
+    #[0.04, 0.04, 0.04],
+    #[0.03, 0.03, 0.03],
+    #[0.02, 0.02, 0.02],
+    #[0.015, 0.015, 0.015],
+    [0.01, 0.01, 0.01],
     #[0.007, 0.007, 0.007],
 ]
 DEFAULT_MASS_SCALES = [5000]
-# target-dt scale ladder: 0 = fixed-MS baseline (family default mass_scale);
-# 10 = strict anchor (~2x baseline cost on glassy); 20 ~ baseline-equivalent
-# (sqrt(500) ~ 22); 40/80 = the candidates that actually buy wallclock.
-DEFAULT_DT_SCALES = [0, 10, 20, 40, 80]
+DEFAULT_DT_SCALES = [30, 40, 80] # NB : For base MS = 500, sqrt(500) = 22, need more than ~20 to make a difference
 DEFAULT_MU_VALUES = [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
-DEFAULT_DEPTHS = [-40e-3, -60e-3, -80e-3, -100e-3] # add -20e-3 (check yesterday results first)
-DEFAULT_GSELL_H = [0.22, 0.45] # add 0.0
+DEFAULT_DEPTHS = [-40e-3, -60e-3, -80e-3, -100e-3] 
+DEFAULT_GSELL_H = [0.22, 0.45] 
 DEFAULT_STUDY = "single"
 
 # QMC material sweep produced by MR_parameter_sampling.py, loaded from the

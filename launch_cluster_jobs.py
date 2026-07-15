@@ -18,12 +18,14 @@ import time
 # NB : make sure that the number of jobs * CPUs per job < CPUs of the node 
 JOBS = [
     ("target_dt", "semicrystalline_j2"),       
-    #("depth", "glassy_pc"),
-    ("target_dt", "glassy_pc"),
-    ("target_dt", "glassy_pmma"),       
-    #("mesh", "semicrystalline_j2"),
-    #("mesh", "glassy_pc"),
-    ("target_dt", "elastomer_mr"),
+    ("gsell_h", "semicrystalline_j2"),
+    #("target_dt", "glassy_pc"),
+    #("target_dt", "glassy_pmma"),       
+    ("mesh", "semicrystalline_j2"),
+    ("mesh", "glassy_pc"),
+    ("mesh", "glassy_pmma")
+    ("mesh", "glassy_dp")
+    #("target_dt", "elastomer_mr"),
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"
