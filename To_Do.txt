@@ -1,3 +1,16 @@
+Run the 0.0 h test and add a graph of results in overleaf
+
+add the hardening table variables to annex
+
+add the elastomer_mr config for easier reading
+
+Redo the different scratching time results with the new models (rate independent)
+
+
+
+
+
+
 Hourglass control :
 -> Test DEFAULT
 

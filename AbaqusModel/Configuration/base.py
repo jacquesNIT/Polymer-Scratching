@@ -232,7 +232,7 @@ class DruckerPrager_Config:
     MODEL = "drucker_prager"
 
     def __init__(self, 
-                 friction_angle=25.0,                                   # [deg] angle of the indenter
+                 friction_angle=25.0,                                   # [deg] friction angle
                  flow_stress_ratio=0.85,                                # [-] flow_stress_ratio (usually between 0.8 and 1.0)
                  dilation_angle=10.0,                                   # [deg] Control the change of volume when exposed to shearing
                  yield_table=((60.0, 0.0), (70.0, 0.1), (80.0, 0.4)),
@@ -250,7 +250,6 @@ class DruckerPrager_Config:
         if self.rate_dependent is not None:
             d.update(self.rate_dependent.params())
         return d
-
 
 # 6d. Rate dependence of the yield surface (Cowper-Symonds overstress power law)
 class RateDependent_Config:
@@ -584,7 +583,7 @@ class Solver_Config:
     def __init__(self,
                  mass_scale=1000,
                  target_time_increment=0,
-                 use_ALE=True,
+                 use_ALE=False,
                  num_cpus=6,
                  time_scale_factor=1.0,
                  linear_bulk_viscosity=0.06, quad_bulk_viscosity=1.2, # Default Abaqus values
@@ -739,12 +738,12 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.0150,       
-                fine_size_y=0.0150,
-                fine_size_z=0.0150,    
-                coarse_size_0=0.03,     # *2
-                coarse_size_1=0.06,     # *2 
-                coarse_size_2=0.12,     # *2
+                fine_size_x=0.010,       
+                fine_size_y=0.010,
+                fine_size_z=0.010,    
+                coarse_size_0=0.02,     # *2
+                coarse_size_1=0.04,     # *2 
+                coarse_size_2=0.08,     # *2
                 hourglass_control="ENHANCED",      # RELAX STIFFNESS with ALE / ENHANCED without ALE
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
