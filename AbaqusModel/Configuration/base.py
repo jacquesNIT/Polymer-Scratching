@@ -744,7 +744,7 @@ class Simulation_Config:
                 coarse_size_0=0.02,     # *2
                 coarse_size_1=0.04,     # *2 
                 coarse_size_2=0.08,     # *2
-                hourglass_control="ENHANCED",      # RELAX STIFFNESS with ALE / ENHANCED without ALE
+                hourglass_control="ENHANCED",      # RELAX STIFFNESS with ALE / ENHANCED without ALE 
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
                 element_deletion=False,
@@ -763,8 +763,8 @@ class Simulation_Config:
             solver=Solver_Config(
                 mass_scale=500,    
                 target_time_increment=0.0,
-                use_ALE=False,
-                num_cpus=12,
+                use_ALE=False,                      # Only useful for important scratch depths (>60um)
+                num_cpus=12,                        # "submit.sh CPU value is prioritized"
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
                 ale_frequency=20,
