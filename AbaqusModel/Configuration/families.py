@@ -76,6 +76,14 @@ Currently available models :
 - Prony Series
 """
 
+def _elastomer_mr_config():
+    # Pure Mooney-Rivlin elastomer: polymer_default() from base.py, wrapped
+    # so the family carries its own solver override (target_time_increment)
+    # like every other family.
+    cfg = Simulation_Config.polymer_default()
+    cfg.solver.target_time_increment = 20.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 20 : results from the target time study
+    return cfg
+
 def _semicrystalline_config():
     # Rigid semicrystalline (HDPE)
 
@@ -99,6 +107,30 @@ def _semicrystalline_config():
         family="semicrystalline_j2",
     )
     cfg.solver.target_time_increment = 40.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 40 : results from the target time study
+    return cfg
+
+def _semicrystalline_dp_config():
+    # Rigid semicrystalline (HDPE) with pressure-dependent Drucker-Prager.
+    # Same base, yield table and friction as semicrystalline_j2; only the
+    # yield surface changes (J2 -> DP) to isolate pressure sensitivity.
+    # DP parameters are PLACEHOLDERS pending calibration:
+    #   beta = 12 deg (semicrystallines are less pressure-sensitive than
+    #                  glassy polymers; ~10-15 deg indicative)
+    #   K = 1.0 ; psi = 5 deg (small plastic dilatancy vs isochoric J2)
+    cfg = Simulation_Config.polymer_default()
+    cfg.material = Material_Config(
+        rho=0.95e-9,                                                                                      # same as semicrystalline_j2 (rigid HDPE)
+        hyperelastic=LinearElastic_Config(E=1000.0, nu=0.42),
+        plasticity=DruckerPrager_Config(
+            friction_angle=12.0, flow_stress_ratio=1.0, dilation_angle=5.0,                              # PLACEHOLDERS, to be calibrated
+            yield_table=gsell_jonas_table(sigma_y0=28.0, h=0.22, Q=5.0, b=8.0, eps_max=3.0, n_points=60), # same table as semicrystalline_j2
+            rate_dependent=None),
+            # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=28.0, S_per_decade=2.5)), # usual semicrystalline Eyring slope
+        friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
+        # friction=Friction_Config(mu=0.3),
+        family="semicrystalline_dp",
+    )
+    cfg.solver.target_time_increment = 40.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 40 : same s as semicrystalline_j2 (same rho/E/mesh -> same natural dt)
     return cfg
 
 def _elastomer_ve_config():
@@ -198,7 +230,7 @@ def _glassy_pmma_config():
 ELASTOMER_MR = PolymerFamily(
     key="elastomer_mr",
     label="Unfilled elastomer (Mooney-Rivlin)",
-    config_factory=Simulation_Config.polymer_default,
+    config_factory=_elastomer_mr_config,
     checks=_ELASTOMER_CHECKS,
     sampling=None,
     description=("Pure hyperelastic Mooney-Rivlin elastomer; quasi-incompressible, "
@@ -213,6 +245,17 @@ SEMICRYSTALLINE_J2 = PolymerFamily(
     sampling=None,
     description=("Linear-elastic base + isochoric J2 plasticity; "
                  "permanent groove + pile-up expected. (J2 is plastically incompressible)"),
+)
+
+SEMICRYSTALLINE_DP = PolymerFamily(
+    key="semicrystalline_dp",
+    label="Soft semicrystalline (linear elastic + Drucker-Prager plasticity)",
+    config_factory=_semicrystalline_dp_config,
+    checks=_SEMICRYSTALLINE_CHECKS,
+    sampling=None,
+    description=("Linear-elastic base + pressure-dependent Drucker-Prager "
+                 "plasticity; same calibration as semicrystalline_j2 with a "
+                 "placeholder beta=12 deg -- isolates pressure sensitivity."),
 )
 
 GLASSY_DP = PolymerFamily(
@@ -264,6 +307,7 @@ FAMILIES = {
     ELASTOMER_MR.key: ELASTOMER_MR,
     ELASTOMER_VE.key: ELASTOMER_VE,
     SEMICRYSTALLINE_J2.key: SEMICRYSTALLINE_J2,
+    SEMICRYSTALLINE_DP.key: SEMICRYSTALLINE_DP,
     GLASSY_DP.key: GLASSY_DP,
     GLASSY_PC.key: GLASSY_PC,
     GLASSY_PMMA.key: GLASSY_PMMA,
