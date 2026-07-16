@@ -158,7 +158,7 @@ def mesh_study(sizes):
         cases=sizes,
         apply_case=apply,
         label=lambda s: "Mesh_%s_%s_%s" % (s[0], s[1], s[2]),
-        configure=lambda cfg: setattr(cfg.solver, "use_ALE", True),
+        configure=lambda cfg: setattr(cfg.solver, "use_ALE", False),
     )
 
 
@@ -168,7 +168,7 @@ def mass_scale_study(scales):
         cases=scales,
         apply_case=lambda cfg, ms: setattr(cfg.solver, "mass_scale", ms),
         label=lambda ms: "MassScale%s" % ms,
-        configure=lambda cfg: setattr(cfg.solver, "use_ALE", True),
+        configure=lambda cfg: setattr(cfg.solver, "use_ALE", False),
     )
 
 
@@ -287,7 +287,7 @@ def depth_study(depths):
         cases=depths,
         apply_case=lambda cfg, d: setattr(cfg.scratch, "scratch_depth", d),
         label=lambda d: "Depth_%s" % d,
-        configure=lambda cfg: setattr(cfg.solver, "use_ALE", True),
+        configure=lambda cfg: setattr(cfg.solver, "use_ALE", False),
     )
 
 
