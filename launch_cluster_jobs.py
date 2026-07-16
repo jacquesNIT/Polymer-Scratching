@@ -18,7 +18,7 @@ import time
 # NB : make sure that the number of jobs * CPUs per job < CPUs of the node 
 JOBS = [
     #("target_dt", "semicrystalline_j2"),       
-    ("gsell_h", "semicrystalline_j2"),
+    #("gsell_h", "semicrystalline_j2"),
     ("gsell_h", "glassy_pc"),
     ("gsell_h", "glassy_pmma"),
     #("target_dt", "glassy_pc"),
@@ -27,7 +27,7 @@ JOBS = [
     ("mesh", "glassy_pc"),
     ("mesh", "glassy_pmma"),
     ("mesh", "glassy_dp"),
-    ("mesh", "elastomer_mr"),
+    #("mesh", "elastomer_mr"),
     ("mesh", "elastomer_ve"),
     #("target_dt", "elastomer_mr"),
 ]
