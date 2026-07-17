@@ -24,11 +24,11 @@ JOBS = [
     #("target_dt", "glassy_pc"),
     #("target_dt", "glassy_pmma"),       
     ("mesh", "semicrystalline_j2"),
-    ("mesh", "glassy_pc"),
-    ("mesh", "glassy_pmma"),
-    ("mesh", "glassy_dp"),
-    ("mesh", "elastomer_mr"),
-    ("mesh", "elastomer_ve"),
+    #("mesh", "glassy_pc"),
+    #("mesh", "glassy_pmma"),
+    #("mesh", "glassy_dp"),
+    #("mesh", "elastomer_mr"),
+    #("mesh", "elastomer_ve"),
     #("target_dt", "elastomer_mr"),
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
