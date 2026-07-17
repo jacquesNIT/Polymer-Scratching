@@ -19,7 +19,7 @@ import time
 JOBS = [
     #("target_dt", "semicrystalline_j2"),       
     #("gsell_h", "semicrystalline_j2"),
-    ("gsell_h", "glassy_pc"),
+    #("gsell_h", "glassy_pc"),
     #("gsell_h", "glassy_pmma"),
     #("target_dt", "glassy_pc"),
     #("target_dt", "glassy_pmma"),       
@@ -39,6 +39,7 @@ DRY_RUN = False                 # True for testing only
 # Valid tokens 
 _VALID_STUDIES = ("single", "mesh", "mass_scale", "friction", "material",
                   "models", "depth", "gsell_h", "target_dt")
+
 _VALID_FAMILIES = ("elastomer_mr", "elastomer_ve", "semicrystalline_j2",
                    "semicrystalline_dp", "glassy_dp", "glassy_pc", "glassy_pmma")
 
