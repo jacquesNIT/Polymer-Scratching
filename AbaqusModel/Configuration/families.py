@@ -77,18 +77,14 @@ Currently available models :
 """
 
 def _elastomer_mr_config():
-    # Pure Mooney-Rivlin elastomer: polymer_default() from base.py, wrapped
-    # so the family carries its own solver override (target_time_increment)
-    # like every other family.
-    cfg = Simulation_Config.polymer_default()
-    cfg.solver.target_time_increment = 20.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 20 : results from the target time study
+    # HyperElastic Elastomer
+    cfg = Simulation_Config.polymer_default()                                                   # HyperElastic Model based on polymer_default
+    cfg.solver.target_time_increment = 20.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x)    # 20 : results from the target time study
     return cfg
 
 def _semicrystalline_config():
     # Rigid semicrystalline (HDPE)
 
-    # Hardening: G'Sell-Jonas table up to eps_max = 3 (Voce initial hardening + exp(h*eps^2) orientation term). 
-    # Expected values : sigma ~ 41 MPa at eps_p=1, ~ 80 at 2, ~ 240 at 3 (need to recalibrate ?)
 
     # Rate: Eyring slope S ~ 2.5 MPa/decade (yield ~ 26-33 MPa), used in Cowper-Symonds fit for scratch rates from  1/s to 1e3/s
     
@@ -101,7 +97,7 @@ def _semicrystalline_config():
           # yield_table=gsell_jonas_table(sigma_y0=10.0, h=0.20, Q=6.0, b=6.0, eps_max=3.0, n_points=60), # for soft 
           # yield_table=((28.0, 0.0), (30.0, 0.2), (40.0, 1.0), (60.0, 1.9)) without gsell_jonas
             rate_dependent=None),
-            # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=28.0, S_per_decade=2.5)), # usual semicrystalline Eyring slope
+            # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=28.0, S_per_decade=2.5)),          # Rate: Eyring slope S ~ 2.5 MPa/decade (yield ~ 26-33 MPa), used in Cowper-Symonds fit for scratch rates from  1/s to 1e3/s
         friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
         # friction=Friction_Config(mu=0.3),
         family="semicrystalline_j2",
@@ -141,7 +137,9 @@ def _elastomer_ve_config():
     # (contact time 2a/v ~ 1.2e-2 s). If the simulation compresses time,
     # set solver.time_scale_factor: the material builder divides every tau by
     # it (see Solver_Config) so De is preserved.
-    cfg = Simulation_Config.polymer_default()  # Careful to have AB in polymer-default
+    cfg = Simulation_Config.polymer_default()               # Careful to have AB in polymer-default
+    cfg.scratch.recovery_time=5*cfg.scratch.scratch_time    # Recovery time has to be longer for Visco-Elastic families
+    cfg.solver.n_field_frames_recovery=50                   # Increasing the number of frames for recovery
     cfg.material.viscoelastic = Prony_Config(
         prony_table=((0.15, 0.0, 1.0e-3),
                      (0.15, 0.0, 1.0e-2),

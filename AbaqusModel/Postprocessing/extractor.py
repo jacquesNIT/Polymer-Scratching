@@ -136,59 +136,85 @@ def post_process(job_name, file_name, cfg):
 
 
 
-    #  History data — forces (indenter region)
-    # Concatenated across ALL steps: single-step extraction reads only the
-    # first step holding the region (IndentationStep in constant depth_mode)
-    # and silently misses the whole scratch phase.
-    time_arr, force_data = _get_history_multi(odb, indenter_region)
-    if time_arr.size == 0:
+    #  History data — per-region extraction, each with its OWN time axis.
+    # The indenter/contact force histories are deactivated in the unload and
+    # recovery steps, so their time axes STOP at the end of the scratch; the
+    # energy histories stay alive (low frequency) through unload/recovery.
+    # The MASTER time axis is therefore the LONGEST axis (in practice the
+    # energy one). Previously time_arr came from the indenter region and the
+    # energy series were _align-ed (truncated by SAMPLE COUNT) onto it: the
+    # unload/recovery energy samples were silently dropped, so the settling
+    # check of results_verifier could never see the recovery phase.
+    t_ind, force_data = _get_history_multi(odb, indenter_region)
+    if t_ind.size == 0:
         odb.close()
         raise ValueError("Indenter history region '%s' contains no data in any step." % indenter_region)
-    n_t = len(time_arr)
-    rf1 = _pick(force_data, "RF1", np.zeros_like(time_arr))
-    rf2 = _pick(force_data, "RF2", np.zeros_like(time_arr))
-    rf3 = _pick(force_data, "RF3", np.zeros_like(time_arr))
 
-    ind_u2 = _pick(force_data, "U2", np.zeros_like(time_arr))   # indenter penetration trace
+    t_sub, sub_data = _get_history_multi(odb, substrate_region)
+    if whole_model_region == substrate_region:
+        t_wm, wm_data = t_sub, sub_data
+    else:
+        t_wm, wm_data = _get_history_multi(odb, whole_model_region)
+    if contact_pair_region is not None:
+        t_cp, contact_data = _get_history_multi(odb, contact_pair_region)
+    else:
+        t_cp, contact_data = np.array([]), {}
+
+    time_arr = t_ind
+    for _t in (t_sub, t_wm, t_cp):
+        if _t.size and _t[-1] > time_arr[-1]:
+            time_arr = _t
+    n_t = len(time_arr)
+
+    z_ind = np.zeros_like(t_ind)
+    rf1_raw = _pick(force_data, "RF1", z_ind)
+    rf2_raw = _pick(force_data, "RF2", z_ind)
+    rf3_raw = _pick(force_data, "RF3", z_ind)
+    u2_raw  = _pick(force_data, "U2",  z_ind)   # indenter penetration trace
 
     # Self-diagnosis: a zero RF2 AND a zero U2 on a moving indenter is
     # impossible for the true RP region -- dump the ODB history layout into
     # the job log so the mismatch (wrong region / renamed keys) is visible.
-    if (float(np.max(np.abs(rf2))) < 1e-20
-            and float(np.max(np.abs(ind_u2))) < 1e-20):
+    if (float(np.max(np.abs(rf2_raw))) < 1e-20
+            and float(np.max(np.abs(u2_raw))) < 1e-20):
         print("Warning: RF2 and IndenterU2 both read as zero from region '%s'. "
               "This region is probably NOT the indenter reference point, or its "
               "output keys are not named 'RF2'/'U2'. History layout dump follows:"
               % indenter_region)
         _dump_history_layout(odb)
 
+    # Resampling onto the master axis: linear interpolation inside each
+    # region's coverage, BLANK (NaN -> '') beyond it, because the request was
+    # deactivated there and no value must be fabricated for those rows.
+    rf1 = _resample(t_ind, rf1_raw, time_arr)
+    rf2 = _resample(t_ind, rf2_raw, time_arr)
+    rf3 = _resample(t_ind, rf3_raw, time_arr)
+    ind_u2 = _resample(t_ind, u2_raw, time_arr)
+
     #  History data — contact-pair force (CFN/CFS). Used in place of RF2 by results_verifier.py when control_mode == "force"
-    if contact_pair_region is not None:
-        _, contact_data = _get_history_multi(odb, contact_pair_region)
-        cfn1 = _align(_pick(contact_data, "CFN1", np.zeros_like(time_arr)), n_t)
-        cfn2 = _align(_pick(contact_data, "CFN2", np.zeros_like(time_arr)), n_t)
-        cfn3 = _align(_pick(contact_data, "CFN3", np.zeros_like(time_arr)), n_t)
-        cfs1 = _align(_pick(contact_data, "CFS1", np.zeros_like(time_arr)), n_t)
-        cfs2 = _align(_pick(contact_data, "CFS2", np.zeros_like(time_arr)), n_t)
-        cfs3 = _align(_pick(contact_data, "CFS3", np.zeros_like(time_arr)), n_t)
-    else:
-        cfn1 = cfn2 = cfn3 = cfs1 = cfs2 = cfs3 = np.zeros_like(time_arr)
+    z_cp = np.zeros_like(t_cp)
+    cfn1 = _resample(t_cp, _pick(contact_data, "CFN1", z_cp), time_arr)
+    cfn2 = _resample(t_cp, _pick(contact_data, "CFN2", z_cp), time_arr)
+    cfn3 = _resample(t_cp, _pick(contact_data, "CFN3", z_cp), time_arr)
+    cfs1 = _resample(t_cp, _pick(contact_data, "CFS1", z_cp), time_arr)
+    cfs2 = _resample(t_cp, _pick(contact_data, "CFS2", z_cp), time_arr)
+    cfs3 = _resample(t_cp, _pick(contact_data, "CFS3", z_cp), time_arr)
 
     #  History data — substrate energies (deformable body only)
-    _, sub_data = _get_history_multi(odb, substrate_region)
-    z = np.zeros_like(time_arr)
-    ke = _align(_pick(sub_data, "ALLKE", z.copy()), n_t)     # substrate kinetic energy
-    ie = _align(_pick(sub_data, "ALLIE", z.copy()), n_t)     # substrate internal energy
-    ae = _align(_pick(sub_data, "ALLAE", z.copy()), n_t)     # substrate artificial (hourglass) energy
+    # (t_sub / sub_data already extracted above; kept alive at low frequency
+    # through unload/recovery, hence resampled -- NOT truncated -- onto the
+    # master axis.)
+    z_sub = np.zeros_like(t_sub)
+    ke = _resample(t_sub, _pick(sub_data, "ALLKE", z_sub), time_arr)     # substrate kinetic energy
+    ie = _resample(t_sub, _pick(sub_data, "ALLIE", z_sub), time_arr)     # substrate internal energy
+    ae = _resample(t_sub, _pick(sub_data, "ALLAE", z_sub), time_arr)     # substrate artificial (hourglass) energy
 
-    #  History data — whole-model energy balance
-    _, wm_data = _get_history_multi(odb, whole_model_region)
-
+    #  History data — whole-model energy balance (t_wm / wm_data above)
     def _wm(name):
         series = _pick(wm_data, name, None)
         if series is None and name != "ETOTAL":
             print("Warning: whole-model term %s absent." % name)
-        return _align(series if series is not None else z.copy(), n_t)
+        return _resample(t_wm, series if series is not None else np.zeros_like(t_wm), time_arr)
 
     # ETOTAL = ALLIE + ALLVD + ALLFD + ALLKE - ALLWK - ALLPW - ALLCW - ALLMW
     wm_ke  = _wm("ALLKE")    # incl. rigid-driver KE (the ~constant baseline)
@@ -203,7 +229,7 @@ def post_process(job_name, file_name, cfg):
     if etotal is None:
         etotal = wm_ie + wm_vd + wm_fd + wm_ke - wm_wk - wm_pw - wm_cw - wm_mw
     else:
-        etotal = _align(etotal, n_t)
+        etotal = _resample(t_wm, etotal, time_arr)
 
 
     #  Wallclock time from .sta file
@@ -267,7 +293,7 @@ def post_process(job_name, file_name, cfg):
             ind_u2, node_labels, xu, yu, zu, xd, yd, zd,
             fillvalue="",
         )
-        writer.writerows(rows)
+        writer.writerows([_cell(v) for v in row] for row in rows)
 
     print("CSV results written: %s" % output_path)
     odb.close()
@@ -325,6 +351,40 @@ def _dump_history_layout(odb):
                       % (rk, ", ".join(peaks), " ..." if len(keys) > 12 else ""))
     except Exception as e:
         print("  [layout] dump failed: %s" % e)
+
+
+def _resample(t_src, v_src, t_dst):
+    """
+    Linear resampling of a history series onto the master time axis t_dst.
+
+    Inside the source coverage: np.interp on (t_src, v_src). Beyond the last
+    source sample: NaN, written as a BLANK CSV cell by _cell -- the output
+    request was deactivated there (e.g. forces in unload/recovery), so no
+    value is fabricated.
+
+    Replaces _align in post_process: _align padded/truncated by SAMPLE COUNT,
+    which silently dropped the low-frequency unload/recovery samples of the
+    energy regions whenever the master axis came from the (shorter, force)
+    indenter region -- the settling check then never saw the recovery phase.
+    """
+    t_dst = np.asarray(t_dst, dtype=float)
+    t_src = np.asarray(t_src, dtype=float)
+    v = np.asarray(v_src, dtype=float)
+    if t_src.size == 0 or v.size == 0:
+        return np.full(t_dst.shape, np.nan)
+    m = min(t_src.size, v.size)
+    t_src, v = t_src[:m], v[:m]
+    out = np.interp(t_dst, t_src, v)
+    tol = 1e-12 + 1e-9 * max(abs(float(t_src[-1])), 1.0)
+    out[t_dst > t_src[-1] + tol] = np.nan
+    return out
+
+
+def _cell(v):
+    """NaN -> '' so deactivated-phase samples become blank CSV cells."""
+    if isinstance(v, float) and v != v:
+        return ""
+    return v
 
 
 def _align(arr, n):

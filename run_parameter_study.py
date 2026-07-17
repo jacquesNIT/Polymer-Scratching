@@ -147,12 +147,14 @@ def single_study():
 
 def mesh_study(sizes):
     def apply(cfg, s):
+        s_target = (cfg.solver.target_time_increment/ natural_dt(cfg.material, cfg.mesh.fine_size_x))   
         cfg.mesh.fine_size_x = s[0]
         cfg.mesh.fine_size_y = s[1]
         cfg.mesh.fine_size_z = s[2]
         cfg.mesh.coarse_size_0 = 2*s[0]
         cfg.mesh.coarse_size_1 = 4*s[0]
         cfg.mesh.coarse_size_2 = 8*s[0]
+        cfg.solver.target_time_increment = (s_target * natural_dt(cfg.material, cfg.mesh.fine_size_x))      # For adaptative Mass Scaling with mesh size
     return ParameterStudy(
         name="MeshConvergence",
         cases=sizes,

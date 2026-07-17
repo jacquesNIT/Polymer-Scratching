@@ -286,7 +286,25 @@ def material_properties(metadata):
 
 #  Checks — numerical quality
 
-def check_quasi_static(timeseries):
+def _active_end(metadata, t_last):
+    """
+    End of the ACTIVE phase (indent + scratch) from the metadata, capped by
+    the last time sample. Since the extractor now keeps the (low-frequency)
+    energy history through unload/recovery, time[-1] is the RECOVERY end:
+    every window that used to be anchored at time[-1] (scratch plateau, SCOF,
+    quasi-static steady window, hourglass 'final') must be anchored here
+    instead, or it silently slides into the unload/recovery phase.
+    """
+    st = float(metadata.get("scratch_time", 0.0) or 0.0)
+    it = float(metadata.get("indentation_time", 0.0) or 0.0)
+    constant = not str(metadata.get("depth_mode", "")).lower().startswith("prog")
+    t_act = st + (it if constant else 0.0)
+    if t_act <= 0.0:
+        return t_last
+    return min(t_last, t_act)
+
+
+def check_quasi_static(timeseries, metadata=None):
     ke, ie = timeseries.get("ALLKE"), timeseries.get("ALLIE")
     time = timeseries.get("Time")
 
@@ -300,9 +318,12 @@ def check_quasi_static(timeseries):
     ratio = ke[mask] / ie[mask] * 100.0
     time_m = time[mask] if time is not None else np.arange(len(ratio))
 
-    # Exclude the first 10% of time (contact-onset transient)
+    # Exclude the first 10% of time (contact-onset transient) and everything
+    # AFTER the active phase: KE/IE during unload/recovery is settling's job,
+    # and for a fully recovering elastomer IE -> 0 there (ratio blows up).
     t_max = time_m[-1] if len(time_m) else 1.0
-    steady = time_m > 0.1 * t_max
+    t_act = _active_end(metadata, t_max) if metadata is not None else t_max
+    steady = (time_m > 0.1 * t_act) & (time_m <= t_act * (1.0 + 1e-9))
     steady_max = np.max(ratio[steady]) if steady.any() else np.max(ratio)
 
     passed = steady_max < KE_IE_THRESHOLD
@@ -319,8 +340,9 @@ def check_quasi_static(timeseries):
     }
 
 
-def check_hourglass(timeseries):
+def check_hourglass(timeseries, metadata=None):
     ae, ie = timeseries.get("ALLAE"), timeseries.get("ALLIE")
+    time = timeseries.get("Time")
 
     if ae is None or ie is None:
         return {"status": "SKIP", "message": "ALLAE or ALLIE not in outputs"}
@@ -330,7 +352,16 @@ def check_hourglass(timeseries):
         return {"status": "SKIP", "message": "ALLIE is zero everywhere"}
 
     ratio = ae[mask] / ie[mask] * 100.0
+    # 'final' = last sample of the ACTIVE phase: with the energy history now
+    # extending through unload/recovery, the very last sample sits after the
+    # elastic release (IE has dropped), which would inflate AE/IE.
     final = ratio[-1]
+    if metadata is not None and time is not None and len(time) == len(ae):
+        t_act = _active_end(metadata, float(time[-1]))
+        tm = time[mask]
+        sel = np.nonzero(tm <= t_act * (1.0 + 1e-9))[0]
+        if sel.size:
+            final = ratio[sel[-1]]
 
     if final < AE_IE_TARGET:
         status, verdict = "PASS", "OK"
@@ -519,8 +550,9 @@ def check_steady_state(timeseries, metadata):
                 "message": ("progressive depth_mode: depth ramps during the whole scratch, "
                             "no steady-state plateau expected")}
 
-    t_end = float(time[-1])
-    mask = time >= (t_end - 0.5 * float(st))
+    # Anchor at the end of the ACTIVE phase (not time[-1] = recovery end).
+    t_end = _active_end(metadata, float(time[-1]))
+    mask = (time >= (t_end - 0.5 * float(st))) & (time <= t_end * (1.0 + 1e-9))
     if int(np.sum(mask)) < 10:
         return {"status": "SKIP", "message": "Fewer than 10 samples in the plateau window"}
 
@@ -570,10 +602,11 @@ def check_settling(timeseries, metadata):
     apparent settling by sqrt(mass_scale), so a short recovery step can freeze
     a still-ringing groove.
 
-    NB: the current output requests deactivate the substrate energy history in
-    the unload/recovery steps, so until that history is kept alive (at low
-    frequency) through recovery this check reports a WARN that makes the
-    unverified-settling assumption visible.
+    NB: the substrate energy history is kept alive (low frequency) through
+    unload/recovery and the extractor resamples it onto the master time axis
+    without truncation, so this check is now effective. The WARN branch below
+    is kept as a safety net for CSVs produced by the old extractor (which
+    truncated the energy series at the end of the scratch).
     """
     time = timeseries.get("Time")
     ke = timeseries.get("ALLKE")
@@ -954,7 +987,10 @@ def check_friction_physics(timeseries, metadata):
     st = metadata.get("scratch_time")
     constant_mode = not str(metadata.get("depth_mode", "")).lower().startswith("prog")
     if constant_mode and time is not None and st and float(st) > 0.0:
-        mask = mask & (time >= float(time[-1]) - float(st))
+        # Scratch window anchored at the end of the ACTIVE phase, not at
+        # time[-1] (= recovery end since the energy history covers recovery).
+        t_act = _active_end(metadata, float(time[-1]))
+        mask = mask & (time >= t_act - float(st)) & (time <= t_act * (1.0 + 1e-9))
 
     if not mask.any():
         return {"status": "SKIP", "message": "RF2 never exceeds 10% of peak"}
@@ -1194,8 +1230,8 @@ def verify_results(filepath, print_report=True):
     # the family's "checks" are run; recovery is told explicitly whether the
     # family is dissipative so its pass/fail logic matches the family.
     registry = {
-        "quasi_static":      ("Quasi-static (KE/IE)",             lambda: check_quasi_static(timeseries)),
-        "hourglass":         ("Hourglass (AE/IE)",                lambda: check_hourglass(timeseries)),
+        "quasi_static":      ("Quasi-static (KE/IE)",             lambda: check_quasi_static(timeseries, metadata)),
+        "hourglass":         ("Hourglass (AE/IE)",                lambda: check_hourglass(timeseries, metadata)),
         "energy_total":      ("Energy total (ETOTAL)",            lambda: check_energy_total(timeseries)),
         "artificial_energy": ("Artificial energy (ALLMW/ALLPW)",  lambda: check_artificial_energy(timeseries)),
         "d1_validity":       ("D1 validity (K/mu window)",        lambda: check_d1_validity(metadata)),
