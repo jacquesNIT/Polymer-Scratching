@@ -24,7 +24,9 @@ import time
 #     run_parameter_study.py as a set:<path>=<value> token and applied AFTER
 #     the study's configure() (per-job choice wins, e.g. ALE on a mesh study):
 #       - friendly aliases: ALE, scratch_time, scratch_depth, scratch_length,
-#         mass_scale, target_dt   (see _OVERRIDE_ALIASES below)
+#         mass_scale, target_dt, hourglass   (see _OVERRIDE_ALIASES below)
+#         hourglass accepts DEFAULT / ENHANCED / RELAX STIFFNESS (case- and
+#         underscore-insensitive: "relax_stiffness" is normalised).
 #       - or any dotted cfg path verbatim, e.g. "solver.ale_frequency": 10
 # NB : make sure that the number of jobs * CPUs per job < CPUs of the node 
 JOBS = [
@@ -33,15 +35,15 @@ JOBS = [
     ("mesh", "glassy_pmma", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
     ("mesh", "semicrystalline_j2", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
     ("mesh", "semicrystalline_dp", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
-    ("mesh", "elastomer_mr", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
-    ("mesh", "elastomer_ve", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "elastomer_mr", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05, "hourglass_control": "RELAX STIFFNESS"}),
+    ("mesh", "elastomer_ve", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05, "hourglass_control": "RELAX STIFFNESS"}),
     ("mesh", "glassy_pc", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     ("mesh", "glassy_dp", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     ("mesh", "glassy_pmma", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     ("mesh", "semicrystalline_j2", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     ("mesh", "semicrystalline_dp", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
-    ("mesh", "elastomer_mr", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
-    ("mesh", "elastomer_ve", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
+    ("mesh", "elastomer_mr", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1, "hourglass_control": "RELAX STIFFNESS"}),
+    ("mesh", "elastomer_ve", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1, "hourglass_control": "RELAX STIFFNESS"}),
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"
@@ -93,7 +95,20 @@ _OVERRIDE_ALIASES = {
     "scratch_length": "scratch.scratch_length",
     "mass_scale":     "solver.mass_scale",
     "target_dt":      "solver.target_time_increment",
+    "hourglass":      "mesh.hourglass_control",
 }
+
+# mesh_substrate() compares hourglass_control against these EXACT strings and
+# silently falls back to DEFAULT on anything else -- so validate here, loudly.
+_HOURGLASS_VALUES = ("DEFAULT", "ENHANCED", "RELAX STIFFNESS")
+
+
+def _normalize_hourglass(value, entry):
+    v = str(value).upper().replace("_", " ").strip()
+    if v not in _HOURGLASS_VALUES:
+        raise SystemExit("Bad hourglass value %r in JOBS entry %r. Valid: %s"
+                         % (value, entry, ", ".join(_HOURGLASS_VALUES)))
+    return v
 
 _TAG_RE = re.compile(r"^[A-Za-z0-9_.-]+$")   # tag lands in file + job names
 
@@ -125,6 +140,8 @@ def _opt_tokens(opts, entry):
                 "Unknown override key '%s' in JOBS entry %r. Use an alias (%s) "
                 "or a dotted cfg path such as 'solver.use_ALE'."
                 % (key, entry, ", ".join(sorted(_OVERRIDE_ALIASES))))
+        if path == "mesh.hourglass_control":
+            value = _normalize_hourglass(value, entry)
         tokens.append("set:%s=%s" % (path, _format_override(value)))
     return tag, tokens
 
@@ -210,3 +227,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
