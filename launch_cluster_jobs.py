@@ -35,15 +35,15 @@ JOBS = [
     ("mesh", "glassy_pmma", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
     ("mesh", "semicrystalline_j2", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
     ("mesh", "semicrystalline_dp", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
-    ("mesh", "elastomer_mr", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05, "hourglass_control": "RELAX STIFFNESS"}),
-    ("mesh", "elastomer_ve", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05, "hourglass_control": "RELAX STIFFNESS"}),
+    ("mesh", "elastomer_mr", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
+    ("mesh", "elastomer_ve", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
     ("mesh", "glassy_pc", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     ("mesh", "glassy_dp", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     ("mesh", "glassy_pmma", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     ("mesh", "semicrystalline_j2", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     ("mesh", "semicrystalline_dp", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
-    ("mesh", "elastomer_mr", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1, "hourglass_control": "RELAX STIFFNESS"}),
-    ("mesh", "elastomer_ve", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1, "hourglass_control": "RELAX STIFFNESS"}),
+    ("mesh", "elastomer_mr", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
+    ("mesh", "elastomer_ve", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"
