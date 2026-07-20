@@ -14,7 +14,16 @@
 #                otherwise).
 #     cpus=K  -> overrides solver.num_cpus/num_domains.
 #     tag=X   -> free suffix (same study launched twice without collision).
+#     set:PATH=VALUE -> per-job config override on any dotted cfg attribute,
+#                applied AFTER the study's configure() so the per-job choice
+#                wins (e.g. re-enable ALE on a mesh study). VALUE is parsed
+#                as bool (true/false/on/off) / int / float, else kept as a
+#                string. Combine with tag= to isolate the variants:
+#                run dir runs/<Study>_<family>_<tag>, distinct job name.
+#                NB: fields varied per-case by the study itself (apply_case)
+#                are re-set at every case and cannot be overridden this way.
 # Example: abaqus cae noGUI=run_parameter_study.py -- material elastomer_mr 3/8
+# Example: abaqus cae noGUI=run_parameter_study.py -- mesh glassy_pc tag=mesh2 set:solver.use_ALE=True set:scratch.scratch_time=0.05
 
 import sys
 import os
@@ -59,13 +68,55 @@ def _makedirs_safe(path):
                 raise
 
 
+def _parse_override_value(text):
+    # bool / int / float auto-detection; falls back to the raw string.
+    low = text.strip().lower()
+    if low in ("true", "on", "yes"):
+        return True
+    if low in ("false", "off", "no"):
+        return False
+    try:
+        return int(text)
+    except ValueError:
+        pass
+    try:
+        return float(text)
+    except ValueError:
+        return text
+
+
+def _apply_overrides(cfg, overrides):
+    # Per-job config overrides from set:PATH=VALUE tokens. Applied AFTER
+    # study.configure() so the per-job choice wins over the study default
+    # (e.g. ALE forced off by mesh_study can be re-enabled for one job).
+    # Fails loudly on a typo instead of silently creating a dead attribute.
+    for path, raw in (overrides or []):
+        obj = cfg
+        parts = path.split(".")
+        for name in parts[:-1]:
+            if not hasattr(obj, name):
+                raise SystemExit("Override '%s=%s': cfg has no attribute '%s'."
+                                 % (path, raw, name))
+            obj = getattr(obj, name)
+        leaf = parts[-1]
+        if not hasattr(obj, leaf):
+            raise SystemExit("Override '%s=%s': '%s' has no attribute '%s'."
+                             % (path, raw, type(obj).__name__, leaf))
+        value = _parse_override_value(raw)
+        setattr(obj, leaf, value)
+        if path == "solver.num_cpus":     # keep MPI domains consistent
+            cfg.solver.num_domains = int(value)
+        print(">>> Override: cfg.%s = %r" % (path, value))
+
+
 def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
                          output_subdir="SimDataOutputs", move_exts=(".sta", ".odb"),
-                         chunk=None, cpus=None, tag=None):
+                         chunk=None, cpus=None, tag=None, overrides=None):
     """
     chunk=(i, N) runs only the round-robin slice cases[i::N] inside an
     isolated directory (concurrent-job safe); cpus overrides the solver CPU
-    count; tag adds a free suffix.
+    count; tag adds a free suffix; overrides is a list of (dotted_path,
+    raw_value) pairs applied by _apply_overrides() after study.configure().
     """
 
     cfg = base_cfg or get_family(family or DEFAULT_FAMILY).build_config()
@@ -95,6 +146,8 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
     cfg.job_name = (job_name or study.name) + fam_tag + suffix
     if study.configure:
         study.configure(cfg)
+
+    _apply_overrides(cfg, overrides)
 
     if cpus:
         cfg.solver.num_cpus = int(cpus)
@@ -343,12 +396,12 @@ def gsell_h_study(h_values):
 # Defaults + selection.
 DEFAULT_FAMILY = "elastomer_mr" 
 DEFAULT_MESH_SIZES = [
-    #[0.04, 0.04, 0.04],
-    [0.03, 0.03, 0.03],
-    [0.02, 0.02, 0.02],
-    [0.015, 0.015, 0.015],
-    [0.01, 0.01, 0.01],
-    [0.007, 0.007, 0.007],
+    [0.04, 0.04, 0.04],
+    #[0.03, 0.03, 0.03],
+    #[0.02, 0.02, 0.02],
+    #[0.015, 0.015, 0.015],
+    #[0.01, 0.01, 0.01],
+    #[0.007, 0.007, 0.007],
 ]
 DEFAULT_MASS_SCALES = [5000]
 DEFAULT_DT_SCALES = [30, 40, 80] # NB : For base MS = 500, sqrt(500) = 22, need more than ~20 to make a difference
@@ -394,11 +447,12 @@ STUDIES = {
 
 def _parse_cli(argv, default_study=DEFAULT_STUDY, default_family=DEFAULT_FAMILY):
     """
-    Tokens after '--' in any order: <study> [family] [i/N] [cpus=K] [tag=X].
+    Tokens after '--' in any order:
+        <study> [family] [i/N] [cpus=K] [tag=X] [set:PATH=VALUE ...]
     Without '--', only study names are scanned in argv (legacy behaviour).
     """
     out = {"study": default_study, "family": default_family,
-           "chunk": None, "cpus": None, "tag": None}
+           "chunk": None, "cpus": None, "tag": None, "overrides": []}
     if "--" in argv:
         rest = argv[argv.index("--") + 1:]
     else:
@@ -410,6 +464,13 @@ def _parse_cli(argv, default_study=DEFAULT_STUDY, default_family=DEFAULT_FAMILY)
             out["cpus"] = int(tok.split("=", 1)[1])
         elif tok.startswith("tag="):
             out["tag"] = tok.split("=", 1)[1]
+        elif tok.startswith("set:"):
+            body = tok[4:]
+            if "=" not in body:
+                raise SystemExit("Bad override token '%s' "
+                                 "(expected set:path=value)." % tok)
+            path, val = body.split("=", 1)
+            out["overrides"].append((path, val))
         elif tok.count("/") == 1 and all(p.isdigit() for p in tok.split("/")):
             i, n = tok.split("/")
             out["chunk"] = (int(i), int(n))
@@ -451,4 +512,5 @@ if __name__ == "__main__":
                         family=cli["family"],
                         chunk=cli["chunk"],
                         cpus=cli["cpus"],
-                        tag=cli["tag"])
+                        tag=cli["tag"],
+                        overrides=cli["overrides"])

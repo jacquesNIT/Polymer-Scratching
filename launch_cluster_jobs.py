@@ -14,22 +14,34 @@ import sys
 import time
 
 
-# Configuration: (study, family)
+# Configuration: (study, family) or (study, family, opts)
+#   opts (dict, optional):
+#     "tag": free variant name -> job label <study>_<family>_<tag> and
+#            ISOLATED run dir runs/<Study>_<family>_<tag> (mandatory when the
+#            same (study, family) appears several times: the duplicate-label
+#            check rejects untagged twins).
+#     any other key = per-job config override, forwarded to
+#     run_parameter_study.py as a set:<path>=<value> token and applied AFTER
+#     the study's configure() (per-job choice wins, e.g. ALE on a mesh study):
+#       - friendly aliases: ALE, scratch_time, scratch_depth, scratch_length,
+#         mass_scale, target_dt   (see _OVERRIDE_ALIASES below)
+#       - or any dotted cfg path verbatim, e.g. "solver.ale_frequency": 10
 # NB : make sure that the number of jobs * CPUs per job < CPUs of the node 
 JOBS = [
-    #("target_dt", "semicrystalline_j2"),       
-    #("gsell_h", "semicrystalline_j2"),
-    #("gsell_h", "glassy_pc"),
-    #("gsell_h", "glassy_pmma"),
-    ("target_dt", "glassy_pc"),
-    #("target_dt", "glassy_pmma"),       
-    #("mesh", "semicrystalline_j2"),
-    #("mesh", "glassy_pc"),
-    #("mesh", "glassy_pmma"),
-    #("mesh", "glassy_dp"),
-    #("mesh", "elastomer_mr"),
-    #("mesh", "elastomer_ve"),
-    #("target_dt", "elastomer_mr"),
+    ("mesh", "glassy_pc", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "glassy_dp", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "glassy_pmma", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "semicrystalline_j2", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "semicrystalline_dp", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "elastomer_mr", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "elastomer_ve", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "glassy_pc", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
+    ("mesh", "glassy_dp", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
+    ("mesh", "glassy_pmma", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
+    ("mesh", "semicrystalline_j2", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
+    ("mesh", "semicrystalline_dp", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
+    ("mesh", "elastomer_mr", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
+    ("mesh", "elastomer_ve", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"
@@ -72,31 +84,84 @@ def wrapper_cpus(raw):
     return int(m.group(1)) if m else None
 
 
+# Friendly names for per-job overrides; any opts key containing '.' is
+# passed through verbatim as a cfg attribute path.
+_OVERRIDE_ALIASES = {
+    "ALE":            "solver.use_ALE",
+    "scratch_time":   "scratch.scratch_time",
+    "scratch_depth":  "scratch.scratch_depth",
+    "scratch_length": "scratch.scratch_length",
+    "mass_scale":     "solver.mass_scale",
+    "target_dt":      "solver.target_time_increment",
+}
+
+_TAG_RE = re.compile(r"^[A-Za-z0-9_.-]+$")   # tag lands in file + job names
+
+
+def _format_override(value):
+    # bool first: isinstance(True, int) is True in Python.
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    return str(value)
+
+
+def _opt_tokens(opts, entry):
+    """opts dict -> (tag or None, ['set:path=value', ...] tokens)."""
+    if not isinstance(opts, dict):
+        raise SystemExit("Bad JOBS entry %r: third element must be a dict."
+                         % (entry,))
+    tag = None
+    tokens = []
+    for key, value in opts.items():
+        if key == "tag":
+            tag = str(value)
+            if not _TAG_RE.match(tag):
+                raise SystemExit("Bad tag %r in JOBS entry %r "
+                                 "(letters, digits, _ . - only)." % (tag, entry))
+            continue
+        path = _OVERRIDE_ALIASES.get(key, key if "." in key else None)
+        if path is None:
+            raise SystemExit(
+                "Unknown override key '%s' in JOBS entry %r. Use an alias (%s) "
+                "or a dotted cfg path such as 'solver.use_ALE'."
+                % (key, entry, ", ".join(sorted(_OVERRIDE_ALIASES))))
+        tokens.append("set:%s=%s" % (path, _format_override(value)))
+    return tag, tokens
+
+
 def expand_jobs():
-    """JOBS entries -> list of (label, tokens). 'material' is split. Validates tokens and rejects duplicate labels """
+    """JOBS entries -> list of (label, tokens). 'material' is split. Expands
+    per-job opts (tag + overrides), validates tokens, rejects duplicate labels."""
     out = []
     for entry in JOBS:
-        if len(entry) != 2:
-            raise SystemExit("Bad JOBS entry %r: expected (study, family)." % (entry,))
-        study, family = entry
+        if len(entry) not in (2, 3):
+            raise SystemExit("Bad JOBS entry %r: expected (study, family) or "
+                             "(study, family, opts)." % (entry,))
+        study, family = entry[0], entry[1]
+        opts = entry[2] if len(entry) == 3 else {}
         if study not in _VALID_STUDIES:
             raise SystemExit("Unknown study '%s' in JOBS. Valid: %s"
                              % (study, ", ".join(_VALID_STUDIES)))
         if family not in _VALID_FAMILIES:
             raise SystemExit("Unknown family '%s' in JOBS. Valid: %s"
                              % (family, ", ".join(_VALID_FAMILIES)))
+        tag, over = _opt_tokens(opts, entry)
+        base_label = "%s_%s" % (study, family) + (("_%s" % tag) if tag else "")
+        tag_tok = (["tag=%s" % tag] if tag else [])
         if study == "material" and SWEEP_JOBS > 1:
             for i in range(SWEEP_JOBS):
-                label = "%s_%s_c%03dof%03d" % (study, family, i, SWEEP_JOBS)
-                out.append((label, [study, family, "%d/%d" % (i, SWEEP_JOBS)]))
+                label = "%s_c%03dof%03d" % (base_label, i, SWEEP_JOBS)
+                out.append((label, [study, family, "%d/%d" % (i, SWEEP_JOBS)]
+                            + tag_tok + over))
         else:
-            out.append(("%s_%s" % (study, family), [study, family]))
+            out.append((base_label, [study, family] + tag_tok + over))
 
     labels = [lbl for lbl, _ in out]
     dups = sorted(set(l for l in labels if labels.count(l) > 1))
     if dups:
         raise SystemExit(
-            "Duplicate job label(s) %s" % ", ".join(dups))
+            "Duplicate job label(s) %s -- give each variant a distinct "
+            "'tag' in its opts dict." % ", ".join(dups))
     return out
 
 
