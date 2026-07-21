@@ -682,10 +682,8 @@ def _suppress_ale_in_step(model, asm, cfg, step_name):
     names = cfg.naming
     region = asm.sets[names.ale_domain_set]
     candidates = (
-        {"frequency": 0, "meshSweeps": 0, "initialMeshSweeps": 0},
-        {"frequency": 0, "meshSweeps": 1, "initialMeshSweeps": 0},
-        {"frequency": 10000000, "meshSweeps": 1, "initialMeshSweeps": 0},
         {"frequency": 10000000, "meshSweeps": 1, "initialMeshSweeps": 1},
+        {"frequency": 1000000,  "meshSweeps": 1, "initialMeshSweeps": 1},
     )
     err = None
     for kwargs in candidates:
