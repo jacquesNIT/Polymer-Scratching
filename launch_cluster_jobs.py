@@ -30,20 +30,20 @@ import time
 #       - or any dotted cfg path verbatim, e.g. "solver.ale_frequency": 10
 # NB : make sure that the number of jobs * CPUs per job < CPUs of the node 
 JOBS = [
-    #("mesh", "glassy_pc", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
-    #("mesh", "glassy_dp", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
-    #("mesh", "glassy_pmma", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
-    #("mesh", "semicrystalline_j2", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
-    #("mesh", "semicrystalline_dp", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05}),
-    #("mesh", "elastomer_mr", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
-    #("mesh", "elastomer_ve", {"tag": "mesh1", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
+    ("mesh", "glassy_pc", {"tag": "mesh3", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "glassy_dp", {"tag": "mesh3", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "glassy_pmma", {"tag": "mesh3", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "semicrystalline_j2", {"tag": "mesh3", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "semicrystalline_dp", {"tag": "mesh3", "ALE": True, "scratch_time": 0.05}),
+    ("mesh", "elastomer_mr", {"tag": "mesh3", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
+    ("mesh", "elastomer_ve", {"tag": "mesh3", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
     #("mesh", "glassy_pc", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "glassy_dp", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "glassy_pmma", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "semicrystalline_j2", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "semicrystalline_dp", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "elastomer_mr", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
-    ("mesh", "elastomer_ve", {"tag": "mesh3", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
+    ("mesh", "elastomer_ve", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"

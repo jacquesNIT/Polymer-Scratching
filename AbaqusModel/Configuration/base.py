@@ -141,7 +141,6 @@ class Yeoh_Model_Config:
         return {"C10_Y": self.C10, "C20_Y": self.C20,
                 "C30_Y": self.C30, "D1_Y": self.D1}
 
-
 # 4e. Ogden (principal-stretch based) hyper-elastic model
 class Ogden_Model_Config:
     #  W = sum_{i=1..N} 2*mu_i/alpha_i^2 * (lam1_bar^alpha_i + lam2_bar^alpha_i + lam3_bar^alpha_i - 3) + sum_{i=1..N} (1/Di) * (J_el - 1)^(2i)
