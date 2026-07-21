@@ -587,8 +587,8 @@ class Solver_Config:
                  num_cpus=6,
                  time_scale_factor=1.0,
                  linear_bulk_viscosity=0.06, quad_bulk_viscosity=1.2, # Default Abaqus values
-               # ale_frequency=20, ale_mesh_sweeps=1,   # OLD defaults -> remeshing Courant ~ 0.01 (see the note below)
-                 ale_frequency=200, ale_mesh_sweeps=3, ale_smoothing_priority="GRADED", ale_smoothing_algorithm="GEOMETRY_ENHANCED", # ALE parameters
+                # ale_frequency=20, ale_mesh_sweeps=1,   # OLD defaults 
+                 ale_frequency=200, ale_mesh_sweeps=3, ale_smoothing_priority="GRADED", ale_smoothing_algorithm="GEOMETRY_ENHANCED", 
                  ale_curvature_refinement=1,      # > 1 concentrates nodes on the groove shoulder (1 = uniform)
                  ale_domain="refined",            # "refined" | "contact" | "full" (legacy) -- see _setup_ale
                  ale_in_passive_steps=False):     # ALE during unload / recovery -- see _setup_ale
@@ -612,24 +612,6 @@ class Solver_Config:
         self.ale_curvature_refinement = ale_curvature_refinement
         self.ale_domain = ale_domain
         self.ale_in_passive_steps = ale_in_passive_steps
-
-        # ale_frequency is THE parameter that sets the advection error.
-        # Between two remeshings the indenter travels d = L * dt * f / T, and
-        # with dt ~ L_min / c_d * sqrt(mass_scale) the REMESHING COURANT NUMBER
-        #       C = d / L_min = f * L * sqrt(mass_scale) / (T * c_d)
-        # is MESH-INDEPENDENT (L_min cancels): one ale_frequency keeps the same
-        # advection error across a whole mesh study. Advection is exact at
-        # C = 1 and maximally diffusive as C -> 0, so remeshing very often with
-        # tiny displacements is the WORST case, not the safest one.
-        # f = 20 gave C ~ 0.01 on the glassy families (~2e4 advections per
-        # scratch, each diffusing PEEQ and the stress state) -- the likely
-        # origin of the -13 to -31% RF2 bias measured against the no-ALE runs.
-        # Target C ~ 0.2-0.5; use ale_remesh_courant(cfg) to check a config.
-
-        # Time-dependent simulations will be faster than lab experiments, added "time_scale_factor = t_lab / t_sim = v_sim / v_lab" to capture that.
-        # The Prony relaxation factor must be scaled with "tau_sim,i = tau_lab,i / time_scale_factor".
-        # Cowper-Symonds must see the true simulated strain rates, it is not scaled.
-        # Not used for Rate_independent materials.
 
 # 12. Outputs
 class Output_Config:
@@ -789,8 +771,6 @@ class Simulation_Config:
                 num_cpus=12,                        # "submit.sh CPU value is prioritized"
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
-              # ale_frequency=20,                 # OLD: C_remesh ~ 0.01 -> maximal advection diffusion
-              # ale_mesh_sweeps=1,
                 ale_frequency=200,                # C_remesh ~ 0.1 (glassy) to ~0.6 (elastomer); see ale_remesh_courant()
                 ale_mesh_sweeps=3,                # absorbs the larger distortion between two (now rarer) remeshings
                 ale_smoothing_priority="GRADED",
