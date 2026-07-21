@@ -587,7 +587,11 @@ class Solver_Config:
                  num_cpus=6,
                  time_scale_factor=1.0,
                  linear_bulk_viscosity=0.06, quad_bulk_viscosity=1.2, # Default Abaqus values
-                 ale_frequency=20, ale_mesh_sweeps=1, ale_smoothing_priority="GRADED", ale_smoothing_algorithm="GEOMETRY_ENHANCED"): # ALE parameters
+               # ale_frequency=20, ale_mesh_sweeps=1,   # OLD defaults -> remeshing Courant ~ 0.01 (see the note below)
+                 ale_frequency=200, ale_mesh_sweeps=3, ale_smoothing_priority="GRADED", ale_smoothing_algorithm="GEOMETRY_ENHANCED", # ALE parameters
+                 ale_curvature_refinement=1,      # > 1 concentrates nodes on the groove shoulder (1 = uniform)
+                 ale_domain="refined",            # "refined" | "contact" | "full" (legacy) -- see _setup_ale
+                 ale_in_passive_steps=False):     # ALE during unload / recovery -- see _setup_ale
     
         if time_scale_factor < 1.0:
             raise ValueError("time_scale_factor must be >= 1 (lab time / simulated time)")
@@ -599,10 +603,28 @@ class Solver_Config:
         self.time_scale_factor = float(time_scale_factor)
         self.linear_bulk_viscosity = linear_bulk_viscosity
         self.quad_bulk_viscosity = quad_bulk_viscosity
+        if ale_domain not in ("refined", "contact", "full"):
+            raise ValueError("ale_domain must be 'refined', 'contact' or 'full', got '%s'" % ale_domain)
         self.ale_frequency = ale_frequency
         self.ale_mesh_sweeps = ale_mesh_sweeps
         self.ale_smoothing_priority = ale_smoothing_priority
         self.ale_smoothing_algorithm = ale_smoothing_algorithm
+        self.ale_curvature_refinement = ale_curvature_refinement
+        self.ale_domain = ale_domain
+        self.ale_in_passive_steps = ale_in_passive_steps
+
+        # ale_frequency is THE parameter that sets the advection error.
+        # Between two remeshings the indenter travels d = L * dt * f / T, and
+        # with dt ~ L_min / c_d * sqrt(mass_scale) the REMESHING COURANT NUMBER
+        #       C = d / L_min = f * L * sqrt(mass_scale) / (T * c_d)
+        # is MESH-INDEPENDENT (L_min cancels): one ale_frequency keeps the same
+        # advection error across a whole mesh study. Advection is exact at
+        # C = 1 and maximally diffusive as C -> 0, so remeshing very often with
+        # tiny displacements is the WORST case, not the safest one.
+        # f = 20 gave C ~ 0.01 on the glassy families (~2e4 advections per
+        # scratch, each diffusing PEEQ and the stress state) -- the likely
+        # origin of the -13 to -31% RF2 bias measured against the no-ALE runs.
+        # Target C ~ 0.2-0.5; use ale_remesh_courant(cfg) to check a config.
 
         # Time-dependent simulations will be faster than lab experiments, added "time_scale_factor = t_lab / t_sim = v_sim / v_lab" to capture that.
         # The Prony relaxation factor must be scaled with "tau_sim,i = tau_lab,i / time_scale_factor".
@@ -767,10 +789,15 @@ class Simulation_Config:
                 num_cpus=12,                        # "submit.sh CPU value is prioritized"
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
-                ale_frequency=20,
-                ale_mesh_sweeps=1,
+              # ale_frequency=20,                 # OLD: C_remesh ~ 0.01 -> maximal advection diffusion
+              # ale_mesh_sweeps=1,
+                ale_frequency=200,                # C_remesh ~ 0.1 (glassy) to ~0.6 (elastomer); see ale_remesh_courant()
+                ale_mesh_sweeps=3,                # absorbs the larger distortion between two (now rarer) remeshings
                 ale_smoothing_priority="GRADED",
                 ale_smoothing_algorithm="GEOMETRY_ENHANCED",
+                ale_curvature_refinement=1,       # try 2-3 to sharpen the groove shoulder (pile-up resolution)
+                ale_domain="refined",             # ALE restricted to the refined contact cell
+                ale_in_passive_steps=False,       # no advection during unload / recovery
             ),
             scratch=Scratch_Config(
                 depth_mode=Scratch_Config.PROGRESSIVE,
@@ -844,6 +871,34 @@ def natural_dt(material, L_min):
     M = K + 4.0 * G / 3.0
     c_d = np.sqrt(M / material.rho)
     return float(L_min) / c_d
+
+def ale_remesh_courant(cfg):
+    # Remeshing Courant number of an ALE run:
+    #     C = (indenter travel between two remeshings) / (fine element size)
+    #       = ale_frequency * scratch_length * dt / (scratch_time * L_min)
+    # Because dt ~ L_min / c_d, C is MESH-INDEPENDENT: a single ale_frequency
+    # keeps a consistent advection error across a mesh study.
+    #   C -> 0 : maximum numerical diffusion of the advected state variables
+    #            (PEEQ, stresses) -- biases RF2 low on dissipative families.
+    #   C -> 1 : advection becomes exact, but the mesh must survive a full
+    #            element of distortion between two remeshings.
+    # Target ~ 0.2-0.5. Returns None when the estimate does not apply.
+    try:
+        L_min = min(cfg.mesh.fine_size_x, cfg.mesh.fine_size_y, cfg.mesh.fine_size_z)
+        dt_nat = natural_dt(cfg.material, L_min)
+    except (ValueError, AttributeError, TypeError):
+        return None
+    target_dt = float(getattr(cfg.solver, "target_time_increment", 0.0) or 0.0)
+    if target_dt > 0.0:
+        dt = target_dt                     # variable mass scaling drives dt to the target
+    else:
+        s = float(getattr(cfg.solver, "mass_scale", 1.0) or 1.0)
+        dt = dt_nat * np.sqrt(max(s, 1.0))
+    f = float(getattr(cfg.solver, "ale_frequency", 0) or 0)
+    if f <= 0.0 or cfg.scratch.scratch_time <= 0.0:
+        return None
+    travel = cfg.scratch.scratch_length * dt * f / float(cfg.scratch.scratch_time)
+    return float(travel / L_min)
 
 # G'Sell-Jonas dense hardening-table generator (used for the yield tables)
 def gsell_jonas_table(sigma_y0, h, Q=0.0, b=0.0, soft_drop=0.0, eps_soft=0.05,

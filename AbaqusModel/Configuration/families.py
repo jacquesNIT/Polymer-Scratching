@@ -102,7 +102,7 @@ def _semicrystalline_config():
         # friction=Friction_Config(mu=0.3),
         family="semicrystalline_j2",
     )
-    cfg.solver.target_time_increment = 40.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 40 : results from the target time study
+    cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 40 : results from the target time study
     return cfg
 
 def _semicrystalline_dp_config():
@@ -126,7 +126,7 @@ def _semicrystalline_dp_config():
         # friction=Friction_Config(mu=0.3),
         family="semicrystalline_dp",
     )
-    cfg.solver.target_time_increment = 40.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 40 : same s as semicrystalline_j2 (same rho/E/mesh -> same natural dt)
+    cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 40 : same s as semicrystalline_j2 (same rho/E/mesh -> same natural dt)
     return cfg
 
 def _elastomer_ve_config():
@@ -145,7 +145,7 @@ def _elastomer_ve_config():
                      (0.15, 0.0, 1.0e-2),
                      (0.10, 0.0, 1.0e-1)))   # sum g = 0.40 -> long-term = 60%
     cfg.material.family = "elastomer_ve"
-    cfg.solver.target_time_increment = 20.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 20 : Same as MR
+    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 20 : Same as MR
     return cfg
 
 def _glassy_config():
@@ -165,7 +165,7 @@ def _glassy_config():
         family="glassy_dp",
     )
     # cfg.solver.mass_scale = 500        # MS convergence study: < 5% only for MS <= 500.
-    cfg.solver.target_time_increment = 20.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 20 : Same as PC
+    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 20 : Same as PC
     return cfg
 
 def _glassy_pc_config():
@@ -192,7 +192,7 @@ def _glassy_pc_config():
         #friction=Friction_Config(mu=0.3),
         family="glassy_pc",
     )
-    cfg.solver.target_time_increment = 20.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 20 : results from the target time study
+    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 20 : results from the target time study
     # cfg.solver.mass_scale = 500
     return cfg
 
@@ -221,7 +221,7 @@ def _glassy_pmma_config():
         #friction=Friction_Config(mu=0.3),
         family="glassy_pmma",
     )
-    cfg.solver.target_time_increment = 40.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 40 : results from the target time study
+    cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 40 : results from the target time study
     # cfg.solver.mass_scale = 500
     return cfg
 

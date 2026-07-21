@@ -576,25 +576,58 @@ def _setup_ale(model, asm, sub_inst, cfg, steps):
         name=names.ale_control,
         smoothingPriority=smoothing_priority,
         smoothingAlgorithm=smoothing_algorithm,
-        curvatureRefinement=1,
+        curvatureRefinement=getattr(solver, "ale_curvature_refinement", 1),
+        # NB: the three *SmoothingWeight arguments below parametrise the BASIC
+        # smoothing algorithm; with GEOMETRY_ENHANCED they are most likely
+        # ignored. VERIFY in the *ADAPTIVE MESH CONTROLS block of the generated
+        # .inp before assuming they tune anything.
         volumetricSmoothingWeight=1,
         laplacianSmoothingWeight=0,
         equipotentialSmoothingWeight=0,
     )
 
-    ale_cell_coords = [
-        (sub.xs1, sub.ys2, zmid),
-        (sub.xs1, sub.ys1, zmid),
-        (sub.xs2, sub.ys1, zmid),
-        (sub.xs1, sub.ys1, sub.zs1),
-        (sub.xs2, sub.ys1, sub.zs1),
-        (sub.xs1, sub.ys1, sub.zs2),
-        (sub.xs2, sub.ys1, sub.zs2),
-    ]
+    # ALE domain scope (solver.ale_domain).
+    #   "refined" : the refined contact cell only -- x in [xs1, xs1+dpo_x],
+    #               y in [ys2-dpo_y, ys2], z in [zs1+dpo_z, zs2-dpo_z]. With
+    #               the default partitions that is a 0.25 mm deep box under a
+    #               0.04 mm groove (~6x the depth), which contains the whole
+    #               plastic zone. Everything outside stays purely Lagrangian:
+    #               no advection of an undamaged far field, and the report can
+    #               state that ALE acts on the contact zone only.
+    #   "contact" : refined cell + the cell directly underneath (same x/z
+    #               footprint, full substrate height). Safety valve.
+    #   "full"    : legacy behaviour, the 7 substrate cells.
+    #
+    # NB: nodes ON the domain boundary stay Lagrangian, so plasticity must not
+    # reach it. The bottom face sits at dpo_y = 0.25 mm while the contact
+    # radius is a ~ 0.12 mm at 40 um depth (2a ~ 0.24 mm): the margin on the
+    # ELASTIC field is thin. After the first run, check PEEQ ~ 0 on the
+    # y = ys2 - dpo_y face; switch to "contact" if it is not.
+    scope = str(getattr(solver, "ale_domain", "full")).lower()
+    _refined_cell = (sub.xs1, sub.ys2, zmid)          # refined contact cell (= names.refined_set)
+    _under_cell = (sub.xs1, sub.ys1, zmid)            # cell directly below it
+    if scope == "refined":
+        ale_cell_coords = [_refined_cell]
+    elif scope == "contact":
+        ale_cell_coords = [_refined_cell, _under_cell]
+    else:
+        ale_cell_coords = [
+            _refined_cell,
+            _under_cell,
+            (sub.xs2, sub.ys1, zmid),
+            (sub.xs1, sub.ys1, sub.zs1),
+            (sub.xs2, sub.ys1, sub.zs1),
+            (sub.xs1, sub.ys1, sub.zs2),
+            (sub.xs2, sub.ys1, sub.zs2),
+        ]
     asm.Set(
         name=names.ale_domain_set,
         cells=sub_inst.cells.findAt(*[(c,) for c in ale_cell_coords]),
     )
+    print(">>> ALE domain '%s': %d cell(s), frequency=%s, meshSweeps=%s, curvatureRefinement=%s."
+          % (scope, len(ale_cell_coords), solver.ale_frequency, solver.ale_mesh_sweeps,
+             getattr(solver, "ale_curvature_refinement", 1)))
+    _print_ale_courant(cfg)
 
     # Active steps: full ALE frequency
     for step_name in steps["all_active"]:
@@ -605,21 +638,87 @@ def _setup_ale(model, asm, sub_inst, cfg, steps):
             region=asm.sets[names.ale_domain_set],
         )
 
-    # Unload step: lower frequency (less deformation happening)
-    model.steps[steps["unload"]].AdaptiveMeshDomain(
-        controls=names.ale_control,
-        meshSweeps=1,
-        frequency=400,
-        initialMeshSweeps=1,
-        region=asm.sets[names.ale_domain_set],
-    )
-
-    # Recovery step: minimal ALE (indenter is lifted, substrate relaxes)
+    # Unload / recovery: ALE suppressed by default (solver.ale_in_passive_steps).
+    #
+    # CRITICAL -- adaptive mesh domains PROPAGATE from step to step in
+    # Abaqus/Explicit. Simply DELETING the two blocks below would NOT disable
+    # ALE: the passive steps would INHERIT the active-step settings
+    # (frequency=200, meshSweeps=3), i.e. far MORE remeshing than the legacy
+    # frequency=400/1000. The domain must be RE-DECLARED with a suppressing
+    # frequency, never removed.
+    #
+    # Why suppress: during unload and recovery the material relaxes without
+    # generating new distortion, so every advection only diffuses the residual
+    # stress field that sets the final groove profile -- the very quantity
+    # these two steps exist to measure.
+    passive_steps = [steps["unload"]]
     if steps["recovery"] is not None:
-        model.steps[steps["recovery"]].AdaptiveMeshDomain(
-            controls=names.ale_control,
-            meshSweeps=1,
-            frequency=1000,
-            initialMeshSweeps=1,
-            region=asm.sets[names.ale_domain_set],
-        )
+        passive_steps.append(steps["recovery"])
+
+    if getattr(solver, "ale_in_passive_steps", False):
+        # Legacy behaviour: minimal ALE kept during unload (400) / recovery (1000).
+        for step_name, freq in zip(passive_steps, (400, 1000)):
+            model.steps[step_name].AdaptiveMeshDomain(
+                controls=names.ale_control,
+                meshSweeps=1,
+                frequency=freq,
+                initialMeshSweeps=1,
+                region=asm.sets[names.ale_domain_set],
+            )
+    else:
+        for step_name in passive_steps:
+            _suppress_ale_in_step(model, asm, cfg, step_name)
+
+
+def _suppress_ale_in_step(model, asm, cfg, step_name):
+    # Re-declare the adaptive mesh domain with settings that never trigger a
+    # remeshing, so the active-step domain cannot propagate into a passive step.
+    # frequency=0 is the documented suppression value; the huge-frequency
+    # variants are fallbacks should the CAE API reject 0 (or 0 sweeps).
+    #
+    # VERIFY ONCE in the generated .inp: the *ADAPTIVE MESH block of the unload
+    # step must carry FREQUENCY=0 (or 10000000) with no initial sweeps, and the
+    # .sta must report no remeshing after the scratch step.
+    names = cfg.naming
+    region = asm.sets[names.ale_domain_set]
+    candidates = (
+        {"frequency": 0, "meshSweeps": 0, "initialMeshSweeps": 0},
+        {"frequency": 0, "meshSweeps": 1, "initialMeshSweeps": 0},
+        {"frequency": 10000000, "meshSweeps": 1, "initialMeshSweeps": 0},
+        {"frequency": 10000000, "meshSweeps": 1, "initialMeshSweeps": 1},
+    )
+    err = None
+    for kwargs in candidates:
+        try:
+            model.steps[step_name].AdaptiveMeshDomain(
+                controls=names.ale_control, region=region, **kwargs)
+            print(">>> ALE suppressed in step '%s' (%s)."
+                  % (step_name, ", ".join("%s=%s" % (k, kwargs[k]) for k in sorted(kwargs))))
+            return
+        except Exception as exc:
+            err = str(exc)
+    print("Warning: could not suppress ALE in step '%s' (%s). The active-step "
+          "adaptive mesh domain will PROPAGATE into it -- check the .inp."
+          % (step_name, err))
+
+
+def _print_ale_courant(cfg):
+    # Log the remeshing Courant number so every ALE run carries, in its own
+    # .log, the number that governs its advection error.
+    try:
+        from ScratchSimulation.AbaqusModel.Configuration.base import ale_remesh_courant
+        C = ale_remesh_courant(cfg)
+    except Exception as exc:
+        print(">>> ALE: remeshing Courant estimate unavailable (%s)." % exc)
+        return
+    if C is None:
+        print(">>> ALE: remeshing Courant estimate not applicable to this config.")
+        return
+    if C < 0.15:
+        verdict = "TOO DIFFUSIVE -- raise ale_frequency"
+    elif C > 0.6:
+        verdict = "TOO COARSE -- lower ale_frequency or raise ale_mesh_sweeps"
+    else:
+        verdict = "OK"
+    print(">>> ALE: remeshing Courant C = %.3f [%s] (target 0.2-0.5; C -> 0 "
+          "maximises advection diffusion of PEEQ / stress)." % (C, verdict))
