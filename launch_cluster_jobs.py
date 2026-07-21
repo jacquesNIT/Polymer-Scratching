@@ -30,10 +30,10 @@ import time
 #       - or any dotted cfg path verbatim, e.g. "solver.ale_frequency": 10
 # NB : make sure that the number of jobs * CPUs per job < CPUs of the node 
 JOBS = [
-    ("mesh", "glassy_pc", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
-    ("mesh", "glassy_dp", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
-    ("mesh", "glassy_pmma", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
-    ("mesh", "semicrystalline_j2", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
+    #("mesh", "glassy_pc", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
+    #("mesh", "glassy_dp", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
+    #("mesh", "glassy_pmma", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
+    #("mesh", "semicrystalline_j2", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
     ("mesh", "semicrystalline_dp", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
     ("mesh", "elastomer_mr", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
     ("mesh", "elastomer_ve", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
