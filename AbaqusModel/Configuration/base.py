@@ -587,7 +587,7 @@ class Solver_Config:
                  time_scale_factor=1.0,
                  linear_bulk_viscosity=0.06, quad_bulk_viscosity=1.2, # Default Abaqus values
                 # ale_frequency=20, ale_mesh_sweeps=1,   # OLD defaults 
-                 ale_frequency=200, ale_mesh_sweeps=3, ale_smoothing_priority="GRADED", ale_smoothing_algorithm="GEOMETRY_ENHANCED", 
+                 ale_frequency=650, ale_mesh_sweeps=3, ale_smoothing_priority="GRADED", ale_smoothing_algorithm="GEOMETRY_ENHANCED", 
                  ale_curvature_refinement=1,      # > 1 concentrates nodes on the groove shoulder (1 = uniform)
                  ale_domain="refined",            # "refined" | "contact" | "full" (legacy) -- see _setup_ale
                  ale_in_passive_steps=False):     # ALE during unload / recovery -- see _setup_ale
@@ -770,7 +770,7 @@ class Simulation_Config:
                 num_cpus=12,                        # "submit.sh CPU value is prioritized"
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
-                ale_frequency=200,                # C_remesh ~ 0.1 (glassy) to ~0.6 (elastomer); see ale_remesh_courant()
+                ale_frequency=650,                # C_remesh ~ 0.1 (glassy) to ~0.6 (elastomer); see ale_remesh_courant()
                 ale_mesh_sweeps=3,                # absorbs the larger distortion between two (now rarer) remeshings
                 ale_smoothing_priority="GRADED",
                 ale_smoothing_algorithm="GEOMETRY_ENHANCED",

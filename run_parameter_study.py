@@ -400,8 +400,8 @@ DEFAULT_MESH_SIZES = [
     #[0.03, 0.03, 0.03],
     [0.02, 0.02, 0.02],
     [0.015, 0.015, 0.015],
-    #[0.01, 0.01, 0.01],
-    #[0.007, 0.007, 0.007],
+    [0.01, 0.01, 0.01],
+    [0.007, 0.007, 0.007],
 ]
 DEFAULT_MASS_SCALES = [5000]
 DEFAULT_DT_SCALES = [30, 40, 80] # NB : For base MS = 500, sqrt(500) = 22, need more than ~20 to make a difference
