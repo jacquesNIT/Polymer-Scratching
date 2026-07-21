@@ -101,7 +101,7 @@ _OVERRIDE_ALIASES = {
     "target_dt":      "solver.target_time_increment",
     "hourglass":      "mesh.hourglass_control",
     "freq":           "solver.ale_frequency",
-    "sweeps":         "ale_mesh_sweeps",
+    "sweeps":         "solver.ale_mesh_sweeps",
 }
 
 # mesh_substrate() compares hourglass_control against these EXACT strings and
