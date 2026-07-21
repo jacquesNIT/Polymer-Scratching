@@ -43,7 +43,7 @@ JOBS = [
     #("mesh", "semicrystalline_j2", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "semicrystalline_dp", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "elastomer_mr", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
-    ("mesh", "elastomer_ve", {"tag": "mesh2", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
+    ("mesh", "elastomer_ve", {"tag": "mesh3", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"
