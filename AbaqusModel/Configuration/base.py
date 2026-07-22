@@ -68,7 +68,8 @@ class Mesh_Config:
                  distortion_control="DEFAULT",                                 # 'DEFAULT' for important deformations ('OFF' otherwise)
                  max_degradation=0.9,                                          # Best value for polymers ?
                  element_deletion=False,                                       # 'False' to capture the recovery phenomenon
-                 second_order_accuracy=False):                                 # 'True' for complex models (AB, DP) (False otherwise) (increases simulation time)
+                 second_order_accuracy=False,                                  # 'True' for complex models (AB, DP) (False otherwise) (increases simulation time)
+                 length_ratio=0.1):                                            # For distortion control, between 0 and 1
 
         self.fine_size_x = fine_size_x
         self.fine_size_y = fine_size_y
@@ -81,6 +82,7 @@ class Mesh_Config:
         self.max_degradation = max_degradation
         self.element_deletion = element_deletion
         self.second_order_accuracy = second_order_accuracy
+        self.length_ratio = length_ratio
 
 # 4a. Linear Elastic Model (for glassy / semicrystalline bases)
 class LinearElastic_Config:

@@ -109,7 +109,13 @@ def mesh_substrate(part, cfg):
         hg = RELAX_STIFFNESS
     else:
         hg = DEFAULT
-    dc = DEFAULT
+
+    if msh.distortion_control == "ON":
+        dc = ON
+    elif msh.distortion_control == "OFF":
+        dc = OFF
+    else:                                   # "DEFAULT" (or any unrecognised value)
+        dc = DEFAULT
 
     part.setElementType(
         elemTypes=(
@@ -118,6 +124,7 @@ def mesh_substrate(part, cfg):
                 elemLibrary=EXPLICIT,
                 secondOrderAccuracy=ON if msh.second_order_accuracy else OFF,
                 distortionControl=dc,
+                lengthRatio=msh.length_ratio,
                 hourglassControl=hg,
                 elemDeletion=ON if msh.element_deletion else OFF,
                 maxDegradation=msh.max_degradation,

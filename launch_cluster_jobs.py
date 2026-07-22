@@ -34,20 +34,28 @@ JOBS = [
     #("mesh", "glassy_dp", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
     #("mesh", "glassy_pmma", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
     #("mesh", "semicrystalline_j2", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
-    ("mesh", "semicrystalline_dp", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
-    ("mesh", "elastomer_mr", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
-    ("mesh", "elastomer_ve", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
-    ("mesh", "glassy_pc", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
-    ("mesh", "glassy_dp", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
-    ("mesh", "glassy_pmma", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
-    ("mesh", "semicrystalline_j2", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
-    ("mesh", "semicrystalline_dp", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
-    ("mesh", "elastomer_mr", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
-    ("mesh", "elastomer_ve", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
+    #("mesh", "semicrystalline_dp", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
+    #("mesh", "elastomer_mr", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
+    #("mesh", "elastomer_ve", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
+    #("mesh", "glassy_pc", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
+    #("mesh", "glassy_dp", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
+    #("mesh", "semicrystalline_j2", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
+    #("mesh", "semicrystalline_dp", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
+    #("mesh", "elastomer_mr", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
+    #("mesh", "elastomer_ve", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
+
     #("mesh", "glassy_dp", {"tag": "ALE20", "ALE": True, "scratch_time": 0.05, "freq": 20, "sweeps": 1}),
     #("mesh", "glassy_dp", {"tag": "ALE200", "ALE": True, "scratch_time": 0.05, "freq": 20, "sweeps": 3}),
     #("mesh", "glassy_dp", {"tag": "ALE650", "ALE": True, "scratch_time": 0.05, "freq": 650, "sweeps": 3}),
     #("mesh", "glassy_dp", {"tag": "ALE1300", "ALE": True, "scratch_time": 0.05, "freq": 1300, "sweeps": 5}),
+
+    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.2}),
+    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.3}),
+    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.2}),
+    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.3}),
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"
@@ -93,6 +101,8 @@ def wrapper_cpus(raw):
 # Friendly names for per-job overrides; any opts key containing '.' is
 # passed through verbatim as a cfg attribute path.
 _OVERRIDE_ALIASES = {
+
+    # Main Tests
     "ALE":            "solver.use_ALE",
     "scratch_time":   "scratch.scratch_time",
     "scratch_depth":  "scratch.scratch_depth",
@@ -100,8 +110,12 @@ _OVERRIDE_ALIASES = {
     "mass_scale":     "solver.mass_scale",
     "target_dt":      "solver.target_time_increment",
     "hourglass":      "mesh.hourglass_control",
+
+    # Side Tests
     "freq":           "solver.ale_frequency",
     "sweeps":         "solver.ale_mesh_sweeps",
+    "distortion":     "mesh.distortion_control",
+    "length":         "mesh.length_ratio",
 }
 
 # mesh_substrate() compares hourglass_control against these EXACT strings and
