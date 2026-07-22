@@ -50,12 +50,12 @@ JOBS = [
     #("mesh", "glassy_dp", {"tag": "ALE650", "ALE": True, "scratch_time": 0.05, "freq": 650, "sweeps": 3}),
     #("mesh", "glassy_dp", {"tag": "ALE1300", "ALE": True, "scratch_time": 0.05, "freq": 1300, "sweeps": 5}),
 
-    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.2}),
-    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.3}),
-    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.2}),
-    ("mesh", "glassy_pc", {"tag": "distortion", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.3}),
+    ("mesh", "glassy_pc", {"tag": "distortionF1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pc", {"tag": "distortionF2", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.2}),
+    ("mesh", "glassy_pc", {"tag": "distortionF3", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.3}),
+    ("mesh", "glassy_pc", {"tag": "distortionT1", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pc", {"tag": "distortionT2", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.2}),
+    ("mesh", "glassy_pc", {"tag": "distortionT3", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.3}),
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"
