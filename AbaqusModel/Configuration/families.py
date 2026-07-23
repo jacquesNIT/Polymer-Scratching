@@ -79,7 +79,7 @@ Currently available models :
 def _elastomer_mr_config():
     # HyperElastic Elastomer
     cfg = Simulation_Config.polymer_default()                                                   # HyperElastic Model based on polymer_default
-    cfg.solver.target_time_increment = 20.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x)    # 20 : results from the target time study
+    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x)    # 20 : results from the target time study
     return cfg
 
 def _semicrystalline_config():
