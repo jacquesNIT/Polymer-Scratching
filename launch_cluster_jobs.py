@@ -55,10 +55,10 @@ JOBS = [
     #("mesh", "glassy_dp", {"tag": "ALE650", "ALE": True, "scratch_time": 0.05, "freq": 650, "sweeps": 3}),
     #("mesh", "glassy_dp", {"tag": "ALE1300", "ALE": True, "scratch_time": 0.05, "freq": 1300, "sweeps": 5}),
 
-    ("mesh", "glassy_pc", {"tag": "Test_NewMeshing", "ALE": True, "scratch_time": 0.05}),
+    #("mesh", "glassy_pc", {"tag": "Test_NewMeshing", "ALE": True, "scratch_time": 0.05}),
 
-    ("single", "glassy_pc", {"tag": "Test_NewMeshing_z10", "ALE": True, "scratch_time": 0.05, "z_size": 0.01}),
-    ("single", "glassy_pc", {"tag": "Test_NewMeshing_z15", "ALE": True, "scratch_time": 0.05, "z_size": 0.015}),
+    #("single", "glassy_pc", {"tag": "Test_NewMeshing_z10", "ALE": True, "scratch_time": 0.05, "z_size": 0.01}),
+    #("single", "glassy_pc", {"tag": "Test_NewMeshing_z15", "ALE": True, "scratch_time": 0.05, "z_size": 0.015}),
     ("single", "glassy_pc", {"tag": "Test_NewMeshing_z20", "ALE": True, "scratch_time": 0.05, "z_size": 0.020}),
     ("single", "glassy_pc", {"tag": "Test_NewMeshing_z30", "ALE": True, "scratch_time": 0.05, "z_size": 0.030}),
 
