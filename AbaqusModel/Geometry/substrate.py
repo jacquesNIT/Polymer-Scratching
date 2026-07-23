@@ -109,13 +109,30 @@ def mesh_substrate(part, cfg):
         hg = RELAX_STIFFNESS
     else:
         hg = DEFAULT
+    # dc = DEFAULT  # was hardcoded here; the distortion_control config field was never read
+    # str() FIRST: per-job overrides arrive as a Python bool, never as "ON" --
+    # run_parameter_study._parse_override_value() maps "True"/"on"/"yes" -> True
+    # and "False"/"off"/"no" -> False, so a string comparison silently fell
+    # through to DEFAULT (= OFF for every non-hyperelastic family).
+    _dc_raw = msh.distortion_control
+    _dc = str(_dc_raw).strip().upper()
+    if _dc in ("ON", "TRUE", "YES"):
+        dc, _dc_label = ON, "ON"
+    elif _dc in ("OFF", "FALSE", "NO"):
+        dc, _dc_label = OFF, "OFF"
+    elif _dc == "DEFAULT":                  # Abaqus decides: ON for hyperelastic/hyperfoam only
+        dc, _dc_label = DEFAULT, "DEFAULT"
+    else:                                   # fail loudly instead of silently disabling
+        raise ValueError("Bad mesh.distortion_control %r. Valid: ON/True, "
+                         "OFF/False, DEFAULT." % (_dc_raw,))
 
-    if msh.distortion_control == "ON":
-        dc = ON
-    elif msh.distortion_control == "OFF":
-        dc = OFF
-    else:                                   # "DEFAULT" (or any unrecognised value)
-        dc = DEFAULT
+    _lr = float(msh.length_ratio)           # only read by Abaqus when dc resolves to ON
+    if not (0.0 < _lr <= 1.0):
+        raise ValueError("Bad mesh.length_ratio %r: need 0 < r <= 1." % (msh.length_ratio,))
+
+    # Greppable in the job .out -- the only in-run proof that DC is really on.
+    print(">>> Element controls: distortion_control=%r -> %s | length_ratio=%s | hourglass=%s"
+          % (_dc_raw, _dc_label, _lr, msh.hourglass_control))
 
     part.setElementType(
         elemTypes=(
@@ -124,7 +141,7 @@ def mesh_substrate(part, cfg):
                 elemLibrary=EXPLICIT,
                 secondOrderAccuracy=ON if msh.second_order_accuracy else OFF,
                 distortionControl=dc,
-                lengthRatio=msh.length_ratio,
+                lengthRatio=_lr,                    # distortion-control length ratio; only active when dc resolves to ON
                 hourglassControl=hg,
                 elemDeletion=ON if msh.element_deletion else OFF,
                 maxDegradation=msh.max_degradation,

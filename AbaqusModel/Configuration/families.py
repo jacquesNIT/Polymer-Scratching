@@ -138,7 +138,7 @@ def _elastomer_ve_config():
     # set solver.time_scale_factor: the material builder divides every tau by
     # it (see Solver_Config) so De is preserved.
     cfg = Simulation_Config.polymer_default()               # Careful to have AB in polymer-default
-    cfg.scratch.recovery_time=5*cfg.scratch.scratch_time    # Recovery time has to be longer for Visco-Elastic families
+    cfg.scratch.recovery_time=cfg.scratch.scratch_time      # Recovery time has to be longer for Visco-Elastic families (5x usually, 1x for now to decrease simualtion time)
     cfg.solver.n_field_frames_recovery=50                   # Increasing the number of frames for recovery
     cfg.material.viscoelastic = Prony_Config(
         prony_table=((0.15, 0.0, 1.0e-3),

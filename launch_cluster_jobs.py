@@ -27,6 +27,11 @@ import time
 #         mass_scale, target_dt, hourglass   (see _OVERRIDE_ALIASES below)
 #         hourglass accepts DEFAULT / ENHANCED / RELAX STIFFNESS (case- and
 #         underscore-insensitive: "relax_stiffness" is normalised).
+#         distortion accepts ON/True, OFF/False, DEFAULT -- NB "DEFAULT" means
+#         Abaqus decides, which is OFF for every non-hyperelastic family, so
+#         glassy/semicrystalline need an explicit True/ON to enable it.
+#         length (distortion length ratio) must satisfy 0 < r <= 1 and is only
+#         read by Abaqus when distortion resolves to ON.
 #       - or any dotted cfg path verbatim, e.g. "solver.ale_frequency": 10
 # NB : make sure that the number of jobs * CPUs per job < CPUs of the node 
 JOBS = [
@@ -98,8 +103,7 @@ def wrapper_cpus(raw):
     return int(m.group(1)) if m else None
 
 
-# Friendly names for per-job overrides; any opts key containing '.' is
-# passed through verbatim as a cfg attribute path.
+# Names for per-job overrides
 _OVERRIDE_ALIASES = {
 
     # Main Tests
@@ -128,6 +132,35 @@ def _normalize_hourglass(value, entry):
     if v not in _HOURGLASS_VALUES:
         raise SystemExit("Bad hourglass value %r in JOBS entry %r. Valid: %s"
                          % (value, entry, ", ".join(_HOURGLASS_VALUES)))
+    return v
+
+# mesh_substrate() resolves distortion_control via str().upper(), so bool True/False
+# AND these strings all work. Normalising here to ON/OFF/DEFAULT survives
+# _parse_override_value() (which turns "ON"->True, "OFF"->False, "DEFAULT"->str).
+_DISTORTION_VALUES = ("ON", "TRUE", "YES", "OFF", "FALSE", "NO", "DEFAULT")
+
+
+def _normalize_distortion(value, entry):
+    v = str(value).upper().replace("_", " ").strip()
+    if v not in _DISTORTION_VALUES:
+        raise SystemExit("Bad distortion value %r in JOBS entry %r. "
+                         "Valid: ON/True, OFF/False, DEFAULT." % (value, entry))
+    if v in ("ON", "TRUE", "YES"):
+        return "ON"
+    if v in ("OFF", "FALSE", "NO"):
+        return "OFF"
+    return "DEFAULT"
+
+
+def _validate_length_ratio(value, entry):
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        raise SystemExit("Bad length value %r in JOBS entry %r: expected a "
+                         "number in (0, 1]." % (value, entry))
+    if not (0.0 < v <= 1.0):
+        raise SystemExit("Bad length value %r in JOBS entry %r: need 0 < r <= 1."
+                         % (value, entry))
     return v
 
 _TAG_RE = re.compile(r"^[A-Za-z0-9_.-]+$")   # tag lands in file + job names
@@ -162,6 +195,10 @@ def _opt_tokens(opts, entry):
                 % (key, entry, ", ".join(sorted(_OVERRIDE_ALIASES))))
         if path == "mesh.hourglass_control":
             value = _normalize_hourglass(value, entry)
+        elif path == "mesh.distortion_control":
+            value = _normalize_distortion(value, entry)
+        elif path == "mesh.length_ratio":
+            value = _validate_length_ratio(value, entry)
         tokens.append("set:%s=%s" % (path, _format_override(value)))
     return tag, tokens
 
@@ -247,4 +284,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
