@@ -35,7 +35,7 @@ JOBS = [
     ("mesh", "glassy_dp", {"tag": "ALE200", "ALE": True, "scratch_time": 0.05, "freq": 200, "sweeps": 3}),
     ("mesh", "glassy_dp", {"tag": "ALE650", "ALE": True, "scratch_time": 0.05, "freq": 650, "sweeps": 3}),
     ("mesh", "glassy_dp", {"tag": "ALE1300", "ALE": True, "scratch_time": 0.05, "freq": 1300, "sweeps": 5}),
-    """
+    """,
 
     ("single", "glassy_pc", {"tag": "quick_test", "ALE": True, "scratch_time": 0.01}),
 
