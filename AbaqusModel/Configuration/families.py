@@ -161,8 +161,8 @@ def _glassy_config():
             # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=60.0, S_per_decade=5.0)),   # usual glassy Eyring slope
         viscoelastic=None,                                                                       # Viscoelastic cannot be combined with plasticity
                      # Prony_Config(prony_table=((0.2, 0.0, 0.1), (0.1, 0.0, 0.001))),
-        friction=Friction_Config.briscoe(tau0=3.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
-        # friction=Friction_Config(mu=0.3),
+        #friction=Friction_Config.briscoe(tau0=3.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
+        friction=Friction_Config(mu=0.3),
         family="glassy_dp",
     )
     # cfg.solver.mass_scale = 500        # MS convergence study: < 5% only for MS <= 500.
@@ -189,8 +189,8 @@ def _glassy_pc_config():
                                           eps_max=2.5, n_points=60),
             rate_dependent=None),
             # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=70.0, S_per_decade=4.5)),
-        #friction=Friction_Config.briscoe(tau0=3.5, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
-        friction=Friction_Config(mu=0.3),
+        friction=Friction_Config.briscoe(tau0=3.5, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
+        #friction=Friction_Config(mu=0.3),
         family="glassy_pc",
     )
     cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 15 : results from the target time study (-5 for safety)
