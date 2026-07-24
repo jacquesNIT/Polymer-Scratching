@@ -59,7 +59,7 @@ JOBS = [
 
     #("single", "glassy_pc", {"tag": "Test_NewMeshing_z10", "ALE": True, "scratch_time": 0.05, "z_size": 0.01}),
     #("single", "glassy_pc", {"tag": "Test_NewMeshing_z15", "ALE": True, "scratch_time": 0.05, "z_size": 0.015}),
-    ("single", "glassy_pc", {"tag": "Test_NewMeshing_z20", "ALE": True, "scratch_time": 0.05, "z_size": 0.020}),
+    ("single", "glassy_pc", {"tag": "Test", "ALE": True, "scratch_time": 0.001}),
     ("single", "glassy_pc", {"tag": "Test_NewMeshing_z30", "ALE": True, "scratch_time": 0.05, "z_size": 0.030}),
 
     #("mesh", "glassy_pc", {"tag": "distortionF1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),

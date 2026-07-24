@@ -45,7 +45,7 @@ class Substrate_Config:
     def __init__(self,
                  xs1=0.0, ys1=0.0, zs1=0.0,             # Substrate box  (origin at xs1, ys1, zs1)
                  xs2=0.6, ys2=0.5, zs2=3.0,             # Width, height  and depth of the box [mm] (z is the scratch direction)
-                 dpo_x=0.25, dpo_y=0.25, dpo_z=0.25 ):  # Partition offsets (from edges of refined zone) 
+                 dpo_x=0.25, dpo_y=0.15, dpo_z=0.15 ):  # Partition offsets (from edges of refined zone) 
 
         self.xs1 = xs1
         self.ys1 = ys1
@@ -743,9 +743,9 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.010,       
-                fine_size_y=0.010,
-                fine_size_z=0.010,    
+                fine_size_x=0.020,       
+                fine_size_y=0.020,
+                fine_size_z=0.020,    
                 coarse_size_0=0.02,     # Unused
                 coarse_size_1=0.028,     # 0.07*4 
                 coarse_size_2=0.056,     # 0.07*8
