@@ -89,7 +89,18 @@ class SubstrateMaterialAssignment:
 
     #  Viscoelastic models
     def _prony(self, v):
-        self.mat.Viscoelastic(domain=TIME, time=PRONY, table=v.prony_table)
+        tsf = getattr(self.cfg.solver, "time_scale_factor", 1.0)
+        tsf = 1.0 if tsf is None else float(tsf)
+        if tsf <= 0.0:
+            raise ValueError(
+                "solver.time_scale_factor must be positive, got %r" % (tsf,))
+        table = v.prony_table
+        if tsf != 1.0:
+            table = tuple(tuple(row[:-1]) + (row[-1] / tsf,) for row in table)
+            print("[viscoelastic] Prony tau / time_scale_factor=%g -> tau_max=%.4g s"
+                  % (tsf, max(r[-1] for r in table)))
+        self.mat.Viscoelastic(domain=TIME, time=PRONY, table=table)
+
 
     #  Plasticity models
     def _j2_plasticity(self, p):
@@ -116,10 +127,71 @@ class SubstrateMaterialAssignment:
 
     #  Friction
     def update_friction(self):
+        # Push the Friction_Config onto the contact property tangential behavior.
+        #
+        # Three supported cases:
+        #   constant Coulomb              -> table = ((mu,),)
+        #   pressure-dependent (Briscoe)  -> table = ((mu, p), ...)  + pressureDependency=ON
+        #   slip-rate-dependent           -> table = ((mu, v), ...)  + slipRateDependency=ON
+        #
+        # Column order follows the Abaqus *FRICTION data line:
+        #     mu, slip rate, contact pressure, temperature, field variables
+        # The dependency flags and the table are set in ONE setValues() call so
+        # Abaqus never sees an inconsistent (flags, table width) pair.
+        #
+        # OLD (Briscoe was configured in families.py but unreachable here):
+        #   if f.pressure_dependent:
+        #       raise NotImplementedError
+        #   else:
+        #       ...setValues(table=((f.mu,),))
 
         f = self.mat_cfg.friction
+        tb = self.model.interactionProperties[self.names.contact_property].tangentialBehavior
 
-        if f.pressure_dependent:
-            raise NotImplementedError
-        else:
-            self.model.interactionProperties[self.names.contact_property].tangentialBehavior.setValues(table=((f.mu,),))
+        p_dep = bool(getattr(f, "pressure_dependent", False))
+        r_dep = bool(getattr(f, "slip_rate_dependent", False))
+
+        if not (p_dep or r_dep):
+            tb.setValues(slipRateDependency=OFF, pressureDependency=OFF,
+                         table=((f.mu,),))
+            print("[friction] constant Coulomb: mu = %.4f" % f.mu)
+            return
+
+        table = getattr(f, "mu_table", None)
+        if not table:
+            raise ValueError(
+                "Friction_Config declares pressure_dependent=%s / "
+                "slip_rate_dependent=%s but mu_table is empty" % (p_dep, r_dep))
+
+        n_col = 1 + int(r_dep) + int(p_dep)
+        for row in table:
+            if len(row) != n_col:
+                raise ValueError(
+                    "mu_table row %s has %d columns, expected %d "
+                    "(mu%s%s)" % (row, len(row), n_col,
+                                  ", slip_rate" if r_dep else "",
+                                  ", pressure" if p_dep else ""))
+
+        # Abaqus requires the independent variable(s) to be strictly ascending.
+        if p_dep:
+            p_col = n_col - 1
+            p_vals = [row[p_col] for row in table]
+            if any(p_vals[i + 1] <= p_vals[i] for i in range(len(p_vals) - 1)):
+                raise ValueError(
+                    "mu_table pressure column must be strictly ascending, got %s"
+                    % (p_vals,))
+
+        tb.setValues(
+            slipRateDependency=ON if r_dep else OFF,
+            pressureDependency=ON if p_dep else OFF,
+            table=tuple(tuple(float(c) for c in row) for row in table),
+        )
+
+        mus = [row[0] for row in table]
+        print("[friction] tabulated: pressure_dep=%s slip_rate_dep=%s "
+              "rows=%d mu in [%.4f, %.4f]"
+              % (p_dep, r_dep, len(table), min(mus), max(mus)))
+        if p_dep:
+            p_col = n_col - 1
+            print("[friction] pressure range [%.3f, %.3f] MPa"
+                  % (table[0][p_col], table[-1][p_col]))

@@ -38,8 +38,9 @@ _ELASTOMER_CHECKS = (
     "recovery",          # residual ~ 0 (pure hyperelastic)
 )
 
-# Viscoelastic elastomer: Recovery check is excluded because groove is in delayed viscoelastic recovery
-_ELASTOMER_VE_CHECKS = tuple(c for c in _ELASTOMER_CHECKS if c != "recovery")
+# Viscoelastic elastomer: the "recovery" VERDICT is excluded (the groove is in delayed viscoelastic recovery: neither ~0 nor permanent), but "profile"
+# reports the residual depth / pile-up MEASUREMENT without a verdict.
+_ELASTOMER_VE_CHECKS = tuple(c for c in _ELASTOMER_CHECKS if c != "recovery") + ("profile",)
 
 # Verifier checks applicable to a dissipative (plastic) family.
 _SEMICRYSTALLINE_CHECKS = (
@@ -79,7 +80,7 @@ Currently available models :
 def _elastomer_mr_config():
     # HyperElastic Elastomer
     cfg = Simulation_Config.polymer_default()                                                   # HyperElastic Model based on polymer_default
-    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x)    # 20 : results from the target time study
+    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x)    # 15 : results from the target time study (-5 for safety)
     return cfg
 
 def _semicrystalline_config():
@@ -102,7 +103,7 @@ def _semicrystalline_config():
         # friction=Friction_Config(mu=0.3),
         family="semicrystalline_j2",
     )
-    cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 40 : results from the target time study
+    cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)
     return cfg
 
 def _semicrystalline_dp_config():
@@ -126,7 +127,7 @@ def _semicrystalline_dp_config():
         # friction=Friction_Config(mu=0.3),
         family="semicrystalline_dp",
     )
-    cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 40 : same s as semicrystalline_j2 (same rho/E/mesh -> same natural dt)
+    cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : same s as semicrystalline_j2 (same rho/E/mesh -> same natural dt)
     return cfg
 
 def _elastomer_ve_config():
@@ -141,11 +142,11 @@ def _elastomer_ve_config():
     cfg.scratch.recovery_time=cfg.scratch.scratch_time      # Recovery time has to be longer for Visco-Elastic families (5x usually, 1x for now to decrease simualtion time)
     cfg.solver.n_field_frames_recovery=50                   # Increasing the number of frames for recovery
     cfg.material.viscoelastic = Prony_Config(
-        prony_table=((0.15, 0.0, 1.0e-3),
-                     (0.15, 0.0, 1.0e-2),
-                     (0.10, 0.0, 1.0e-1)))   # sum g = 0.40 -> long-term = 60%
+        prony_table=((0.25, 0.0, 1.5e-3),
+                     (0.35, 0.0, 6.0e-3),
+                     (0.20, 0.0, 2.5e-2)))   # sum g = 0.80 
     cfg.material.family = "elastomer_ve"
-    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 20 : Same as MR
+    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 15 : Same as MR
     return cfg
 
 def _glassy_config():
@@ -165,7 +166,7 @@ def _glassy_config():
         family="glassy_dp",
     )
     # cfg.solver.mass_scale = 500        # MS convergence study: < 5% only for MS <= 500.
-    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 20 : Same as PC
+    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 15 : Same as PC
     return cfg
 
 def _glassy_pc_config():
@@ -192,7 +193,7 @@ def _glassy_pc_config():
         friction=Friction_Config(mu=0.3),
         family="glassy_pc",
     )
-    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 20 : results from the target time study
+    cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 15 : results from the target time study (-5 for safety)
     # cfg.solver.mass_scale = 500
     return cfg
 
@@ -221,7 +222,7 @@ def _glassy_pmma_config():
         #friction=Friction_Config(mu=0.3),
         family="glassy_pmma",
     )
-    cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 40 : results from the target time study
+    cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)
     # cfg.solver.mass_scale = 500
     return cfg
 

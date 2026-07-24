@@ -502,7 +502,7 @@ class Friction_Config:
     """
 
     def __init__(self, mu=0.3, formulation="penalty", elastic_slip_fraction=0.005,
-                 pressure_dependent=False, slip_rate_dependent=False, mu_table=None):
+                 pressure_dependent=False, slip_rate_dependent=False, mu_table=None, briscoe_params=None):
 
         self.mu = mu
         self.formulation = formulation
@@ -510,6 +510,7 @@ class Friction_Config:
         self.pressure_dependent = pressure_dependent
         self.slip_rate_dependent = slip_rate_dependent
         self.mu_table = tuple(tuple(r) for r in mu_table) if mu_table else None
+        self.briscoe_params = dict(briscoe_params) if briscoe_params else None
 
         if self.mu_table:
             expected = 1 + int(bool(slip_rate_dependent)) + int(bool(pressure_dependent))
@@ -541,7 +542,28 @@ class Friction_Config:
         rows = tuple((float(round(min(tau0 / pv + alpha, mu_cap), 4)), float(round(pv, 3)))
                      for pv in p)
         return cls(mu=alpha, pressure_dependent=True, mu_table=rows,
-                   elastic_slip_fraction=elastic_slip_fraction)
+                   elastic_slip_fraction=elastic_slip_fraction,
+                   briscoe_params={"tau0": tau0, "alpha": alpha,
+                                   "p_min": p_min, "p_max": p_max,
+                                   "n_points": n_points, "mu_cap": mu_cap})
+
+    def set_briscoe_alpha(self, alpha):
+        if not self.briscoe_params:
+            raise ValueError(
+                "set_briscoe_alpha needs a Friction_Config built by "
+                "Friction_Config.briscoe(); this one carries no Briscoe "
+                "parameters (pressure_dependent=%s)" % self.pressure_dependent)
+        params = dict(self.briscoe_params)
+        params["alpha"] = float(alpha)
+        rebuilt = Friction_Config.briscoe(
+            elastic_slip_fraction=self.elastic_slip_fraction, **params)
+        self.mu = rebuilt.mu
+        self.mu_table = rebuilt.mu_table
+        self.pressure_dependent = True
+        self.briscoe_params = rebuilt.briscoe_params
+        return self
+
+
 
 # 10. Material specification
 class Material_Config:
@@ -635,6 +657,7 @@ class Output_Config:
         self.history_force_variables = history_force_variables or ("RF1", "RF2", "RF3")             # Reaction forces
         self.history_energy_substrate = history_energy_substrate or ("ALLKE", "ALLIE", "ALLAE")     # Substrate energy values 
         self.history_energy_whole = history_energy_whole or ("ALLKE", "ALLIE", "ALLVD", "ALLFD",    # Whole model energy values
+                                                             "ALLCD", "ALLSE",
                                                              "ALLWK", "ALLPW", "ALLCW", "ALLMW", "ETOTAL")
 
 # 13. Naming conventions
@@ -743,9 +766,9 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.020,       
-                fine_size_y=0.020,
-                fine_size_z=0.020,    
+                fine_size_x=0.050,       
+                fine_size_y=0.050,
+                fine_size_z=0.050,    
                 coarse_size_0=0.02,     # Unused
                 coarse_size_1=0.028,     # 0.07*4 
                 coarse_size_2=0.056,     # 0.07*8
@@ -757,8 +780,8 @@ class Simulation_Config:
             ),
             material=Material_Config(
                 rho=1.2e-9,
-                hyperelastic=HE_Model_Config(C10=1.0, C01=0.1, D1=1.8e-2),
-                #hyperelastic=AB_Model_Config(mu=2.0, lambda_m=2.5, D=1.8e-2),
+                #hyperelastic=HE_Model_Config(C10=1.0, C01=0.1, D1=1.8e-2),
+                hyperelastic=AB_Model_Config(mu=2.0, lambda_m=2.5, D=1.8e-2),
                 viscoelastic=None,
                 plasticity=None,
                 damage=None,

@@ -20,6 +20,10 @@ def post_process(job_name, file_name, cfg):
     mesh = cfg.mesh
     material_params = cfg.material.to_dict()
 
+    _tsf = float(getattr(solver, "time_scale_factor", 1.0) or 1.0)
+    if _tsf != 1.0 and material_params.get("tau_max"):
+        material_params["tau_max"] = material_params["tau_max"] / _tsf
+
     odb_path = job_name + ".odb"
     odb = openOdb(path=odb_path, readOnly=True)
 
@@ -210,9 +214,9 @@ def post_process(job_name, file_name, cfg):
     ae = _resample(t_sub, _pick(sub_data, "ALLAE", z_sub), time_arr)     # substrate artificial (hourglass) energy
 
     #  History data — whole-model energy balance (t_wm / wm_data above)
-    def _wm(name):
+    def _wm(name, optional=False):
         series = _pick(wm_data, name, None)
-        if series is None and name != "ETOTAL":
+        if series is None and name != "ETOTAL" and not optional:
             print("Warning: whole-model term %s absent." % name)
         return _resample(t_wm, series if series is not None else np.zeros_like(t_wm), time_arr)
 
@@ -221,6 +225,8 @@ def post_process(job_name, file_name, cfg):
     wm_ie  = _wm("ALLIE")
     wm_vd  = _wm("ALLVD")    # viscous dissipation
     wm_fd  = _wm("ALLFD")    # frictional dissipation
+    wm_cd = _wm("ALLCD", optional=True) # Viscoelastic dissipation
+    wm_se = _wm("ALLSE", optional=True)  # Recoverable strain energy
     wm_wk  = _wm("ALLWK")    # external work (energy input)
     wm_pw  = _wm("ALLPW")    # contact penalty work
     wm_cw  = _wm("ALLCW")    # constraint penalty work
@@ -273,6 +279,7 @@ def post_process(job_name, file_name, cfg):
             "CFN1", "CFN2", "CFN3", "CFS1", "CFS2", "CFS3",  # contact-pair force (force-driven mode)
             "ALLKE", "ALLIE", "ALLAE",                       # substrate (deformable body)
             "WM_ALLKE", "WM_ALLIE", "WM_ALLVD", "WM_ALLFD",  # whole-model balance terms
+            "WM_ALLCD", "WM_ALLSE",                          
             "WM_ALLWK", "WM_ALLPW", "WM_ALLCW", "WM_ALLMW", "ETOTAL",
             "IndenterU2", "NodeLabel",
             "x_undeformed", "y_undeformed", "z_undeformed",
@@ -289,7 +296,8 @@ def post_process(job_name, file_name, cfg):
             time_arr.reshape(-1), rf1, rf2, rf3,
             cfn1, cfn2, cfn3, cfs1, cfs2, cfs3,
             ke, ie, ae,
-            wm_ke, wm_ie, wm_vd, wm_fd, wm_wk, wm_pw, wm_cw, wm_mw, etotal,
+            wm_ke, wm_ie, wm_vd, wm_fd, wm_cd, wm_se,
+            wm_wk, wm_pw, wm_cw, wm_mw, etotal,
             ind_u2, node_labels, xu, yu, zu, xd, yd, zd,
             fillvalue="",
         )

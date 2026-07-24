@@ -276,7 +276,24 @@ def target_dt_study(s_values):
 
 def friction_study(mu_values):
     def apply(cfg, mu):
-        cfg.material.friction.mu = mu
+        fric = cfg.material.friction
+        if getattr(fric, "slip_rate_dependent", False):
+            raise ValueError(
+                "friction_study cannot sweep a slip-rate-dependent friction "
+                "table (family '%s'): setting friction.mu leaves the table, "
+                "and therefore the Abaqus input, unchanged."
+                % getattr(cfg.material, "family", "?"))
+        if getattr(fric, "pressure_dependent", False):
+            fric.set_briscoe_alpha(mu)
+            print(">>> friction: Briscoe alpha=%g (tau0=%g), mu(p) table rebuilt, "
+                  "mu in [%.4f, %.4f]"
+                  % (fric.briscoe_params["alpha"], fric.briscoe_params["tau0"],
+                     min(r[0] for r in fric.mu_table),
+                     max(r[0] for r in fric.mu_table)))
+        else:
+            fric.mu = mu
+            print(">>> friction: constant Coulomb mu=%g" % mu)
+
     return ParameterStudy(
         name="Friction",
         cases=mu_values,
@@ -395,7 +412,7 @@ DEFAULT_FAMILY = "elastomer_mr"
 DEFAULT_MESH_SIZES = [
     #[0.04, 0.04, 0.04],
     #[0.03, 0.03, 0.03],
-    [0.02, 0.02, 0.02],
+    #[0.02, 0.02, 0.02],
     [0.015, 0.015, 0.015],
     [0.01, 0.01, 0.01],
     [0.007, 0.007, 0.007],

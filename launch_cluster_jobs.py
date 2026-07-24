@@ -13,35 +13,16 @@ import subprocess
 import sys
 import time
 
-
-# Configuration: (study, family) or (study, family, opts)
-#   opts (dict, optional):
-#     "tag": free variant name -> job label <study>_<family>_<tag> and
-#            ISOLATED run dir runs/<Study>_<family>_<tag> (mandatory when the
-#            same (study, family) appears several times: the duplicate-label
-#            check rejects untagged twins).
-#     any other key = per-job config override, forwarded to
-#     run_parameter_study.py as a set:<path>=<value> token and applied AFTER
-#     the study's configure() (per-job choice wins, e.g. ALE on a mesh study):
-#       - friendly aliases: ALE, scratch_time, scratch_depth, scratch_length,
-#         mass_scale, target_dt, hourglass   (see _OVERRIDE_ALIASES below)
-#         hourglass accepts DEFAULT / ENHANCED / RELAX STIFFNESS (case- and
-#         underscore-insensitive: "relax_stiffness" is normalised).
-#         distortion accepts ON/True, OFF/False, DEFAULT -- NB "DEFAULT" means
-#         Abaqus decides, which is OFF for every non-hyperelastic family, so
-#         glassy/semicrystalline need an explicit True/ON to enable it.
-#         length (distortion length ratio) must satisfy 0 < r <= 1 and is only
-#         read by Abaqus when distortion resolves to ON.
-#       - or any dotted cfg path verbatim, e.g. "solver.ale_frequency": 10
-# NB : make sure that the number of jobs * CPUs per job < CPUs of the node 
 JOBS = [
-    #("mesh", "glassy_pc", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
-    #("mesh", "glassy_dp", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
-    #("mesh", "glassy_pmma", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
-    #("mesh", "semicrystalline_j2", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
-    #("mesh", "semicrystalline_dp", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05}),
-    #("mesh", "elastomer_mr", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
-    #("mesh", "elastomer_ve", {"tag": "mesh4", "ALE": True, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
+    """
+    ("mesh", "glassy_pc", {"tag": "mesh6", "ALE": True, "scratch_time": 0.025}),
+    ("mesh", "glassy_dp", {"tag": "mesh6", "ALE": True, "scratch_time": 0.025}),
+    ("mesh", "glassy_pmma", {"tag": "mesh6", "ALE": True, "scratch_time": 0.025}),
+    ("mesh", "semicrystalline_j2", {"tag": "mesh6", "ALE": True, "scratch_time": 0.025}),
+    ("mesh", "semicrystalline_dp", {"tag": "mesh6", "ALE": True, "scratch_time": 0.025}),
+    ("mesh", "elastomer_mr", {"tag": "mesh6", "ALE": True, "scratch_time": 0.025, "hourglass": "RELAX STIFFNESS"}),
+    ("mesh", "elastomer_ve", {"tag": "mesh6", "ALE": True, "scratch_time": 0.025, "hourglass": "RELAX STIFFNESS"}),
+
     #("mesh", "glassy_pc", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "glassy_dp", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "glassy_pmma", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
@@ -50,10 +31,13 @@ JOBS = [
     #("mesh", "elastomer_mr", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
     #("mesh", "elastomer_ve", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
 
-    #("mesh", "glassy_dp", {"tag": "ALE20", "ALE": True, "scratch_time": 0.05, "freq": 20, "sweeps": 1}),
-    #("mesh", "glassy_dp", {"tag": "ALE200", "ALE": True, "scratch_time": 0.05, "freq": 20, "sweeps": 3}),
-    #("mesh", "glassy_dp", {"tag": "ALE650", "ALE": True, "scratch_time": 0.05, "freq": 650, "sweeps": 3}),
-    #("mesh", "glassy_dp", {"tag": "ALE1300", "ALE": True, "scratch_time": 0.05, "freq": 1300, "sweeps": 5}),
+    ("mesh", "glassy_dp", {"tag": "ALE20", "ALE": True, "scratch_time": 0.05, "freq": 20, "sweeps": 1}),
+    ("mesh", "glassy_dp", {"tag": "ALE200", "ALE": True, "scratch_time": 0.05, "freq": 200, "sweeps": 3}),
+    ("mesh", "glassy_dp", {"tag": "ALE650", "ALE": True, "scratch_time": 0.05, "freq": 650, "sweeps": 3}),
+    ("mesh", "glassy_dp", {"tag": "ALE1300", "ALE": True, "scratch_time": 0.05, "freq": 1300, "sweeps": 5}),
+    """
+
+    ("single", "glassy_pc", {"tag": "quick_test", "ALE": True, "scratch_time": 0.01}),
 
     #("mesh", "glassy_pc", {"tag": "Test_NewMeshing", "ALE": True, "scratch_time": 0.05}),
 
@@ -62,7 +46,7 @@ JOBS = [
     #("single", "glassy_pc", {"tag": "Test", "ALE": True, "scratch_time": 0.001}),
     #("single", "glassy_pc", {"tag": "Test_NewMeshing_z30", "ALE": True, "scratch_time": 0.05, "z_size": 0.030}),
 
-    ("mesh", "glassy_pc", {"tag": "distortion_base", "ALE": False, "scratch_time": 0.05, "distortion": False, "length": 0.1}),
+    #("mesh", "glassy_pc", {"tag": "distortion_base", "ALE": False, "scratch_time": 0.05, "distortion": False, "length": 0.1}),
     #("mesh", "glassy_pc", {"tag": "distortionF2", "ALE": False, "scratch_time": 0.05, "distortion": False, "length": 0.2}),
     #("mesh", "glassy_pc", {"tag": "distortionF3", "ALE": False, "scratch_time": 0.05, "distortion": False, "length": 0.3}),
     #("mesh", "glassy_pc", {"tag": "distortionT1", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.1}),

@@ -17,6 +17,7 @@
     9. Steady state        — RF/SCOF plateau over the second half of the scratch
    10. Settling            — kinetic energy decayed before the residual profile is trusted
    11. Recovery            — residual ~ 0 (hyperelastic) / groove expected (dissipative)
+   12. Residual profile    — residual depth & pile-up reported WITHOUT a verdict (for viscoelastic families)
 
     The normal force is RF2 in displacement-controlled mode and CFN2 (contact
     pair) in force-controlled mode; see _normal_force_series.
@@ -36,6 +37,7 @@ K_MU_MAX = 100.0                 # max K/mu (above: noise risk)
 HERTZ_TOLERANCE_FACTOR = 10.0    # RF2 must be within x10 of Hertz estimate
 MR_STRAIN_VALIDITY = 1.0         # MR validity limit (~100-150%)
 RESIDUAL_DEPTH_TOLERANCE = 0.05  # residual depth < 5% of scratch depth
+RECOVERY_TAU_RATIO = 3.0         # recovery_time / tau_max needed before the residual profile of a viscoelastic family is considered converged
 AE_IE_TARGET = 5.0               # [%]  hourglass PASS target (WARN band up to AE_IE_THRESHOLD)
 MW_WARN_PCT = 1.0                # [%]  artificial work / physical energy (WARN above)
 MW_FAIL_PCT = 5.0                # [%]  artificial work / physical energy (FAIL above)
@@ -1033,17 +1035,26 @@ def check_friction_physics(timeseries, metadata):
     }
 
 
-def check_full_recovery(nodes, metadata, is_dissipative=None, timeseries=None):
+def measure_residual_profile(nodes, metadata, timeseries=None):
     """
-    Pure Mooney-Rivlin has no dissipation mechanism, so the groove must fully
-    recover — residual surface depth ~ 0 once the material has relaxed.
-    For dissipative families (plasticity / damage) the logic is inverted: a
-    permanent groove is EXPECTED. verify_results passes is_dissipative from the
-    family; when run standalone we infer it from the metadata.
+    Residual groove geometry -- MEASUREMENT ONLY, no pass/fail.
+
+    Split out of check_full_recovery so that a family whose recovery
+    verdict is undefined (viscoelastic: partial, time-dependent recovery)
+    can still report its residual depth and pile-up. Returns None when no
+    node data is available.
+
+      residual_depth_mm      robust residual (1st percentile of downward disp.)
+      residual_depth_raw_mm  deepest node (reference / outlier check)
+      pile_up_mm             highest node above the original surface
+      reference_mm           commanded depth (displacement mode) or measured
+                             peak penetration (force mode)
+      relative_percent       residual / reference * 100
+      reference_note         provenance of the reference ("" if unambiguous)
     """
 
     if nodes["deformed"].shape[0] == 0:
-        return {"status": "SKIP", "message": "No node data"}
+        return None
 
     y_def = nodes["deformed"][:, 1]
 
@@ -1074,7 +1085,82 @@ def check_full_recovery(nodes, metadata, is_dissipative=None, timeseries=None):
         guess_note = (" [ref is a guess: scratch_depth absent from metadata]"
                       if ref_is_guess else "")
 
-    rel = residual / ref * 100.0
+    return {
+        "residual_depth_mm": residual,
+        "residual_depth_raw_mm": residual_raw,
+        "pile_up_mm": pile_up,
+        "reference_mm": ref,
+        "relative_percent": residual / ref * 100.0,
+        "reference_note": guess_note,
+    }
+
+
+def check_residual_profile(nodes, metadata, timeseries=None):
+    """
+    Report residual depth and pile-up WITHOUT a recovery verdict.
+
+    For a family whose expected residual is neither ~0 (pure hyperelastic)
+    nor permanent (plastic), the groove is still relaxing at the end of the
+    recovery step: the measured residual is an UPPER BOUND that depends on
+    recovery_time / tau_max. Status is INFO, except when the recovery step
+    is absent or too short for the slowest Prony branch.
+    """
+
+    m = measure_residual_profile(nodes, metadata, timeseries)
+    if m is None:
+        return {"status": "SKIP", "message": "No node data"}
+
+    t_rec = float(metadata.get("recovery_time", 0.0) or 0.0)
+    tau_max = float(metadata.get("tau_max", 0.0) or 0.0)   # written by Prony_Config.params()
+
+    status, note = "INFO", ""
+    if t_rec <= 0.0:
+        status = "WARN"
+        note = (" NO recovery step (recovery_time=0): unloaded state, not a relaxed one.")
+    elif tau_max > 0.0:
+        n_tau = t_rec / tau_max
+        if n_tau < RECOVERY_TAU_RATIO:
+            status = "WARN"
+            note = (" recovery_time = %.2f x tau_max (< %.0f): still relaxing, "
+                    "residual is an UPPER BOUND, not a converged value."
+                    % (n_tau, RECOVERY_TAU_RATIO))
+        else:
+            note = (" recovery_time = %.1f x tau_max: relaxation essentially complete."
+                    % n_tau)
+
+    out = dict(m)
+    out["status"] = status
+    out["message"] = (
+        "Residual depth = %.3e mm (%.1f%% of ref %.3f mm), pile-up = %.3e mm "
+        "| raw min = %.3e mm. Measurement only, no recovery verdict.%s%s"
+        % (m["residual_depth_mm"], m["relative_percent"], m["reference_mm"],
+           m["pile_up_mm"], m["residual_depth_raw_mm"],
+           m["reference_note"], note))
+    return out
+
+
+def check_full_recovery(nodes, metadata, is_dissipative=None, timeseries=None):
+    """
+    Pure Mooney-Rivlin has no dissipation mechanism, so the groove must fully
+    recover — residual surface depth ~ 0 once the material has relaxed.
+    For dissipative families (plasticity / damage) the logic is inverted: a
+    permanent groove is EXPECTED. verify_results passes is_dissipative from the
+    family; when run standalone we infer it from the metadata.
+    """
+
+    # Geometry is measured by measure_residual_profile() -- single source of
+    # truth, shared with check_residual_profile(). Verdict logic below is
+    # unchanged.
+    m = measure_residual_profile(nodes, metadata, timeseries)
+    if m is None:
+        return {"status": "SKIP", "message": "No node data"}
+
+    residual     = m["residual_depth_mm"]
+    residual_raw = m["residual_depth_raw_mm"]
+    pile_up      = m["pile_up_mm"]
+    ref          = m["reference_mm"]
+    rel          = m["relative_percent"]
+    guess_note   = m["reference_note"]
 
 
 
@@ -1176,7 +1262,7 @@ _FALLBACK_FAMILIES = {
         # full-recovery nor the permanent-groove logic at finite recovery_time
         "checks": ("quasi_static", "hourglass", "energy_total", "artificial_energy",
                    "d1_validity", "force_magnitude", "strain_level",
-                   "friction_physics", "steady_state", "settling"),
+                   "friction_physics", "steady_state", "settling", "profile"),
     },
     "glassy_pc": {
         "label": "Polycarbonate (elastic + Drucker-Prager, rate-dependent)",
@@ -1241,6 +1327,7 @@ def verify_results(filepath, print_report=True):
         "steady_state":      ("Steady state (scratch plateau)",   lambda: check_steady_state(timeseries, metadata)),
         "settling":          ("Settling (recovery phase)",        lambda: check_settling(timeseries, metadata)),
         "recovery":          ("Recovery",                         lambda: check_full_recovery(nodes, metadata, fam["dissipative"], timeseries)),
+        "profile":           ("Residual profile (depth/pile-up)", lambda: check_residual_profile(nodes, metadata, timeseries)),
     }
 
     for name in fam["checks"]:

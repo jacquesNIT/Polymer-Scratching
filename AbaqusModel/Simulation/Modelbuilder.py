@@ -502,10 +502,25 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
     fric = cfg.material.friction
 
     # Contact property 
+    # The friction dependency flags must be declared HERE, at creation time:
+    # Abaqus validates the table width against the declared dependencies, so a
+    # 1-column placeholder cannot later receive a 2-column mu(p) table unless
+    # the flag is switched in the same call. Declaring them up front keeps the
+    # placeholder consistent with the final table pushed by
+    # SubstrateMaterialAssignment.update_friction().
+    # Column order follows the Abaqus *FRICTION data line:
+    #     mu, slip rate, contact pressure, temperature, field variables
+    _fr_p_dep = ON if getattr(fric, "pressure_dependent", False) else OFF
+    _fr_r_dep = ON if getattr(fric, "slip_rate_dependent", False) else OFF
+    _fr_ncol = 1 + int(_fr_r_dep == ON) + int(_fr_p_dep == ON)
+
     model.ContactProperty(names.contact_property)
     model.interactionProperties[names.contact_property].TangentialBehavior(
         formulation=PENALTY,
-        table=((0.0,),),       # friction updated by SubstrateMaterialAssignment
+        slipRateDependency=_fr_r_dep,
+        pressureDependency=_fr_p_dep,
+        # table=((0.0,),),     # OLD: 1 column only, incompatible with a mu(p) table
+        table=(tuple([0.0] * _fr_ncol),),   # friction updated by SubstrateMaterialAssignment
         fraction=fric.elastic_slip_fraction,
     )
     model.interactionProperties[names.contact_property].NormalBehavior(
@@ -545,10 +560,6 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
     model.interactions[names.contact_interaction].contactPropertyAssignments.appendInStep(
         assignments=((GLOBAL, SELF, names.contact_property),),
         stepName="Initial",
-    )
-    model.interactions[names.contact_interaction].smoothingAssignments.appendInStep(
-        assignments=((asm.surfaces[names.slave_surface], REVOLUTION),),
-        stepName=first_step,
     )
 
     # Node set for post-processing
