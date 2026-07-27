@@ -55,6 +55,7 @@ JOBS = [
 ]
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"
+RELAY_PARTITION = "q64"
 DRY_RUN = False                 # True for testing only
 
 
@@ -259,7 +260,7 @@ def main():
             f.write(body)
 
         # 3. sbatch
-        cmd = ["sbatch", submit]
+        cmd = ["sbatch", "--partition", RELAY_PARTITION, submit]
         print("  [%s]  %s" % (label, " ".join(cmd)))
         if not DRY_RUN:
             rc = subprocess.call(cmd, cwd=here)
