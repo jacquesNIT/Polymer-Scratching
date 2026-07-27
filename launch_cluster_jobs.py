@@ -31,13 +31,13 @@ JOBS = [
     #("mesh", "elastomer_mr", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
     #("mesh", "elastomer_ve", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
 
-    ("mesh", "glassy_dp", {"tag": "ALE20", "ALE": True, "scratch_time": 0.05, "freq": 20, "sweeps": 1}),
-    ("mesh", "glassy_dp", {"tag": "ALE200", "ALE": True, "scratch_time": 0.05, "freq": 200, "sweeps": 3}),
-    ("mesh", "glassy_dp", {"tag": "ALE650", "ALE": True, "scratch_time": 0.05, "freq": 650, "sweeps": 3}),
-    ("mesh", "glassy_dp", {"tag": "ALE1300", "ALE": True, "scratch_time": 0.05, "freq": 1300, "sweeps": 5}),
+    #("mesh", "glassy_dp", {"tag": "ALE20", "ALE": True, "scratch_time": 0.05, "freq": 20, "sweeps": 1}),
+    #("mesh", "glassy_dp", {"tag": "ALE200", "ALE": True, "scratch_time": 0.05, "freq": 200, "sweeps": 3}),
+    #("mesh", "glassy_dp", {"tag": "ALE650", "ALE": True, "scratch_time": 0.05, "freq": 650, "sweeps": 3}),
+    #("mesh", "glassy_dp", {"tag": "ALE1300", "ALE": True, "scratch_time": 0.05, "freq": 1300, "sweeps": 5}),
 
 
-    ("single", "glassy_pc", {"tag": "quick_test", "ALE": True, "scratch_time": 0.01}),
+    ("single", "glassy_pc", {"tag": "quick_test", "ALE": False, "scratch_time": 0.03}),
 
     #("mesh", "glassy_pc", {"tag": "Test_NewMeshing", "ALE": True, "scratch_time": 0.05}),
 
