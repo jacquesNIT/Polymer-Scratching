@@ -74,10 +74,21 @@ def post_process(job_name, file_name, cfg):
         v.nodeLabel: np.array(v.data) for v in disp_subset.values
     }
 
+    # A slave-surface node absent from the displacement subset used to be
+    # written out silently as "not displaced" (y = 0), biasing the residual
+    # profile with no trace. The fallback stays; it is now counted.
     deformed = []
+    n_missing_u = 0
     for label, x, y, z in undeformed_sorted:
-        d = displacements.get(label, np.array([0.0, 0.0, 0.0]))
+        d = displacements.get(label)
+        if d is None:
+            d = np.array([0.0, 0.0, 0.0])
+            n_missing_u += 1
         deformed.append((label, x + d[0], y + d[1], z + d[2]))
+    if n_missing_u:
+        print("Warning: %d of %d slave-surface nodes have no displacement data and "
+              "are written as undeformed (y = 0); the residual profile is biased."
+              % (n_missing_u, len(undeformed_sorted)))
 
     substrate_region = None
     whole_model_region = None     # Needed for Etotal drift calculations
