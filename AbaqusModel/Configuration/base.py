@@ -45,7 +45,7 @@ class Substrate_Config:
     def __init__(self,
                  xs1=0.0, ys1=0.0, zs1=0.0,             # Substrate box  (origin at xs1, ys1, zs1)
                  xs2=0.6, ys2=0.5, zs2=3.0,             # Width, height  and depth of the box [mm] (z is the scratch direction)
-                 dpo_x=0.25, dpo_y=0.25, dpo_z=0.25 ):  # Partition offsets (from edges of refined zone) 
+                 dpo_x=0.25, dpo_y=0.15, dpo_z=0.25 ):  # Partition offsets (from edges of refined zone) 
 
         self.xs1 = xs1
         self.ys1 = ys1
@@ -529,7 +529,7 @@ class Friction_Config:
                 alpha=0.2,                      # [-] Pressure coefficient, mu asymptote at high pressure
                 p_min=1.0, p_max=600.0,         # [Mpa] Pressure Bounds for the table, covers most polymers
                 n_points=12,                    # Number of points in the table (log sampled)
-                mu_cap=1.0,                     # Ceiling to avoid mu divergence
+                mu_cap=0.6,                     # Ceiling to avoid mu divergence
                 elastic_slip_fraction=0.005):
         """
         Pressure-dependent Coulomb table from the Briscoe interfacial shear model: 
@@ -773,7 +773,7 @@ class Simulation_Config:
                 coarse_size_1=0.028,     # 0.07*4 
                 coarse_size_2=0.056,     # 0.07*8
                 hourglass_control="ENHANCED",      # RELAX STIFFNESS with ALE / ENHANCED without ALE 
-                distortion_control="DEFAULT",
+                distortion_control="ON",
                 max_degradation=0.9,
                 element_deletion=False,
                 second_order_accuracy=False,

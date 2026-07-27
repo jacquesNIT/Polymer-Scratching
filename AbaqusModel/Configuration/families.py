@@ -85,8 +85,6 @@ def _elastomer_mr_config():
 
 def _semicrystalline_config():
     # Rigid semicrystalline (HDPE)
-
-
     # Rate: Eyring slope S ~ 2.5 MPa/decade (yield ~ 26-33 MPa), used in Cowper-Symonds fit for scratch rates from  1/s to 1e3/s
     
     cfg = Simulation_Config.polymer_default()
@@ -108,12 +106,6 @@ def _semicrystalline_config():
 
 def _semicrystalline_dp_config():
     # Rigid semicrystalline (HDPE) with pressure-dependent Drucker-Prager.
-    # Same base, yield table and friction as semicrystalline_j2; only the
-    # yield surface changes (J2 -> DP) to isolate pressure sensitivity.
-    # DP parameters are PLACEHOLDERS pending calibration:
-    #   beta = 12 deg (semicrystallines are less pressure-sensitive than
-    #                  glassy polymers; ~10-15 deg indicative)
-    #   K = 1.0 ; psi = 5 deg (small plastic dilatancy vs isochoric J2)
     cfg = Simulation_Config.polymer_default()
     cfg.material = Material_Config(
         rho=0.95e-9,                                                                                      # same as semicrystalline_j2 (rigid HDPE)
@@ -183,13 +175,13 @@ def _glassy_pc_config():
         rho=1.20e-9,
         hyperelastic=LinearElastic_Config(E=2300.0, nu=0.37),
         plasticity=DruckerPrager_Config(
-            friction_angle=15.0, flow_stress_ratio=1.0, dilation_angle=8.0,
+            friction_angle=27.13, flow_stress_ratio=0.85, dilation_angle=0.0,
             yield_table=gsell_jonas_table(sigma_y0=70.0, h=0.35,
                                           soft_drop=12.0, eps_soft=0.05,
                                           eps_max=2.5, n_points=60),
             rate_dependent=None),
             # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=70.0, S_per_decade=4.5)),
-        friction=Friction_Config.briscoe(tau0=3.5, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
+        friction=Friction_Config.briscoe(tau0=38.32, alpha=0.06),                                           # Plausible value for tau0 and alpha, to be determined
         #friction=Friction_Config(mu=0.3),
         family="glassy_pc",
     )
