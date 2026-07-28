@@ -45,7 +45,7 @@ class Substrate_Config:
     def __init__(self,
                  xs1=0.0, ys1=0.0, zs1=0.0,             # Substrate box  (origin at xs1, ys1, zs1)
                  xs2=0.6, ys2=0.5, zs2=3.0,             # Width, height  and depth of the box [mm] (z is the scratch direction)
-                 dpo_x=0.25, dpo_y=0.25, dpo_z=0.25 ):  # Partition offsets (from edges of refined zone) 
+                 dpo_x=0.25, dpo_y=0.15, dpo_z=0.25 ):  # Partition offsets (from edges of refined zone) 
 
         self.xs1 = xs1
         self.ys1 = ys1
