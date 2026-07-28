@@ -1411,6 +1411,16 @@ _FALLBACK_FAMILIES = {
                    "force_magnitude", "strain_level",
                    "friction_physics", "steady_state", "settling", "recovery"),
     },
+    # MISSING BEFORE: a "semicrystalline_dp" CSV resolved to elastomer_mr
+    # through the .get(key, DEFAULT) fallback -> wrong label, dissipative=False
+    # and an inverted recovery verdict. Mirrors families.py:_SEMICRYSTALLINE_CHECKS.
+    "semicrystalline_dp": {
+        "label": "Soft semicrystalline (linear elastic + Drucker-Prager plasticity)",
+        "dissipative": True,
+        "checks": ("quasi_static", "hourglass", "energy_total", "artificial_energy",
+                   "force_magnitude", "strain_level",
+                   "friction_physics", "steady_state", "settling", "recovery"),
+    },
     "glassy_dp": {
         "label": "Glassy amorphous thermoplastic (linear elastic + Drucker-Prager)",
         "dissipative": True,
@@ -1446,17 +1456,67 @@ _FALLBACK_FAMILIES = {
 _DEFAULT_FAMILY = "elastomer_mr"
 
 
+# OLD (kept for reference) -- an unknown key silently became the default
+# family, which inverted every family-dependent verdict:
+#
+# def _resolve_family(family_key):
+#     try:
+#         from ScratchSimulation.AbaqusModel.Configuration import get_family
+#         fam = get_family(family_key)
+#         mat = fam.build_config().material
+#         dissipative = (mat.plasticity.MODEL != "none" or mat.damage.MODEL != "none")
+#         return {"label": fam.label, "checks": list(fam.checks), "dissipative": dissipative}
+#     except Exception:
+#         return dict(_FALLBACK_FAMILIES.get(family_key, _FALLBACK_FAMILIES[_DEFAULT_FAMILY]))
+
 def _resolve_family(family_key):
-    # Return {"label", "checks", "dissipative"} for a family key, preferring the
-    # live definition in families.py and falling back to the local mirror.
+    """
+    Return {"label", "checks", "dissipative", "resolved", "source"} for a key.
+
+    Resolution order:
+      1. families.py (source of truth) when the package is importable
+      2. _FALLBACK_FAMILIES, the local mirror (standalone CSV verification)
+      3. UNRESOLVED -- the default check list is still run so the report is not
+         empty, but the family is FLAGGED and "dissipative" is left None: each
+         check then infers dissipativity from the metadata (sigma_y0 present,
+         family name tokens) instead of silently assuming a hyperelastic model.
+
+    A key that is absent everywhere must never be silently renamed to
+    _DEFAULT_FAMILY: that is what turned a semicrystalline_dp run into an
+    "elastomer_mr" report with a "numerical artifact" recovery verdict.
+    """
+    get_family = None
     try:
-        from ScratchSimulation.AbaqusModel.Configuration import get_family
-        fam = get_family(family_key)
-        mat = fam.build_config().material
-        dissipative = (mat.plasticity.MODEL != "none" or mat.damage.MODEL != "none")
-        return {"label": fam.label, "checks": list(fam.checks), "dissipative": dissipative}
+        from ScratchSimulation.AbaqusModel.Configuration import get_family as _gf
+        get_family = _gf
     except Exception:
-        return dict(_FALLBACK_FAMILIES.get(family_key, _FALLBACK_FAMILIES[_DEFAULT_FAMILY]))
+        pass                      # standalone run: package not importable
+
+    if get_family is not None:
+        try:
+            fam = get_family(family_key)
+            mat = fam.build_config().material
+            dissipative = (mat.plasticity.MODEL != "none" or mat.damage.MODEL != "none")
+            return {"label": fam.label, "checks": list(fam.checks),
+                    "dissipative": dissipative, "resolved": True,
+                    "source": "families.py"}
+        except Exception:
+            pass                  # unknown key / build failure -> try the mirror
+
+    if family_key in _FALLBACK_FAMILIES:
+        out = dict(_FALLBACK_FAMILIES[family_key])
+        out["resolved"] = True
+        out["source"] = "local mirror (_FALLBACK_FAMILIES)"
+        return out
+
+    out = dict(_FALLBACK_FAMILIES[_DEFAULT_FAMILY])
+    out["label"] = ("UNKNOWN family '%s' (absent from families.py and from the "
+                    "local mirror) -- checks default to '%s', verdicts inferred "
+                    "from the metadata" % (family_key, _DEFAULT_FAMILY))
+    out["dissipative"] = None     # -> inferred per check, not assumed
+    out["resolved"] = False
+    out["source"] = "default (UNRESOLVED)"
+    return out
 
 
 def verify_results(filepath, print_report=True):
@@ -1473,7 +1533,12 @@ def verify_results(filepath, print_report=True):
     fam = _resolve_family(family_key)
 
     report = {"file": filepath, "metadata": metadata,
-              "family": family_key, "family_label": fam["label"], "checks": {}}
+              "family": family_key, "family_label": fam["label"],
+              # provenance of the family definition: a False here means the
+              # check list and the verdicts below are NOT family-specific
+              "family_resolved": fam.get("resolved", True),
+              "family_source": fam.get("source", "?"),
+              "checks": {}}
 
     # Check name -> (display label, zero-arg callable). Only the names listed in
     # the family's "checks" are run; recovery is told explicitly whether the
@@ -1515,6 +1580,10 @@ def _print_report(report):
     print("-" * 60)
     print("  SCRATCH SIMULATION — Results verification")
     print("  Family: %s" % report.get("family_label", report.get("family", "?")))
+    if not report.get("family_resolved", True):
+        print("  [!] Family key '%s' NOT resolved (%s): the checks below are the "
+              "default set and may not apply to this run."
+              % (report.get("family", "?"), report.get("family_source", "?")))
     print("-" * 60)
     print("  File: %s" % report["file"])
 
