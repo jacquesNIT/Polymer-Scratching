@@ -109,11 +109,7 @@ def mesh_substrate(part, cfg):
         hg = RELAX_STIFFNESS
     else:
         hg = DEFAULT
-    # dc = DEFAULT  # was hardcoded here; the distortion_control config field was never read
-    # str() FIRST: per-job overrides arrive as a Python bool, never as "ON" --
-    # run_parameter_study._parse_override_value() maps "True"/"on"/"yes" -> True
-    # and "False"/"off"/"no" -> False, so a string comparison silently fell
-    # through to DEFAULT (= OFF for every non-hyperelastic family).
+
     _dc_raw = msh.distortion_control
     _dc = str(_dc_raw).strip().upper()
     if _dc in ("ON", "TRUE", "YES"):

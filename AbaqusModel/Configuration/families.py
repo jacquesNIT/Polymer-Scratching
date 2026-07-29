@@ -97,8 +97,8 @@ def _semicrystalline_config():
           # yield_table=((28.0, 0.0), (30.0, 0.2), (40.0, 1.0), (60.0, 1.9)) without gsell_jonas
             rate_dependent=None),
             # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=28.0, S_per_decade=2.5)),          # Rate: Eyring slope S ~ 2.5 MPa/decade (yield ~ 26-33 MPa), used in Cowper-Symonds fit for scratch rates from  1/s to 1e3/s
-        friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
-        # friction=Friction_Config(mu=0.3),
+        #friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
+        friction=Friction_Config(mu=0.3),
         family="semicrystalline_j2",
     )
     cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)
@@ -115,8 +115,8 @@ def _semicrystalline_dp_config():
             yield_table=gsell_jonas_table(sigma_y0=28.0, h=0.22, Q=5.0, b=8.0, eps_max=3.0, n_points=60), # same table as semicrystalline_j2
             rate_dependent=None),
             # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=28.0, S_per_decade=2.5)), # usual semicrystalline Eyring slope
-        friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
-        # friction=Friction_Config(mu=0.3),
+        # friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
+        friction=Friction_Config(mu=0.3),
         family="semicrystalline_dp",
     )
     cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : same s as semicrystalline_j2 (same rho/E/mesh -> same natural dt)
@@ -181,8 +181,8 @@ def _glassy_pc_config():
                                           eps_max=2.5, n_points=60),
             rate_dependent=None),
             # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=70.0, S_per_decade=4.5)),
-        friction=Friction_Config.briscoe(tau0=38.32, alpha=0.06),                                           # Plausible value for tau0 and alpha, to be determined
-        #friction=Friction_Config(mu=0.3),
+        #friction=Friction_Config.briscoe(tau0=38.32, alpha=0.06),                                           # Plausible value for tau0 and alpha, to be determined
+        friction=Friction_Config(mu=0.3),
         family="glassy_pc",
     )
     cfg.solver.target_time_increment = 15.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 15 : results from the target time study (-5 for safety)
@@ -210,8 +210,8 @@ def _glassy_pmma_config():
                                           eps_max=2.0, n_points=60),
             rate_dependent=None),
             #rate_dependent=RateDependent_Config.from_eyring(sigma_y0=105.0, S_per_decade=9.0)),
-        friction=Friction_Config.briscoe(tau0=4.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
-        #friction=Friction_Config(mu=0.3),
+        #friction=Friction_Config.briscoe(tau0=4.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
+        friction=Friction_Config(mu=0.3),
         family="glassy_pmma",
     )
     cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)

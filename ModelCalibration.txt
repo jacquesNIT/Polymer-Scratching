@@ -1,0 +1,17 @@
+Glassy amorphous PC:
+
+- Quantitative modeling of scratch-induced deformation in amorphous polymers -  Mohammad Motaher Hossain, Rolf Minkwitz, Piyada Charoensirisomboon, Hung-Jue Sue 
+-> Uses almost excatly the same models : Drucker6prager, Briscoe friction, half-model, 3 steps ..
+
+DP
+friction_angle = 27.13
+Flow_stress_ratio = 0.85
+Dilation_angle = 0
+Poisson's ratio = 0.37
+
+Secant modulus E = 1860Mpa ( =Young modulus but apparently not important for results ?)
+
+Briscoe 
+tau0 = 38.32
+alpha = 0.06 
+mu_cap = 0.6
