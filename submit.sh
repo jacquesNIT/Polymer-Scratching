@@ -2,6 +2,6 @@
 
 echo "======= Started at  `date` ======="
 echo
-subabqpy2025-old -p q64 -c 21 -m 100 -t 4-00:00:00 run_parameter_study 
+subabqpy2025-old -p q64 -c 16 -m 100 -t 4-00:00:00 run_benchmarks -- hertz glassy_pc
 echo
 echo "======= Finished at `date` ======="

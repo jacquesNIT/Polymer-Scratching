@@ -45,6 +45,7 @@ from ScratchSimulation.AbaqusModel.Simulation import build_scratch_model
 from ScratchSimulation.AbaqusModel.Material import SubstrateMaterialAssignment
 from ScratchSimulation.AbaqusModel.Postprocessing import post_process
 from ScratchSimulation.AbaqusModel.utils import run_job_and_wait, cleanup_abaqus_junk
+from ScratchSimulation.AbaqusModel.Verification.manifest import write_manifest
 
 class ParameterStudy(object):
     def __init__(self, name, cases, apply_case, label, configure=None):
@@ -170,6 +171,17 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
 
         model, substrate_part = build_scratch_model(cfg)
         SubstrateMaterialAssignment(model, substrate_part, cfg).apply()
+
+        # One manifest per case: git commit + dirty flag, a fingerprint of the
+        # FULLY RESOLVED configuration, and the derived quantities (effective
+        # mass-scaling factor, dm/m, N_a, smoothing window). Two results are
+        # comparable only when it is possible to PROVE what differs between
+        # them; without this, that is an archaeology exercise.
+        try:
+            write_manifest(".", cfg, extra={"case_stem": stem, "study": study.name},
+                           filename="manifest_%s.json" % stem)
+        except Exception as _exc:
+            print("Warning: manifest not written for %s (%s)." % (stem, _exc))
 
         run_job_and_wait(cfg.job_name, cfg)
         post_process(cfg.job_name, stem, cfg)

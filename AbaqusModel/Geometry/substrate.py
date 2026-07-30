@@ -184,6 +184,26 @@ def mesh_substrate(part, cfg):
         size=msh.fine_size_y,
     )
 
+    # Build-time guard on the biased transitions.
+    # seedEdgeByBias below is called with maxSize=coarse_size_* and
+    # minSize=fine_size_*. When a fine size reaches (or exceeds) the coarse
+    # bound, Abaqus aborts inside seedEdgeByBias -- this is the crash seen at
+    # this line, NOT a consequence of any material patch. With
+    # polymer_default's coarse_size_1 = 0.028, the two commented-out entries
+    # of DEFAULT_MESH_SIZES (0.04 and 0.03) would both reproduce it.
+    # Failing here, with the numbers in the message, costs one second instead
+    # of one queued job.
+    _c1, _c2 = float(msh.coarse_size_1), float(msh.coarse_size_2)
+    for _lbl, _fine, _coarse in (("fine_size_y", float(msh.fine_size_y), _c1),
+                                 ("fine_size_z", float(msh.fine_size_z), _c1),
+                                 ("fine_size_x", float(msh.fine_size_x), _c2)):
+        if _fine >= _coarse:
+            raise ValueError(
+                "mesh_substrate: %s = %g is >= its biased-transition maxSize "
+                "%g. seedEdgeByBias requires minSize < maxSize; increase "
+                "coarse_size_1/coarse_size_2 or refine the fine mesh."
+                % (_lbl, _fine, _coarse))
+
     # Edge seeds : biased transitions 
     # Y-direction transition (fine near surface -> coarse at bottom)
     part.seedEdgeByBias(

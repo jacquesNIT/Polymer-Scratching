@@ -214,6 +214,13 @@ def post_process(job_name, file_name, cfg):
     cfs1 = _resample(t_cp, _pick(contact_data, "CFS1", z_cp), time_arr)
     cfs2 = _resample(t_cp, _pick(contact_data, "CFS2", z_cp), time_arr)
     cfs3 = _resample(t_cp, _pick(contact_data, "CFS3", z_cp), time_arr)
+    # CAREA / CFNM / CFSM were already REQUESTED by
+    # Modelbuilder._request_contact_pair_history but never extracted. With a
+    # Briscoe law  SCOF = alpha + tau0 * A_c / Fn , so the contact area IS the
+    # SCOF: without this column the mesh drift of the SCOF can only be inferred.
+    cfnm = _resample(t_cp, _pick(contact_data, "CFNM", z_cp), time_arr)
+    cfsm = _resample(t_cp, _pick(contact_data, "CFSM", z_cp), time_arr)
+    carea = _resample(t_cp, _pick(contact_data, "CAREA", z_cp), time_arr)
 
     #  History data — substrate energies (deformable body only)
     # (t_sub / sub_data already extracted above; kept alive at low frequency
@@ -285,9 +292,37 @@ def post_process(job_name, file_name, cfg):
         )
         f.write("# WallclockTime=%.2f s\n" % wallclock)
 
+        # --- derived quantities -------------------------------------------
+        # These govern the result but appear in NO config field, so two CSVs
+        # written without them are not comparable. Written one per line as
+        # "# key=value" so results_verifier.parse_results_csv picks them up.
+        try:
+            from ScratchSimulation.AbaqusModel.Verification.analytic import (
+                mass_scaling_factor, amplitude_smoothing_window,
+                contact_radius_rockwell, elements_per_contact_radius)
+            _ms = mass_scaling_factor(cfg)
+            f.write("# natural_dt=%.6e\n" % _ms["dt_nat"])
+            f.write("# mass_factor_eff=%.6e\n" % _ms["f"])
+            f.write("# dm_over_m=%.6e\n" % _ms["dm_over_m"])
+            f.write("# dt_effective=%.6e\n" % _ms["dt_eff"])
+            _depth = abs(float(scratch.scratch_depth))
+            _a = contact_radius_rockwell(_depth, indenter.tip_radius,
+                                         indenter.cone_angle)
+            f.write("# contact_radius=%.6e\n" % _a)
+            f.write("# N_a=%.6e\n" % elements_per_contact_radius(
+                _a, min(mesh.fine_size_x, mesh.fine_size_z)))
+            f.write("# elements_per_depth=%.6e\n" % (_depth / mesh.fine_size_y))
+            _sm = amplitude_smoothing_window(cfg)
+            if _sm.get("w") is not None:
+                f.write("# smooth_window=%.6e\n" % _sm["w"])
+                f.write("# smooth_window_rel=%.6e\n" % _sm["w_rel"])
+        except Exception:
+            f.write("# derived_quantities=unavailable\n")
+
         writer.writerow([
             "Time", "RF1", "RF2", "RF3",
             "CFN1", "CFN2", "CFN3", "CFS1", "CFS2", "CFS3",  # contact-pair force (force-driven mode)
+            "CFNM", "CFSM", "CAREA",                     # contact magnitudes + contact AREA
             "ALLKE", "ALLIE", "ALLAE",                       # substrate (deformable body)
             "WM_ALLKE", "WM_ALLIE", "WM_ALLVD", "WM_ALLFD",  # whole-model balance terms
             "WM_ALLCD", "WM_ALLSE",                          
@@ -306,6 +341,7 @@ def post_process(job_name, file_name, cfg):
         rows = zip_longest(
             time_arr.reshape(-1), rf1, rf2, rf3,
             cfn1, cfn2, cfn3, cfs1, cfs2, cfs3,
+            cfnm, cfsm, carea,
             ke, ie, ae,
             wm_ke, wm_ie, wm_vd, wm_fd, wm_cd, wm_se,
             wm_wk, wm_pw, wm_cw, wm_mw, etotal,

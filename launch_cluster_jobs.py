@@ -15,13 +15,13 @@ import time
 
 JOBS = [
     
-    ("mesh", "glassy_pc", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
-    ("mesh", "glassy_pmma", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
-    ("mesh", "semicrystalline_j2", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
-    ("mesh", "semicrystalline_dp", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pc", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
+    #("mesh", "semicrystalline_j2", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
+    #("mesh", "semicrystalline_dp", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
 
-    ("mesh", "glassy_pc", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    ("mesh", "glassy_pmma", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pc", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
     ("mesh", "semicrystalline_j2", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
     ("mesh", "semicrystalline_dp", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
 
@@ -136,6 +136,23 @@ _OVERRIDE_ALIASES = {
     "distortion":     "mesh.distortion_control",
     "length":         "mesh.length_ratio",
     "z_size":         "mesh.fine_size_z",
+    "x_size":         "mesh.fine_size_x",
+    "y_size":         "mesh.fine_size_y",
+    "coarse1":        "mesh.coarse_size_1",
+    "coarse2":        "mesh.coarse_size_2",
+
+    # Load-path controls. The SMOOTH window of the tabular amplitudes is
+    #     smooth * min(scratch_time, unload_time)
+    # and unload_time is FIXED at 0.01 s in polymer_default while
+    # scratch_time is swept: the window is 5 % of the scratch at T = 0.05 s
+    # and 25 % at T = 0.01 s. A scratch-time study without these aliases
+    # therefore compares three DIFFERENT load paths, which is not a
+    # quasi-staticity test. Set smoothing=0 (or scale unload_time with
+    # scratch_time) to hold the path fixed.
+    "smoothing":      "scratch.amplitude_smoothing",
+    "unload_time":    "scratch.unload_time",
+    "recovery_time":  "scratch.recovery_time",
+    "indent_time":    "scratch.indentation_time",
 }
 
 # mesh_substrate() compares hourglass_control against these EXACT strings and

@@ -525,7 +525,21 @@ def check_dynamics(cfg, geo):
     rho = float(cfg.material.rho)
 
     c0 = np.sqrt(props["E_0"] / rho)                      # [mm/s] bar wave speed
-    f = max(float(solver.mass_scale), 1.0)
+    # OLD (wrong under VARIABLE mass scaling, i.e. on every family, since
+    # families.py always sets target_time_increment > 0):
+    #     f = max(float(solver.mass_scale), 1.0)
+    # With SEMI_AUTOMATIC / THROUGHOUT_STEP / BELOW_MIN the solver drives dt to
+    # target_time_increment, so the factor actually applied is
+    #     f = (dt_target / dt_nat)^2
+    # which for s = 15 is 225 and for s = 30 is 900 -- not mass_scale = 500.
+    _target = float(getattr(solver, "target_time_increment", 0.0) or 0.0)
+    if _target > 0.0:
+        _h_min = min(float(msh.fine_size_x), float(msh.fine_size_y),
+                     float(msh.fine_size_z))
+        _dt_nat = _h_min / np.sqrt(props["E_0"] / rho)
+        f = max((_target / _dt_nat) ** 2, 1.0)
+    else:
+        f = max(float(solver.mass_scale), 1.0)
     c_scaled = c0 / np.sqrt(f)
 
     v = geo["v"]
