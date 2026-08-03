@@ -32,11 +32,11 @@ JOBS = [
     #("mesh", "elastomer_mr", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
     #("mesh", "elastomer_ve", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
 
-    ("single", "elastomer_ve", {"tag": "rec_test1", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.01, "hourglass": "RELAX STIFFNESS"}),
-    ("single", "elastomer_ve", {"tag": "rec_test3", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.03, "hourglass": "RELAX STIFFNESS"}),
-    ("single", "elastomer_ve", {"tag": "rec_test5", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
-    ("single", "elastomer_ve", {"tag": "rec_test10", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
-    ("single", "elastomer_ve", {"tag": "rec_test50", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.5, "hourglass": "RELAX STIFFNESS"}),
+    #("single", "elastomer_ve", {"tag": "rec_test1", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.01, "hourglass": "RELAX STIFFNESS"}),
+    #("single", "elastomer_ve", {"tag": "rec_test3", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.03, "hourglass": "RELAX STIFFNESS"}),
+    #("single", "elastomer_ve", {"tag": "rec_test5", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
+    #("single", "elastomer_ve", {"tag": "rec_test10", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
+    #("single", "elastomer_ve", {"tag": "rec_test50", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.5, "hourglass": "RELAX STIFFNESS"}),
 
     #("mesh", "glassy_pc", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "glassy_dp", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
