@@ -20,20 +20,20 @@ JOBS = [
     #("mesh", "semicrystalline_j2", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
     #("mesh", "semicrystalline_dp", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
 
-    ("mesh", "glassy_pc", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    ("mesh", "glassy_pmma", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    ("mesh", "semicrystalline_j2", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    ("mesh", "semicrystalline_dp", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pc", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    #("mesh", "semicrystalline_j2", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    #("mesh", "semicrystalline_dp", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
 
-    ("mesh", "glassy_pc", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pc", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     #("mesh", "glassy_pmma", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    ("mesh", "semicrystalline_j2", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    #("mesh", "semicrystalline_j2", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     #("mesh", "semicrystalline_dp", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
 
-    ("mesh", "glassy_pc", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
-    ("mesh", "glassy_pmma", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
-    ("mesh", "semicrystalline_j2", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
-    ("mesh", "semicrystalline_dp", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pc", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
+    #("mesh", "semicrystalline_j2", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
+    #("mesh", "semicrystalline_dp", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
 
     #("mesh", "elastomer_mr", {"tag": "mesh9", "ALE": False, "scratch_time": 0.025, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
     #("mesh", "elastomer_ve", {"tag": "mesh9", "ALE": False, "scratch_time": 0.025, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
@@ -60,7 +60,16 @@ JOBS = [
     #("mesh", "glassy_dp", {"tag": "ALE1300", "ALE": True, "scratch_time": 0.05, "freq": 1300, "sweeps": 5}),
 
 
-    #("single", "glassy_pc", {"tag": "quick_test", "ALE": False, "scratch_time": 0.03}),
+    ("single", "glassy_pc", {"tag": "quick_pc5", "ALE": False, "scratch_time": 0.05}),
+    ("single", "glassy_pc", {"tag": "quick_pc10", "ALE": False, "scratch_time": 0.1}),
+
+    ("single", "glassy_pmma", {"tag": "quick_pmma5", "ALE": False, "scratch_time": 0.05}),
+    ("single", "glassy_pmma", {"tag": "quick_pmma10", "ALE": False, "scratch_time": 0.1}),
+
+    ("single", "glassy_dp", {"tag": "quick_dp5", "ALE": False, "scratch_time": 0.05}),
+    ("single", "glassy_dp", {"tag": "quick_dp10", "ALE": False, "scratch_time": 0.1}),
+
+
 
     #("mesh", "glassy_pc", {"tag": "Test_NewMeshing", "ALE": True, "scratch_time": 0.05}),
 
