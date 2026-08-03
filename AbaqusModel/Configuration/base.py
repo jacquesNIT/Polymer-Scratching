@@ -563,8 +563,6 @@ class Friction_Config:
         self.briscoe_params = rebuilt.briscoe_params
         return self
 
-
-
 # 10. Material specification
 class Material_Config:
     # Complete definition of the desired models for the material behavior

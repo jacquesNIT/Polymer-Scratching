@@ -29,9 +29,6 @@ from .base import (
     Simulation_Config,
 )
 
-from .benchmarks import (Bench_Config, hertz_case, single_element_case, ploughing_case, standard_reference_case, hertz_reference_table, linear_moduli,
-                         strip_to_linear_elastic, set_mesh, retarget_dt, set_constant_mu, set_frictionless)
-
 from .families import PolymerFamily, ELASTOMER_MR, SEMICRYSTALLINE_J2, GLASSY_DP, FAMILIES, get_family
 
 __all__ = [

@@ -1,18 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-CPython analysis of the benchmark outputs: every number is compared with a
-reference that is KNOWN, not with another simulation.
+CPython analysis of the benchmark outputs: Result are compared with a known reference.
 
-Run it from the repository root:
-
-    python3 -m ScratchSimulation.AbaqusModel.Verification.benchmark_report \\
-            hertz  runs/Bench_hertz_glassy_pc/BenchOutputs
+    python3 -m ScratchSimulation.AbaqusModel.Verification.benchmark_report hertz runs/Bench_hertz_glassy_pc/BenchOutputs
     python3 -m ...benchmark_report level0 runs/Bench_level0_glassy_pc/BenchOutputs
     python3 -m ...benchmark_report time   runs/Bench_hertz_time_glassy_pc/BenchOutputs
     python3 -m ...benchmark_report scratch runs/MeshConvergence_glassy_pc_mesh9/SimDataOutputs
 
-The last mode re-analyses EXISTING production scratch CSVs -- no new
-simulation required -- and produces:
+NB: The last mode re-analyses CSVs and produces:
   * the asymptotic-range gate on the mesh ladder (is a GCI legitimate at all?)
   * the contact-area inversion of the Briscoe SCOF
   * the amplitude-smoothing confound check on the IndenterU2 trace
@@ -37,12 +32,9 @@ except (ImportError, ValueError):      # direct execution
     from ScratchSimulation.AbaqusModel.Verification import material_point as mp
 
 
-# --------------------------------------------------------------------------
-# CSV reading
-# --------------------------------------------------------------------------
 
+# CSV reading
 def read_csv(path):
-    """Return (metadata dict, {column: ndarray}). Blank cells -> NaN."""
     meta, header, rows = {}, None, []
     with open(path, "r") as f:
         for line in f:
@@ -81,9 +73,71 @@ def _finite(x):
     return x[np.isfinite(x)]
 
 
-# --------------------------------------------------------------------------
+
 # Level 1 -- Hertz
-# --------------------------------------------------------------------------
+
+def _col_stats(name, arr):
+    if arr is None:
+        return "%-16s ABSENT" % name
+    a = np.asarray(arr, dtype=float)
+    fin = np.isfinite(a)
+    if not fin.any():
+        return "%-16s %d rows, ALL NaN/empty" % (name, a.size)
+    v = a[fin]
+    return ("%-16s %d rows (%d finite)  min=%.6g  max=%.6g  |max|=%.6g"
+            % (name, a.size, fin.sum(), v.min(), v.max(), np.abs(v).max()))
+
+
+def _raise_empty_diagnostic(path, meta, d):
+    """
+    Fail with something actionable instead of an IndexError three frames up.
+
+    An empty curve after filtering means the run produced no usable
+    (depth, force) pair. The cause is almost always one of: the job never made
+    contact, or the ODB history keys did not match what the extractor looks for
+    so a column came out as zeros. Printing the actual column ranges settles
+    which, in one look.
+    """
+    lines = ["", "=" * 74,
+             "EMPTY CURVE after filtering: %s" % os.path.basename(path),
+             "=" * 74,
+             "No sample survived  isfinite(U2) & isfinite(RF2) & (U2 > 1e-6).",
+             "", "Columns as read from the CSV:"]
+    for key in ("Time", "IndenterU2", "RF2", "RF3", "CFN2", "CAREA",
+                "SUB_ALLIE", "WM_ALLIE"):
+        lines.append("  " + _col_stats(key, d.get(key)))
+    lines += ["", "Relevant metadata:"]
+    for key in ("family", "E", "nu", "tip_radius", "fine_size_x",
+                "depth_max", "ramp_time", "hold_time",
+                "mass_scale", "target_time_increment"):
+        if key in meta:
+            lines.append("  %-22s = %s" % (key, meta[key]))
+    lines += ["",
+              "Read it like this:",
+              "  * IndenterU2 all zeros  -> the ODB history key for the",
+              "    reference-point displacement did not match; the extractor",
+              "    wrote zeros. The depth can be reconstructed (see the",
+              "    fallback above) but the ODB key should be fixed.",
+              "  * RF2 all zeros with a non-zero U2 -> the indenter moved but",
+              "    never touched: check the initial gap and the contact pair.",
+              "  * Both non-zero but |U2|max < 1e-6 mm -> the amplitude did not",
+              "    span the step (the SmoothStep data is in step SECONDS).",
+              "=" * 74, ""]
+    raise SystemExit("\n".join(lines))
+
+
+def inspect_csv(path):
+    """CLI helper: dump every column's range so a bad run can be diagnosed
+    without opening the file by hand."""
+    meta, d = read_csv(path)
+    print("\n=== %s ===" % os.path.basename(path))
+    print("metadata:")
+    for k in sorted(meta):
+        print("  %-24s = %s" % (k, meta[k]))
+    print("columns:")
+    for k in d:
+        print("  " + _col_stats(k, d[k]))
+
 
 def analyse_hertz_run(path, contact_path=None):
     """
@@ -105,12 +159,36 @@ def analyse_hertz_run(path, contact_path=None):
     t = d.get("Time")
     u2 = np.abs(d.get("IndenterU2"))
     rf2 = np.abs(d.get("RF2"))
+
+    # The prescribed depth is KNOWN exactly (SmoothStep ramp of depth_max over
+    # ramp_time), so if the U2 history came back degenerate -- all zeros, which
+    # happens when the reference-point displacement key in the ODB does not
+    # match what _pick() looks for -- we can reconstruct it instead of failing.
+    u2_usable = (u2 is not None and np.isfinite(u2).any()
+                 and np.nanmax(u2) > 1e-6)
+    if not u2_usable:
+        dmax = float(meta.get("depth_max", np.nan))
+        tramp = float(meta.get("ramp_time", np.nan))
+        if np.isfinite(dmax) and np.isfinite(tramp) and tramp > 0 \
+                and t is not None and np.isfinite(t).any():
+            xi = np.clip(np.asarray(t, dtype=float) / tramp, 0.0, 1.0)
+            # Abaqus SMOOTH STEP quintic: a = xi^3 (10 - 15 xi + 6 xi^2)
+            u2 = dmax * xi ** 3 * (10.0 - 15.0 * xi + 6.0 * xi ** 2)
+            print("  ! %s: IndenterU2 was all zeros; depth reconstructed from "
+                  "the prescribed SmoothStep ramp (depth_max=%.4g mm over "
+                  "%.4g s). Check the ODB history key for U2."
+                  % (os.path.basename(path), dmax, tramp))
+        else:
+            _raise_empty_diagnostic(path, meta, d)
+
     ok = np.isfinite(u2) & np.isfinite(rf2) & (u2 > 1e-6)
     depth, force = u2[ok], rf2[ok]
 
     p_exact = an.hertz_force(E, nu, R, depth, half_model=True)
     good = p_exact > 1e-12
     depth, force, p_exact = depth[good], force[good], p_exact[good]
+    if depth.size == 0:
+        _raise_empty_diagnostic(path, meta, d)
     err = 100.0 * (force - p_exact) / p_exact
     a = an.hertz_contact_radius(R, depth)
     N_a = a / h_mesh
@@ -306,6 +384,61 @@ def print_time_ladder(rows, title="TIME LADDER (level 1b)"):
 # Level 0 -- single element
 # --------------------------------------------------------------------------
 
+def _detect_yield_by_slope(le, s, E, frac=0.5, smooth=3):
+    """
+    Yield stress as the point where the tangent stiffness ds/d(le) has fallen
+    below `frac` of its initial elastic value.
+
+    Robust where the old "departure from s = E*le" test is not: under
+    nlgeom=YES the elastic branch is not perfectly straight (finite strain,
+    and near-incompressible kinematics at high nu), so an absolute-line test
+    fires on the first increment. The tangent slope stays ~E through the
+    elastic range whatever nu is, then drops sharply to the hardening slope at
+    yield -- which is exactly the transition we want to locate.
+
+    Returns the true stress at that strain, or None if no clear drop is seen
+    (a genuinely elastic run, e.g. an applied strain below yield).
+    """
+    le = np.asarray(le, dtype=float)
+    s = np.asarray(s, dtype=float)
+    if le.size < 6:
+        return None
+    order = np.argsort(le)
+    le, s = le[order], s[order]
+    # Collapse duplicate strain values before differentiating. Explicit writes
+    # several frames at (nearly) the same strain early in the ramp; np.gradient
+    # then divides by a zero spacing and floods stderr with RuntimeWarnings.
+    # Averaging s over each unique strain removes the singularity without
+    # changing the slope anywhere it matters.
+    uniq, inv = np.unique(np.round(le, 12), return_inverse=True)
+    if uniq.size < le.size:
+        s_avg = np.zeros_like(uniq)
+        cnt = np.zeros_like(uniq)
+        np.add.at(s_avg, inv, s)
+        np.add.at(cnt, inv, 1.0)
+        s = s_avg / np.maximum(cnt, 1.0)
+        le = uniq
+    if le.size < 6:
+        return None
+    # local slope by finite difference, lightly smoothed
+    dsl = np.gradient(s, le)
+    if smooth > 1 and dsl.size >= smooth:
+        k = np.ones(smooth) / smooth
+        dsl = np.convolve(dsl, k, mode="same")
+    # reference elastic slope: median of the slopes below 0.3 % strain, or the
+    # first few points if the ramp is coarse. Guard against a zero/negative.
+    ref_mask = le < 3e-3
+    ref = np.median(dsl[ref_mask]) if ref_mask.sum() >= 3 else np.median(dsl[:5])
+    if not np.isfinite(ref) or ref <= 0:
+        ref = float(E) if np.isfinite(E) and E > 0 else np.median(dsl[:5])
+    below = np.where(dsl < frac * ref)[0]
+    # ignore the very first couple of points (slope noise at s ~ 0)
+    below = below[below >= 2]
+    if below.size == 0:
+        return None
+    return float(s[below[0]])
+
+
 def analyse_single_element(path):
     meta, d = read_csv(path)
     mode = str(meta.get("element_mode", "?"))
@@ -349,25 +482,190 @@ def analyse_single_element(path):
             ratio = mp.dp_tension_over_compression(beta, K)
             out["dp_tc_ratio_expected"] = ratio
             out["dp_beta_implied_by_tc"] = beta
+            out["flow_stress_ratio"] = K
             out["sigma_y_expected"] = sy0 * (1.0 if mode == "compression" else ratio)
-            # first departure from linearity
-            dev = np.abs(s - E * le) / np.maximum(s, 1e-9)
-            idx = np.where(dev > 0.02)[0]
-            if idx.size:
-                out["sigma_y_measured"] = float(s[idx[0]])
-                out["sigma_y_err_pct"] = 100.0 * (out["sigma_y_measured"]
-                                                  - out["sigma_y_expected"]) \
+            # Yield detection by TANGENT-STIFFNESS DROP, not by departure from a
+            # theoretical elastic line s = E*le. Under nlgeom=YES the true-stress
+            # vs log-strain curve is NOT exactly linear in the elastic range
+            # (finite-strain and, for high nu like the 0.42 of semicrystalline_dp,
+            # near-incompressible kinematics), so the old |s - E*le|/s > 2 %
+            # test fired on the FIRST increment where s ~ 1e-6 MPa and reported a
+            # nonsense "yield" of ~1e-6 with -100 %. The tangent slope, by
+            # contrast, is ~E while elastic and collapses to the hardening slope
+            # at yield regardless of nu. We look for the strain where the local
+            # slope has fallen to a fraction of its initial elastic value.
+            sy = _detect_yield_by_slope(le, s, E)
+            if sy is not None:
+                out["sigma_y_measured"] = float(sy)
+                out["sigma_y_err_pct"] = 100.0 * (sy - out["sigma_y_expected"]) \
                     / out["sigma_y_expected"]
     elif mode == "shear":
         g = np.abs(d.get("LE12"))
         tau = np.abs(d.get("S12"))
+        peeq = d.get("PEEQ")
         m = np.isfinite(g) & np.isfinite(tau)
         g, tau = g[m], tau[m]
         if g.size >= 5:
             out["tau_max"] = float(tau[-1])
+            out["gamma_max"] = float(g[-1])
+            # Did the element actually yield? PEEQ is the ground truth. If it
+            # never leaves zero, the applied shear strain stayed below the
+            # shear yield and tau_max is a purely ELASTIC value -- comparing it
+            # with the card's shear yield is meaningless, so say so instead.
+            peeq_max = float(np.nanmax(peeq)) if peeq is not None \
+                and np.isfinite(peeq).any() else 0.0
+            out["peeq_max"] = peeq_max
+            out["yielded"] = bool(peeq_max > 1e-6)
             if np.isfinite(sy0) and np.isfinite(beta) and np.isfinite(K):
                 out["tau_y_expected"] = mp.dp_shear_yield(sy0, beta, K)
+                # Measured shear yield by the same tangent-drop detector used
+                # for tension/compression, but only trust it if PEEQ confirms
+                # plasticity actually occurred.
+                tau_y = _detect_yield_by_slope(g, tau, mp.elastic_moduli_from_E_nu(
+                    E, nu)["G"] if np.isfinite(E) and np.isfinite(nu) else None)
+                if out["yielded"] and tau_y is not None:
+                    out["tau_y_measured"] = float(tau_y)
+                    out["tau_y_err_pct"] = 100.0 * (tau_y - out["tau_y_expected"]) \
+                        / out["tau_y_expected"]
+                # Strain needed to reach yield, to advise the suite if short.
+                if np.isfinite(E) and np.isfinite(nu):
+                    G = mp.elastic_moduli_from_E_nu(E, nu)["G"]
+                    out["gamma_yield_needed"] = out["tau_y_expected"] / G
     out["status"] = "OK"
+    return out
+
+
+# --------------------------------------------------------------------------
+# Level 0 -- hyperelastic and viscoelastic (Prony) checks
+# --------------------------------------------------------------------------
+
+def _parse_prony(meta):
+    """Rebuild the Prony table written by the extractor as
+    'prony_table=g:k:tau;g:k:tau;...' into [(g,k,tau), ...]."""
+    raw = meta.get("prony_table")
+    if not isinstance(raw, str) or not raw:
+        return None
+    table = []
+    for triple in raw.split(";"):
+        parts = triple.split(":")
+        if len(parts) == 3:
+            try:
+                table.append((float(parts[0]), float(parts[1]), float(parts[2])))
+            except ValueError:
+                pass
+    return table or None
+
+
+def _he_true_stress(meta, model, lam):
+    """Analytic uniaxial true stress for the hyperelastic MODEL in the header,
+    reading the family's own constants out of the CSV metadata."""
+    g = lambda *keys: next((float(meta[k]) for k in keys
+                            if k in meta and isinstance(meta[k], float)), None)
+    if model == "arruda_boyce":
+        mu = g("mu_AB", "mu")
+        lam_m = g("lambda_m", "lambdaL", "lambda_L")
+        if mu is None or lam_m is None:
+            return None
+        return mp.arruda_boyce_uniaxial(mu, lam_m, lam)
+    if model == "mooney_rivlin":
+        c10, c01 = g("C10", "c10"), g("C01", "c01")
+        if c10 is None or c01 is None:
+            return None
+        return mp.mooney_rivlin_uniaxial(c10, c01, lam)
+    return None
+
+
+def analyse_hyperelastic(path):
+    """
+    Uniaxial true-stress vs stretch, compared with the analytic hyperelastic
+    law of the family. This is the transcription check for an elastomer: yield
+    and T/C are meaningless here, but the whole stress-stretch curve is a
+    stringent test of the card (a wrong mu or lambda_m shows up immediately).
+    """
+    meta, d = read_csv(path)
+    model = str(meta.get("he_model", "?"))
+    mode = str(meta.get("element_mode", "?"))
+    out = {"file": os.path.basename(path), "mode": mode, "he_model": model,
+           "status": "OK"}
+
+    le = d.get("LE33")
+    s = d.get("S33")
+    if le is None or s is None:
+        out["status"] = "SKIP"
+        return out
+    m = np.isfinite(le) & np.isfinite(s)
+    le, s = le[m], s[m]
+    if le.size < 5:
+        out["status"] = "SKIP"
+        return out
+
+    # Abaqus LE33 is the logarithmic (true) strain; stretch = exp(LE).
+    lam = np.exp(le)
+    sig_exact = _he_true_stress(meta, model, lam)
+    if sig_exact is None:
+        out["status"] = "NO_REF"
+        out["note"] = ("no analytic reference wired for he_model='%s'" % model)
+        out["sigma_final"] = float(s[-1])
+        out["stretch_final"] = float(lam[-1])
+        return out
+
+    # Compare where the signal is meaningful (away from lam ~ 1, where both
+    # stresses vanish and the relative error is dominated by noise).
+    sig_exact = np.asarray(sig_exact, dtype=float)
+    big = np.abs(sig_exact) > 0.05 * np.nanmax(np.abs(sig_exact))
+    rel = np.abs(s[big] - sig_exact[big]) / np.maximum(np.abs(sig_exact[big]), 1e-12)
+    out["stretch_final"] = float(lam[-1])
+    out["sigma_final_measured"] = float(s[-1])
+    out["sigma_final_exact"] = float(sig_exact[-1])
+    out["err_final_pct"] = 100.0 * (s[-1] - sig_exact[-1]) / sig_exact[-1] \
+        if sig_exact[-1] != 0 else float("nan")
+    out["err_max_pct"] = float(100.0 * np.nanmax(rel)) if rel.size else float("nan")
+    out["err_mean_pct"] = float(100.0 * np.nanmean(rel)) if rel.size else float("nan")
+    return out
+
+
+def analyse_relaxation(path):
+    """
+    Prony relaxation: hold a constant strain and compare the normalised stress
+    decay S(t)/S(0+) with the analytic G(t)/G0 of the *VISCOELASTIC card,
+    time-scaled exactly as assignment._prony applies it. This is where a
+    normalisation or time_scale_factor error hides -- invisible in a scratch.
+    """
+    meta, d = read_csv(path)
+    out = {"file": os.path.basename(path), "mode": "relaxation", "status": "OK"}
+    prony = _parse_prony(meta)
+    if prony is None:
+        out["status"] = "NO_REF"
+        out["note"] = "no prony_table in metadata"
+        return out
+    tsf = float(meta.get("time_scale_factor", 1.0) or 1.0)
+
+    t = d.get("Time")
+    s = np.abs(d.get("S33"))
+    m = np.isfinite(t) & np.isfinite(s)
+    t, s = t[m], s[m]
+    if t.size < 10:
+        out["status"] = "SKIP"
+        return out
+
+    # The hold begins at the peak stress; normalise by it and shift time so the
+    # hold starts at t = 0, which is what G(t)/G0 assumes.
+    i_peak = int(np.argmax(s))
+    t0 = t[i_peak]
+    th = t[i_peak:] - t0
+    sh = s[i_peak:]
+    if sh.size < 5 or sh[0] <= 0:
+        out["status"] = "SKIP"
+        return out
+    g_meas = sh / sh[0]
+    g_exact = np.array([mp.prony_relaxation(prony, ti, G0=1.0,
+                                            time_scale_factor=tsf) for ti in th])
+    rel = np.abs(g_meas - g_exact)
+    out["stability"] = mp.prony_summary(prony, time_scale_factor=tsf)
+    out["g_inf_exact"] = float(g_exact[-1])
+    out["g_inf_measured"] = float(g_meas[-1])
+    out["err_max_abs"] = float(np.nanmax(rel))
+    out["err_final_abs"] = float(abs(g_meas[-1] - g_exact[-1]))
     return out
 
 
@@ -376,8 +674,65 @@ def print_level0(folder):
     if not files:
         raise SystemExit("No *_element.csv in %s" % folder)
     print("\n=== LEVEL 0 -- MATERIAL POINT " + "=" * 48)
+
+    # Route each file by what the card actually is. A family with plasticity
+    # goes through the DP/J2 branch (E, yield, T/C); an elastomer goes through
+    # the hyperelastic branch (stress-stretch curve); a relaxation run goes
+    # through the Prony branch. The mode in the filename plus the metadata tell
+    # us which, so the report is universal across all seven families.
     tension = compression = None
     for path in files:
+        meta, _d = read_csv(path)
+        he_model = str(meta.get("he_model", "none"))
+        mode = str(meta.get("element_mode", "?"))
+        has_plasticity = "yield_table" in meta or "sigma_y0" in meta \
+            or isinstance(meta.get("sigma_y0"), float)
+        is_relax = (mode == "relaxation")
+        is_hyperelastic = (he_model in ("arruda_boyce", "mooney_rivlin",
+                                        "yeoh", "ogden")
+                           and not isinstance(meta.get("sigma_y0"), float))
+
+        if is_relax:
+            r = analyse_relaxation(path)
+            print("\n%s  [relaxation]" % r["file"])
+            if r["status"] != "OK":
+                print("  (%s) %s" % (r["status"], r.get("note", "")))
+                continue
+            st = r["stability"]
+            print("  Prony stability : sum(g_i)=%.3f -> %s"
+                  % (st["sum_g"], st["message"]))
+            print("  long-term modulus fraction G_inf/G0 : "
+                  "expected %.4f | measured %.4f | abs err %.4f"
+                  % (r["g_inf_exact"], r["g_inf_measured"], r["err_final_abs"]))
+            print("  max |G(t)/G0 error| over the hold   : %.4f" % r["err_max_abs"])
+            print("\n  This is the only place a Prony normalisation or a")
+            print("  time_scale_factor error is visible: a scratch would hide it.")
+            continue
+
+        if is_hyperelastic:
+            r = analyse_hyperelastic(path)
+            print("\n%s  [%s, %s]" % (r["file"], r["he_model"], r["mode"]))
+            if r["status"] == "NO_REF":
+                print("  %s" % r.get("note", ""))
+                print("  measured final stress %.4g MPa at stretch %.4g"
+                      % (r.get("sigma_final", float("nan")),
+                         r.get("stretch_final", float("nan"))))
+                continue
+            if r["status"] != "OK":
+                print("  (%s)" % r["status"])
+                continue
+            print("  true stress at stretch %.3f : measured %.4g MPa | "
+                  "analytic %.4g MPa | %+.2f %%"
+                  % (r["stretch_final"], r["sigma_final_measured"],
+                     r["sigma_final_exact"], r["err_final_pct"]))
+            print("  curve error vs analytic law : max %.2f %% | mean %.2f %%"
+                  % (r["err_max_pct"], r["err_mean_pct"]))
+            print("\n  Elastomer transcription check: no yield, no T/C -- the")
+            print("  whole stress-stretch curve IS the test. A wrong mu or")
+            print("  lambda_m would show here immediately.")
+            continue
+
+        # default: plastic (DP / J2) branch
         r = analyse_single_element(path)
         print("\n%s  [%s]" % (r["file"], r["mode"]))
         if "E_measured" in r:
@@ -388,12 +743,30 @@ def print_level0(folder):
                   % (r["sigma_y_expected"], r["sigma_y_measured"],
                      r["sigma_y_err_pct"]))
         if "tau_y_expected" in r:
-            print("  shear yield expected from the card : %.4g MPa (measured peak %.4g)"
-                  % (r["tau_y_expected"], r.get("tau_max", float("nan"))))
+            if r.get("yielded"):
+                if "tau_y_measured" in r:
+                    print("  shear yield : expected %.4g MPa | measured %.4g MPa "
+                          "| %+0.2f %%  (PEEQ_max=%.3g)"
+                          % (r["tau_y_expected"], r["tau_y_measured"],
+                             r["tau_y_err_pct"], r.get("peeq_max", 0.0)))
+                else:
+                    print("  shear yield : expected %.4g MPa | plastic (PEEQ_max=%.3g)"
+                          " but slope-drop not resolved; peak tau=%.4g MPa"
+                          % (r["tau_y_expected"], r.get("peeq_max", 0.0),
+                             r.get("tau_max", float("nan"))))
+            else:
+                need = r.get("gamma_yield_needed")
+                print("  shear : ELASTIC only -- PEEQ stayed 0, peak tau=%.4g MPa "
+                      "is G*gamma, not a yield." % r.get("tau_max", float("nan")))
+                if need is not None:
+                    print("          shear yield is %.4g MPa, reached at gamma~%.3f; "
+                          "applied gamma_max=%.3f was too small."
+                          % (r["tau_y_expected"], need, r.get("gamma_max", float("nan"))))
         if r["mode"] == "tension":
             tension = r
         if r["mode"] == "compression":
             compression = r
+
     if tension and compression and "sigma_y_measured" in tension \
             and "sigma_y_measured" in compression:
         m = tension["sigma_y_measured"] / compression["sigma_y_measured"]
@@ -401,8 +774,14 @@ def print_level0(folder):
         exp = tension.get("dp_tc_ratio_expected")
         if exp:
             print("  card-implied ratio         = %.3f" % exp)
-        print("  beta implied by the measured ratio (K=1) = %.2f deg"
-              % mp.dp_beta_from_tc_ratio(m))
+        # Use the family's real K, not K=1, so the inverted beta is meaningful.
+        K = tension.get("flow_stress_ratio", 1.0)
+        try:
+            beta_meas = mp.dp_beta_from_tc_ratio(m, K if K else 1.0)
+            print("  beta implied by the measured ratio (K=%.2f) = %.2f deg"
+                  % (K if K else 1.0, beta_meas))
+        except Exception:
+            pass
         print("\n  This is the only place the Drucker-Prager calibration can be")
         print("  checked directly: beta is never measured, it is DERIVED from a")
         print("  tension/compression ratio. Compare the number above with the")
@@ -595,6 +974,15 @@ def main(argv):
         print_scratch_reanalysis(analyse_scratch_folder(folder), tau0, alpha, cap)
     elif mode == "scof":
         print_scof_signature(argv[2] if len(argv) > 2 else "glassy_pc")
+    elif mode == "inspect":
+        # Accepts a single CSV or a folder; dumps every column's range.
+        targets = ([folder] if folder.lower().endswith(".csv")
+                   else sorted(glob.glob(os.path.join(folder, "*.csv"))))
+        if not targets:
+            print("No CSV found at %s" % folder)
+            return 1
+        for p in targets:
+            inspect_csv(p)
     else:
         print("Unknown mode '%s'." % mode)
         return 1

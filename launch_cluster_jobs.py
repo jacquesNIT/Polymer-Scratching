@@ -20,15 +20,15 @@ JOBS = [
     #("mesh", "semicrystalline_j2", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
     #("mesh", "semicrystalline_dp", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
 
-    #("mesh", "glassy_pc", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    #("mesh", "glassy_pmma", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pc", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pmma", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
     ("mesh", "semicrystalline_j2", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
     ("mesh", "semicrystalline_dp", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
 
     ("mesh", "glassy_pc", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    ("mesh", "glassy_pmma", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     ("mesh", "semicrystalline_j2", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    ("mesh", "semicrystalline_dp", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    #("mesh", "semicrystalline_dp", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
 
     ("mesh", "glassy_pc", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
     ("mesh", "glassy_pmma", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
