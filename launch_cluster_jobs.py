@@ -1,11 +1,4 @@
-# -*- coding: utf-8 -*-
 # Multi-job launcher for ScratchSimulation.
-
-# "python3 launch_cluster_jobs.py" (from the ScratchSimulation directory)
-
-# For every JOBS: 
-#  job_<label>.py - driver that runs run_parameter_study                           
-#  submit_<label>.sh - copy of submit.sh with 'job_<label>'
 
 import os
 import re
@@ -15,36 +8,35 @@ import time
 
 JOBS = [
     
-    #("mesh", "glassy_pc", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
-    #("mesh", "glassy_pmma", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_j2", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_dp", {"tag": "mesh12", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pc", {"tag": "mesh1.1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_dp", {"tag": "mesh1.1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pmma", {"tag": "mesh1.1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    ("mesh", "semicrystalline_j2", {"tag": "mesh1.1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    ("mesh", "semicrystalline_dp", {"tag": "mesh1.1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    ("mesh", "elastomer_mr", {"tag": "mesh1.1", "ALE": False, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
+    ("mesh", "elastomer_ve", {"tag": "mesh1.1", "ALE": False, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
 
-    #("mesh", "glassy_pc", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    #("mesh", "glassy_pmma", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_j2", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_dp", {"tag": "mesh13", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pc", {"tag": "mesh1.2", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_dp", {"tag": "mesh1.2", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pmma", {"tag": "mesh1.2", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    ("mesh", "semicrystalline_j2", {"tag": "mesh1.2", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    ("mesh", "semicrystalline_dp", {"tag": "mesh1.2", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    ("mesh", "elastomer_mr", {"tag": "mesh1.2", "ALE": False, "scratch_time": 0.025, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
+    ("mesh", "elastomer_ve", {"tag": "mesh1.2", "ALE": False, "scratch_time": 0.025, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
 
-    #("mesh", "glassy_pc", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    #("mesh", "glassy_pmma", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_j2", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_dp", {"tag": "mesh14", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pc", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_dp", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("mesh", "glassy_pmma", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("mesh", "semicrystalline_j2", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("mesh", "semicrystalline_dp", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("mesh", "elastomer_mr", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
+    ("mesh", "elastomer_ve", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
 
-    #("mesh", "glassy_pc", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
-    #("mesh", "glassy_pmma", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_j2", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_dp", {"tag": "mesh11", "ALE": False, "scratch_time": 0.003, "distortion": True, "length": 0.1}),
-
-    #("mesh", "elastomer_mr", {"tag": "mesh9", "ALE": False, "scratch_time": 0.025, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
-    #("mesh", "elastomer_ve", {"tag": "mesh9", "ALE": False, "scratch_time": 0.025, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
-
-    #("mesh", "glassy_pc", {"tag": "mesh8", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-    #("mesh", "glassy_dp", {"tag": "mesh8", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-    #("mesh", "glassy_pmma", {"tag": "mesh8", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_j2", {"tag": "mesh8", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_dp", {"tag": "mesh8", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-    #("mesh", "elastomer_mr", {"tag": "mesh8", "ALE": False, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
-    #("mesh", "elastomer_ve", {"tag": "mesh8", "ALE": False, "scratch_time": 0.05, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
+    ("single", "elastomer_ve", {"tag": "rec_test1", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.01}),
+    ("single", "elastomer_ve", {"tag": "rec_test3", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.03}),
+    ("single", "elastomer_ve", {"tag": "rec_test5", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.05}),
+    ("single", "elastomer_ve", {"tag": "rec_test10", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.1}),
+    ("single", "elastomer_ve", {"tag": "rec_test50", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.5}),
 
     #("mesh", "glassy_pc", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "glassy_dp", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
@@ -60,45 +52,27 @@ JOBS = [
     #("mesh", "glassy_dp", {"tag": "ALE1300", "ALE": True, "scratch_time": 0.05, "freq": 1300, "sweeps": 5}),
 
 
-    ("single", "glassy_pc", {"tag": "quick_pc5", "ALE": False, "scratch_time": 0.05}),
-    ("single", "glassy_pc", {"tag": "quick_pc10", "ALE": False, "scratch_time": 0.1}),
+    #("single", "glassy_pc", {"tag": "quick_pc5", "ALE": False, "scratch_time": 0.05}),
+    #("single", "glassy_pc", {"tag": "quick_pc10", "ALE": False, "scratch_time": 0.1}),
 
-    ("single", "glassy_pmma", {"tag": "quick_pmma5", "ALE": False, "scratch_time": 0.05}),
-    ("single", "glassy_pmma", {"tag": "quick_pmma10", "ALE": False, "scratch_time": 0.1}),
+    #("single", "glassy_pmma", {"tag": "quick_pmma5", "ALE": False, "scratch_time": 0.05}),
+    #("single", "glassy_pmma", {"tag": "quick_pmma10", "ALE": False, "scratch_time": 0.1}),
 
-    ("single", "glassy_dp", {"tag": "quick_dp5", "ALE": False, "scratch_time": 0.05}),
-    ("single", "glassy_dp", {"tag": "quick_dp10", "ALE": False, "scratch_time": 0.1}),
-
-
-
-    #("mesh", "glassy_pc", {"tag": "Test_NewMeshing", "ALE": True, "scratch_time": 0.05}),
-
-    #("single", "glassy_pc", {"tag": "Test_NewMeshing_z10", "ALE": True, "scratch_time": 0.05, "z_size": 0.01}),
-    #("single", "glassy_pc", {"tag": "Test_NewMeshing_z15", "ALE": True, "scratch_time": 0.05, "z_size": 0.015}),
-    #("single", "glassy_pc", {"tag": "Test", "ALE": True, "scratch_time": 0.001}),
-    #("single", "glassy_pc", {"tag": "Test_NewMeshing_z30", "ALE": True, "scratch_time": 0.05, "z_size": 0.030}),
-
-    #("mesh", "glassy_pc", {"tag": "distortion_base", "ALE": False, "scratch_time": 0.05, "distortion": False, "length": 0.1}),
-    #("mesh", "glassy_pc", {"tag": "distortionF2", "ALE": False, "scratch_time": 0.05, "distortion": False, "length": 0.2}),
-    #("mesh", "glassy_pc", {"tag": "distortionF3", "ALE": False, "scratch_time": 0.05, "distortion": False, "length": 0.3}),
-    #("mesh", "glassy_pc", {"tag": "distortionT1", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-    #("mesh", "glassy_pc", {"tag": "distortionT2", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.2}),
-    #("mesh", "glassy_pc", {"tag": "distortionT3", "ALE": True, "scratch_time": 0.05, "distortion": True, "length": 0.3}),
+    #("single", "glassy_dp", {"tag": "quick_dp5", "ALE": False, "scratch_time": 0.05}),
+    #("single", "glassy_dp", {"tag": "quick_dp10", "ALE": False, "scratch_time": 0.1}),
 ]
+
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 SUBMIT_TEMPLATE = "submit.sh"
 RELAY_PARTITION = "q64"
 DRY_RUN = False                 # True for testing only
 
-
 # Valid tokens 
-_VALID_STUDIES = ("single", "mesh", "mass_scale", "friction", "material",
-                  "models", "depth", "gsell_h", "target_dt")
+_VALID_STUDIES = ("single", "mesh", "mass_scale", "friction", "material", "models", "depth", "gsell_h", "target_dt")
+_VALID_FAMILIES = ("elastomer_mr", "elastomer_ve", "semicrystalline_j2", "semicrystalline_dp", "glassy_dp", "glassy_pc", "glassy_pmma")
 
-_VALID_FAMILIES = ("elastomer_mr", "elastomer_ve", "semicrystalline_j2",
-                   "semicrystalline_dp", "glassy_dp", "glassy_pc", "glassy_pmma")
-
-DRIVER_TEMPLATE = '''# Auto-generated by launch_cluster_jobs.py -- do not edit (overwritten).
+DRIVER_TEMPLATE = '''
+# Auto-generated by launch_cluster_jobs.py 
 # Job: {label}   Tokens: {tokens}
 import sys, os
 sys.dont_write_bytecode = True
@@ -164,10 +138,8 @@ _OVERRIDE_ALIASES = {
     "indent_time":    "scratch.indentation_time",
 }
 
-# mesh_substrate() compares hourglass_control against these EXACT strings and
-# silently falls back to DEFAULT on anything else -- so validate here, loudly.
 _HOURGLASS_VALUES = ("DEFAULT", "ENHANCED", "RELAX STIFFNESS")
-
+_DISTORTION_VALUES = ("ON", "TRUE", "YES", "OFF", "FALSE", "NO", "DEFAULT")
 
 def _normalize_hourglass(value, entry):
     v = str(value).upper().replace("_", " ").strip()
@@ -175,12 +147,6 @@ def _normalize_hourglass(value, entry):
         raise SystemExit("Bad hourglass value %r in JOBS entry %r. Valid: %s"
                          % (value, entry, ", ".join(_HOURGLASS_VALUES)))
     return v
-
-# mesh_substrate() resolves distortion_control via str().upper(), so bool True/False
-# AND these strings all work. Normalising here to ON/OFF/DEFAULT survives
-# _parse_override_value() (which turns "ON"->True, "OFF"->False, "DEFAULT"->str).
-_DISTORTION_VALUES = ("ON", "TRUE", "YES", "OFF", "FALSE", "NO", "DEFAULT")
-
 
 def _normalize_distortion(value, entry):
     v = str(value).upper().replace("_", " ").strip()
@@ -192,7 +158,6 @@ def _normalize_distortion(value, entry):
     if v in ("OFF", "FALSE", "NO"):
         return "OFF"
     return "DEFAULT"
-
 
 def _validate_length_ratio(value, entry):
     try:

@@ -97,8 +97,8 @@ def _semicrystalline_config():
           # yield_table=((28.0, 0.0), (30.0, 0.2), (40.0, 1.0), (60.0, 1.9)) without gsell_jonas
             rate_dependent=None),
             # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=28.0, S_per_decade=2.5)),          # Rate: Eyring slope S ~ 2.5 MPa/decade (yield ~ 26-33 MPa), used in Cowper-Symonds fit for scratch rates from  1/s to 1e3/s
-        #friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
-        friction=Friction_Config(mu=0.3),
+        friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
+        #friction=Friction_Config(mu=0.3),
         family="semicrystalline_j2",
     )
     cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)
@@ -115,8 +115,8 @@ def _semicrystalline_dp_config():
             yield_table=gsell_jonas_table(sigma_y0=28.0, h=0.22, Q=5.0, b=8.0, eps_max=3.0, n_points=60), # same table as semicrystalline_j2
             rate_dependent=None),
             # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=28.0, S_per_decade=2.5)), # usual semicrystalline Eyring slope
-        # friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
-        friction=Friction_Config(mu=0.3),
+        friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
+        #friction=Friction_Config(mu=0.3),
         family="semicrystalline_dp",
     )
     cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : same s as semicrystalline_j2 (same rho/E/mesh -> same natural dt)
@@ -131,7 +131,7 @@ def _elastomer_ve_config():
     # set solver.time_scale_factor: the material builder divides every tau by
     # it (see Solver_Config) so De is preserved.
     cfg = Simulation_Config.polymer_default()               # Careful to have AB in polymer-default
-    cfg.scratch.recovery_time=cfg.scratch.scratch_time      # Recovery time has to be longer for Visco-Elastic families (5x usually, 1x for now to decrease simualtion time)
+    # cfg.scratch.recovery_time=cfg.scratch.scratch_time      # Recovery time has to be longer for Visco-Elastic families (5x usually, 1x for now to decrease simualtion time)
     cfg.solver.n_field_frames_recovery=50                   # Increasing the number of frames for recovery
     cfg.material.viscoelastic = Prony_Config(
         prony_table=((0.25, 0.0, 1.5e-3),
@@ -153,8 +153,8 @@ def _glassy_config():
             # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=60.0, S_per_decade=5.0)),   # usual glassy Eyring slope
         viscoelastic=None,                                                                       # Viscoelastic cannot be combined with plasticity
                      # Prony_Config(prony_table=((0.2, 0.0, 0.1), (0.1, 0.0, 0.001))),
-        #friction=Friction_Config.briscoe(tau0=3.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
-        friction=Friction_Config(mu=0.3),
+        friction=Friction_Config.briscoe(tau0=3.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
+        #friction=Friction_Config(mu=0.3),
         family="glassy_dp",
     )
     # cfg.solver.mass_scale = 500        # MS convergence study: < 5% only for MS <= 500.
@@ -174,13 +174,13 @@ def _glassy_pc_config():
     cfg.material = Material_Config(
         rho=1.20e-9,
         hyperelastic=LinearElastic_Config(E=2300.0, nu=0.37),
-        plasticity=None,
-        #plasticity=DruckerPrager_Config(
-        #    friction_angle=27.13, flow_stress_ratio=0.85, dilation_angle=0.0,
-        #    yield_table=gsell_jonas_table(sigma_y0=70.0, h=0.35,
-        #                                  soft_drop=12.0, eps_soft=0.05,
-        #                                  eps_max=2.5, n_points=60),
-        #    rate_dependent=None),
+        #plasticity=None,
+        plasticity=DruckerPrager_Config(
+            friction_angle=27.13, flow_stress_ratio=0.85, dilation_angle=0.0,
+            yield_table=gsell_jonas_table(sigma_y0=70.0, h=0.35,
+                                          soft_drop=12.0, eps_soft=0.05,
+                                          eps_max=2.5, n_points=60),
+            rate_dependent=None),
             # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=70.0, S_per_decade=4.5)),
         friction=Friction_Config.briscoe(tau0=38.32, alpha=0.06),                                           # Plausible value for tau0 and alpha, to be determined
         #friction=Friction_Config(mu=0.3),
