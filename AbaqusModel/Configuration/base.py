@@ -764,12 +764,12 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.010,       
-                fine_size_y=0.010,
-                fine_size_z=0.010,    
+                fine_size_x=0.015,       
+                fine_size_y=0.015,
+                fine_size_z=0.015,    
                 coarse_size_0=0.02,     # Unused
-                coarse_size_1=0.06,     # 0.07*4 
-                coarse_size_2=0.12,     # 0.07*8
+                coarse_size_1=0.03,     # 0.07*4 
+                coarse_size_2=0.06,     # 0.07*8
                 hourglass_control="ENHANCED",      # RELAX STIFFNESS with ALE / ENHANCED without ALE 
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
@@ -861,14 +861,12 @@ def elastic_moduli(material):
     return K, G
 
 def natural_dt(material, L_min):
-    # A-priori estimate of the smallest stable explicit time increment [s]:
-    #     dt_nat = L_min / c_d,   c_d = sqrt(M / rho),   M = K0 + 4*G0/3
-    # (dilatational wave speed on the smallest element edge). For the
-    # quasi-incompressible elastomers M is dominated by K0 = 2/D1, NOT by
-    # mu0 -- so dt_nat varies strongly across the MR sweep (r_K in [10, 100]).
-    # This is a MESH-BASED estimate: the increment actually reported in the
-    # .sta/.msg can be lower (element distortion, contact penalty stiffness);
-    # use it to SCALE a target (target_dt_study), not as an exact value.
+    """
+    Estimate of the smallest stable time increment [s]: dt_nat = L_min / c_d,   c_d = sqrt(M / rho),   M = K0 + 4*G0/3
+    NB : mesh-based estimate: the increment actually reported in the .sta/.msg can be lower (element distortion, contact penalty stiffness).
+    L_min - Smallest element characteristic size (fine_size_..)
+    c_d - Dilatation wave speed
+    """
     K, G = elastic_moduli(material)
     M = K + 4.0 * G / 3.0
     c_d = np.sqrt(M / material.rho)
