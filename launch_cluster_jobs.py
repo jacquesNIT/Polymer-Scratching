@@ -37,15 +37,15 @@ JOBS = [
     #("single", "elastomer_ve", {"tag": "rec_test10", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
     #("single", "elastomer_ve", {"tag": "rec_test50", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.5, "hourglass": "RELAX STIFFNESS"}),
 
-    ("single", "elastomer_ve", {"tag": "rec_test1", "ALE": True, "scratch_time": 0.1, "recovery_time": 0.01, "hourglass": "RELAX STIFFNESS"}),
-    ("single", "elastomer_ve", {"tag": "rec_test5", "ALE": True, "scratch_time": 0.1, "recovery_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
-    ("single", "elastomer_ve", {"tag": "rec_test10", "ALE": True, "scratch_time": 0.1, "recovery_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
-    ("single", "elastomer_ve", {"tag": "rec_test50", "ALE": True, "scratch_time": 0.1, "recovery_time": 0.5, "hourglass": "RELAX STIFFNESS"}),
+    ("single", "elastomer_ve", {"tag": "rec_test1-01", "ALE": True, "scratch_time": 0.1, "recovery_time": 0.01, "hourglass": "RELAX STIFFNESS"}),
+    ("single", "elastomer_ve", {"tag": "rec_test5-01", "ALE": True, "scratch_time": 0.1, "recovery_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
+    ("single", "elastomer_ve", {"tag": "rec_test10-01", "ALE": True, "scratch_time": 0.1, "recovery_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
+    ("single", "elastomer_ve", {"tag": "rec_test50-01", "ALE": True, "scratch_time": 0.1, "recovery_time": 0.5, "hourglass": "RELAX STIFFNESS"}),
 
-    ("single", "elastomer_ve", {"tag": "rec_test1", "ALE": True, "scratch_time": 0.01, "recovery_time": 0.01, "hourglass": "RELAX STIFFNESS"}),
-    ("single", "elastomer_ve", {"tag": "rec_test5", "ALE": True, "scratch_time": 0.01, "recovery_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
-    ("single", "elastomer_ve", {"tag": "rec_test10", "ALE": True, "scratch_time": 0.01, "recovery_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
-    ("single", "elastomer_ve", {"tag": "rec_test50", "ALE": True, "scratch_time": 0.01, "recovery_time": 0.5, "hourglass": "RELAX STIFFNESS"}),
+    ("single", "elastomer_ve", {"tag": "rec_test1-001", "ALE": True, "scratch_time": 0.01, "recovery_time": 0.01, "hourglass": "RELAX STIFFNESS"}),
+    ("single", "elastomer_ve", {"tag": "rec_test5-001", "ALE": True, "scratch_time": 0.01, "recovery_time": 0.05, "hourglass": "RELAX STIFFNESS"}),
+    ("single", "elastomer_ve", {"tag": "rec_test10-001", "ALE": True, "scratch_time": 0.01, "recovery_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
+    ("single", "elastomer_ve", {"tag": "rec_test50-001", "ALE": True, "scratch_time": 0.01, "recovery_time": 0.5, "hourglass": "RELAX STIFFNESS"}),
 
     #("mesh", "glassy_pc", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
     #("mesh", "glassy_dp", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
