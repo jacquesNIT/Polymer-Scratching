@@ -8,13 +8,13 @@ import time
 
 JOBS = [
     
-    ("mass_scale", "glassy_pc", {"tag": "MS001D", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    ("mass_scale", "glassy_pc", {"tag": "MS0025D", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    ("mass_scale", "glassy_pc", {"tag": "MS05D", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    ("mass_scale", "glassy_pmma", {"tag": "MS001D", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("mass_scale", "glassy_pmma", {"tag": "MS0025D", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    ("mass_scale", "glassy_pmma", {"tag": "MS05D", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
 
-    ("mass_scale", "glassy_pc", {"tag": "MS001", "ALE": False, "scratch_time": 0.01}),
-    ("mass_scale", "glassy_pc", {"tag": "MS0025", "ALE": False, "scratch_time": 0.025}),
-    ("mass_scale", "glassy_pc", {"tag": "MS05", "ALE": False, "scratch_time": 0.05}),
+    ("mass_scale", "glassy_pmma", {"tag": "MS001", "ALE": False, "scratch_time": 0.01}),
+    ("mass_scale", "glassy_pmma", {"tag": "MS0025", "ALE": False, "scratch_time": 0.025}),
+    ("mass_scale", "glassy_pmma", {"tag": "MS05", "ALE": False, "scratch_time": 0.05}),
     #("mesh", "glassy_pmma", {"tag": "mesh1-1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
     #("mesh", "semicrystalline_j2", {"tag": "mesh1-1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
     #("mesh", "semicrystalline_dp", {"tag": "mesh1-1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
