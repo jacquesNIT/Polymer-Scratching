@@ -68,9 +68,9 @@ JOBS = [
     #("single", "glassy_pc", {"tag": "quick_pc5", "ALE": False, "scratch_time": 0.05}),
     #("single", "glassy_pc", {"tag": "quick_pc10", "ALE": False, "scratch_time": 0.1}),
 
-    ("single", "glassy_pmma", {"tag": "Frictionless001", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    ("single", "glassy_pmma", {"tag": "Frictionless0025", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    ("single", "glassy_pmma", {"tag": "Frictionless005", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    ("single", "glassy_pmma", {"tag": "Frictionless1-001", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("single", "glassy_pmma", {"tag": "Frictionless1-0025", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    ("single", "glassy_pmma", {"tag": "Frictionless1-005", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
 
     #("single", "glassy_dp", {"tag": "quick_dp5", "ALE": False, "scratch_time": 0.05}),
     #("single", "glassy_dp", {"tag": "quick_dp10", "ALE": False, "scratch_time": 0.1}),
