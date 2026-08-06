@@ -789,8 +789,8 @@ class Simulation_Config:
                 fine_size_y=0.03,
                 fine_size_z=0.03,    
                 coarse_size_0=0.02,     # Unused
-                coarse_size_1=0.06,     # 0.07*4 
-                coarse_size_2=0.12,     # 0.07*8
+                coarse_size_1=0.028,     # 0.07*4 
+                coarse_size_2=0.56,     # 0.07*8
                 hourglass_control="ENHANCED",      # RELAX STIFFNESS with ALE / ENHANCED without ALE 
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
