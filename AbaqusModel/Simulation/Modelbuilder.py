@@ -453,10 +453,7 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
 
 def _request_contact_pair_history(model, asm, cfg, first_active):
     # Defensive creation of the CFN/CFS contact-pair history request.
-    # For general contact the interaction-domain form is attempted first, then
-    # the surface-region form; returns False (with a printed warning) if both
-    # are rejected, so the rest of the model build is never compromised.
-    # Exact CFN/CFS identifiers still flagged for verification in CAE.
+    # For general contact the interaction-domain form is attempted first, then the surface-region form
     names = cfg.naming
     scratch = cfg.scratch
     out = cfg.output
@@ -501,15 +498,7 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
     names = cfg.naming
     fric = cfg.material.friction
 
-    # Contact property 
-    # The friction dependency flags must be declared HERE, at creation time:
-    # Abaqus validates the table width against the declared dependencies, so a
-    # 1-column placeholder cannot later receive a 2-column mu(p) table unless
-    # the flag is switched in the same call. Declaring them up front keeps the
-    # placeholder consistent with the final table pushed by
-    # SubstrateMaterialAssignment.update_friction().
-    # Column order follows the Abaqus *FRICTION data line:
-    #     mu, slip rate, contact pressure, temperature, field variables
+    # mu, slip rate, contact pressure, temperature, field variables
     _fr_p_dep = ON if getattr(fric, "pressure_dependent", False) else OFF
     _fr_r_dep = ON if getattr(fric, "slip_rate_dependent", False) else OFF
     _fr_ncol = 1 + int(_fr_r_dep == ON) + int(_fr_p_dep == ON)
@@ -519,7 +508,6 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
         formulation=PENALTY,
         slipRateDependency=_fr_r_dep,
         pressureDependency=_fr_p_dep,
-        # table=((0.0,),),     # OLD: 1 column only, incompatible with a mu(p) table
         table=(tuple([0.0] * _fr_ncol),),   # friction updated by SubstrateMaterialAssignment
         fraction=fric.elastic_slip_fraction,
     )
@@ -588,32 +576,12 @@ def _setup_ale(model, asm, sub_inst, cfg, steps):
         smoothingPriority=smoothing_priority,
         smoothingAlgorithm=smoothing_algorithm,
         curvatureRefinement=getattr(solver, "ale_curvature_refinement", 1),
-        # NB: the three *SmoothingWeight arguments below parametrise the BASIC
-        # smoothing algorithm; with GEOMETRY_ENHANCED they are most likely
-        # ignored. VERIFY in the *ADAPTIVE MESH CONTROLS block of the generated
-        # .inp before assuming they tune anything.
         volumetricSmoothingWeight=1,
         laplacianSmoothingWeight=0,
         equipotentialSmoothingWeight=0,
     )
 
-    # ALE domain scope (solver.ale_domain).
-    #   "refined" : the refined contact cell only -- x in [xs1, xs1+dpo_x],
-    #               y in [ys2-dpo_y, ys2], z in [zs1+dpo_z, zs2-dpo_z]. With
-    #               the default partitions that is a 0.25 mm deep box under a
-    #               0.04 mm groove (~6x the depth), which contains the whole
-    #               plastic zone. Everything outside stays purely Lagrangian:
-    #               no advection of an undamaged far field, and the report can
-    #               state that ALE acts on the contact zone only.
-    #   "contact" : refined cell + the cell directly underneath (same x/z
-    #               footprint, full substrate height). Safety valve.
-    #   "full"    : legacy behaviour, the 7 substrate cells.
-    #
-    # NB: nodes ON the domain boundary stay Lagrangian, so plasticity must not
-    # reach it. The bottom face sits at dpo_y = 0.25 mm while the contact
-    # radius is a ~ 0.12 mm at 40 um depth (2a ~ 0.24 mm): the margin on the
-    # ELASTIC field is thin. After the first run, check PEEQ ~ 0 on the
-    # y = ys2 - dpo_y face; switch to "contact" if it is not.
+    # ALE domain scope = refined contact cell only ( x in [xs1, xs1+dpo_x], y in [ys2-dpo_y, ys2], z in [zs1+dpo_z, zs2-dpo_z] )
     scope = str(getattr(solver, "ale_domain", "full")).lower()
     _refined_cell = (sub.xs1, sub.ys2, zmid)          # refined contact cell (= names.refined_set)
     _under_cell = (sub.xs1, sub.ys1, zmid)            # cell directly below it
@@ -649,19 +617,7 @@ def _setup_ale(model, asm, sub_inst, cfg, steps):
             region=asm.sets[names.ale_domain_set],
         )
 
-    # Unload / recovery: ALE suppressed by default (solver.ale_in_passive_steps).
-    #
-    # CRITICAL -- adaptive mesh domains PROPAGATE from step to step in
-    # Abaqus/Explicit. Simply DELETING the two blocks below would NOT disable
-    # ALE: the passive steps would INHERIT the active-step settings
-    # (frequency=200, meshSweeps=3), i.e. far MORE remeshing than the legacy
-    # frequency=400/1000. The domain must be RE-DECLARED with a suppressing
-    # frequency, never removed.
-    #
-    # Why suppress: during unload and recovery the material relaxes without
-    # generating new distortion, so every advection only diffuses the residual
-    # stress field that sets the final groove profile -- the very quantity
-    # these two steps exist to measure.
+    # Unload / recovery: ALE suppressed by default 
     passive_steps = [steps["unload"]]
     if steps["recovery"] is not None:
         passive_steps.append(steps["recovery"])
@@ -682,14 +638,6 @@ def _setup_ale(model, asm, sub_inst, cfg, steps):
 
 
 def _suppress_ale_in_step(model, asm, cfg, step_name):
-    # Re-declare the adaptive mesh domain with settings that never trigger a
-    # remeshing, so the active-step domain cannot propagate into a passive step.
-    # frequency=0 is the documented suppression value; the huge-frequency
-    # variants are fallbacks should the CAE API reject 0 (or 0 sweeps).
-    #
-    # VERIFY ONCE in the generated .inp: the *ADAPTIVE MESH block of the unload
-    # step must carry FREQUENCY=0 (or 10000000) with no initial sweeps, and the
-    # .sta must report no remeshing after the scratch step.
     names = cfg.naming
     region = asm.sets[names.ale_domain_set]
     candidates = (
@@ -712,8 +660,7 @@ def _suppress_ale_in_step(model, asm, cfg, step_name):
 
 
 def _print_ale_courant(cfg):
-    # Log the remeshing Courant number so every ALE run carries, in its own
-    # .log, the number that governs its advection error.
+    # Log the remeshing Courant number so every ALE run carries, in its own .log, the number that governs its advection error.
     try:
         from ScratchSimulation.AbaqusModel.Configuration.base import ale_remesh_courant
         C = ale_remesh_courant(cfg)
@@ -724,9 +671,9 @@ def _print_ale_courant(cfg):
         print(">>> ALE: remeshing Courant estimate not applicable to this config.")
         return
     if C < 0.15:
-        verdict = "TOO DIFFUSIVE -- raise ale_frequency"
+        verdict = "Too diffusive -- raise ale_frequency"
     elif C > 0.6:
-        verdict = "TOO COARSE -- lower ale_frequency or raise ale_mesh_sweeps"
+        verdict = "Too coarse -- lower ale_frequency or raise ale_mesh_sweeps"
     else:
         verdict = "OK"
     print(">>> ALE: remeshing Courant C = %.3f [%s] (target 0.2-0.5; C -> 0 "

@@ -7,22 +7,21 @@ import sys
 import time
 
 JOBS = [
-    
-    #("mass_scale", "glassy_pmma", {"tag": "MS001D", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    #("mass_scale", "glassy_pmma", {"tag": "MS0025D", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    #("mass_scale", "glassy_pmma", {"tag": "MS05D", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
 
-    #("mass_scale", "glassy_pmma", {"tag": "MS001", "ALE": False, "scratch_time": 0.01}),
-    #("mass_scale", "glassy_pmma", {"tag": "MS0025", "ALE": False, "scratch_time": 0.025}),
-    #("mass_scale", "glassy_pmma", {"tag": "MS05", "ALE": False, "scratch_time": 0.05}),
-    #("mesh", "glassy_pmma", {"tag": "mesh1-1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_j2", {"tag": "mesh1-1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_dp", {"tag": "mesh1-1", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh100", "ALE": False, "scratch_time": 0.1, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh50", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh5", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh10", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh5", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
+
+    ("single", "glassy_pmma", {"tag": "Verif10", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("single", "glassy_pmma", {"tag": "Verif25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    ("single", "glassy_pmma", {"tag": "Verif50", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
 
 
     #("mesh", "glassy_pc", {"tag": "mesh1-2", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     #("mesh", "glassy_dp", {"tag": "mesh1.2", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    #("mesh", "glassy_pmma", {"tag": "mesh1-2", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     #("mesh", "semicrystalline_j2", {"tag": "mesh1-2", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     #("mesh", "semicrystalline_dp", {"tag": "mesh1-2", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     #("mesh", "elastomer_mr", {"tag": "mesh1.2", "ALE": False, "scratch_time": 0.025, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
@@ -30,7 +29,6 @@ JOBS = [
 
     #("mesh", "glassy_pc", {"tag": "mesh1-3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
     #("mesh", "glassy_dp", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    #("mesh", "glassy_pmma", {"tag": "mesh1-3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
     #("mesh", "semicrystalline_j2", {"tag": "mesh1-3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
     #("mesh", "semicrystalline_dp", {"tag": "mesh1-3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
     #("mesh", "elastomer_mr", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
@@ -68,9 +66,9 @@ JOBS = [
     #("single", "glassy_pc", {"tag": "quick_pc5", "ALE": False, "scratch_time": 0.05}),
     #("single", "glassy_pc", {"tag": "quick_pc10", "ALE": False, "scratch_time": 0.1}),
 
-    ("single", "glassy_pmma", {"tag": "Frictionless1-001", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    ("single", "glassy_pmma", {"tag": "Frictionless1-0025", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    ("single", "glassy_pmma", {"tag": "Frictionless1-005", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    #("single", "glassy_pmma", {"tag": "Frictionless1-001", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    #("single", "glassy_pmma", {"tag": "Frictionless1-0025", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    #("single", "glassy_pmma", {"tag": "Frictionless1-005", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
 
     #("single", "glassy_dp", {"tag": "quick_dp5", "ALE": False, "scratch_time": 0.05}),
     #("single", "glassy_dp", {"tag": "quick_dp10", "ALE": False, "scratch_time": 0.1}),

@@ -324,7 +324,8 @@ class Scratch_Config:
                  scratch_time=0.01, indentation_time=0.001, unload_time=0.0001, recovery_time=1.0,              # [s] To be studied
                  recovery_lift=0.05,                                                                            # [mm] clearance above surface during recovery
                  n_field_frames=20, n_field_frames_recovery=50, n_history_points=100,                           # Number of frames / field outputs for each step
-                 amplitude_smoothing=0.25 ):                                                                    # [-] SMOOTH fraction of the tabular amplitudes (0-0.5, None = solver default).
+                 amplitude_smoothing=0.25,                                                                    # [-] SMOOTH fraction of the tabular amplitudes (0-0.5, None = solver default).
+                 depth_hold_frac=0.05 ):   # [-] PROGRESSIVE: plateau plat au sommet, fraction de scratch_time (garantit la profondeur nominale malgre le lissage du pic ; cf depth_amplitude()).
                                                                                                                 # Rounds the velocity discontinuities at the amplitude kinks (t1/t2/t3).
                                                                                                                  
         if depth_mode not in (self.PROGRESSIVE, self.CONSTANT):
@@ -342,6 +343,9 @@ class Scratch_Config:
         if amplitude_smoothing is not None and not (0.0 <= amplitude_smoothing <= 0.5):
             raise ValueError("amplitude_smoothing must be in [0, 0.5] or None, got %s" % amplitude_smoothing)
 
+        if not (0.0 <= depth_hold_frac < 0.5):
+            raise ValueError("depth_hold_frac must be in [0, 0.5), got %s" % depth_hold_frac)
+
 
             
         self.depth_mode = depth_mode
@@ -358,6 +362,7 @@ class Scratch_Config:
         self.n_field_frames_recovery = n_field_frames_recovery
         self.n_history_points = n_history_points
         self.amplitude_smoothing = amplitude_smoothing
+        self.depth_hold_frac = depth_hold_frac
 
 
     # Functions to gather information about the Scratching for other files
@@ -374,6 +379,10 @@ class Scratch_Config:
     @property
     def t_scratch_end(self): # End of scratching phase [s].
         return self.t_indent_end + self.scratch_time
+
+    @property
+    def depth_hold(self): # [s] Plateau tenu a la profondeur pic avant decharge (PROGRESSIVE). Fraction de scratch_time.
+        return self.depth_hold_frac * self.scratch_time
 
     @property
     def t_unload_end(self): # End of unloading phase [s].
@@ -434,10 +443,22 @@ class Scratch_Config:
             lift_value = self.recovery_lift / self.scratch_depth  # negative number
         
         if self.depth_mode == self.PROGRESSIVE:
+            # --- PLATEAU FIX (sous-tir par arrondi du pic interieur) -------------
+            # Original (pic (t2,1.0) interieur -> lisse VERS LE BAS, profondeur nominale
+            # jamais atteinte ; manque ~ smooth_window/scratch_time -> fausse dependance
+            # de RF2 au scratch_time) :
+            #     if not self.has_recovery_step:
+            #         return ((0.0, 0.0),(t2,  1.0),(t3,  0.0))
+            #     else:
+            #         return ((0.0,  0.0),(t2,   1.0),(t3,   lift_value),(t4,   lift_value))
+            # Fix : sommet plat de largeur depth_hold (scale avec scratch_time). L'interieur
+            # plat = depth_hold*(1 - 2*smooth) > 0 est atteint exactement pour tout smooth<0.5,
+            # donc profondeur nominale garantie et profil normalise invariant. t2/t3 inchanges.
+            t2h = t2 - self.depth_hold
             if not self.has_recovery_step:
-                return ((0.0, 0.0),(t2,  1.0),(t3,  0.0))
+                return ((0.0, 0.0),(t2h,  1.0),(t2,  1.0),(t3,  0.0))
             else:
-                return ((0.0,  0.0),(t2,   1.0),(t3,   lift_value),(t4,   lift_value))
+                return ((0.0,  0.0),(t2h,  1.0),(t2,  1.0),(t3,  lift_value),(t4,  lift_value))
         
         else:  
             if not self.has_recovery_step:
@@ -764,12 +785,12 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.02,       
-                fine_size_y=0.02,
-                fine_size_z=0.02,    
+                fine_size_x=0.03,       
+                fine_size_y=0.03,
+                fine_size_z=0.03,    
                 coarse_size_0=0.02,     # Unused
-                coarse_size_1=0.04,     # 0.07*4 
-                coarse_size_2=0.08,     # 0.07*8
+                coarse_size_1=0.06,     # 0.07*4 
+                coarse_size_2=0.12,     # 0.07*8
                 hourglass_control="ENHANCED",      # RELAX STIFFNESS with ALE / ENHANCED without ALE 
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
