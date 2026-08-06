@@ -342,9 +342,7 @@ def check_quasi_static(timeseries, metadata=None):
     ratio = ke[mask] / ie[mask] * 100.0
     time_m = time[mask] if time is not None else np.arange(len(ratio))
 
-    # Exclude the first 10% of time (contact-onset transient) and everything
-    # AFTER the active phase: KE/IE during unload/recovery is settling's job,
-    # and for a fully recovering elastomer IE -> 0 there (ratio blows up).
+    # Exclude the first 10% of time and everything after the active phase
     t_max = time_m[-1] if len(time_m) else 1.0
     t_act = _active_end(metadata, t_max) if metadata is not None else t_max
     steady = (time_m > 0.1 * t_act) & (time_m <= t_act * (1.0 + 1e-9))
