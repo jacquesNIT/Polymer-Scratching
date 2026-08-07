@@ -211,8 +211,8 @@ def _glassy_pmma_config():
                                           eps_max=2.0, n_points=60),
             rate_dependent=None),
             #rate_dependent=RateDependent_Config.from_eyring(sigma_y0=105.0, S_per_decade=9.0)),
-        #friction=Friction_Config.briscoe(tau0=4.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
-        friction=Friction_Config(mu=0.3),
+        friction=Friction_Config.briscoe(tau0=4.0, alpha=0.2),                                           # Plausible value for tau0 and alpha, to be determined
+        #friction=Friction_Config(mu=0.3),
         family="glassy_pmma",
     )
     #cfg.solver.target_time_increment = 30.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)

@@ -623,7 +623,7 @@ class Material_Config:
 class Solver_Config:
 
     def __init__(self,
-                 mass_scale=1000,
+                 mass_scale=500,
                  target_time_increment=0,
                  use_ALE=False,
                  num_cpus=6,
@@ -830,8 +830,8 @@ class Simulation_Config:
                 scratch_depth=-40e-3,
                 scratch_time=0.05,
                 indentation_time=0.01,
-                unload_time=0.01,
-                recovery_time=0.01,
+                unload_time=0.02,
+                recovery_time=0.02,
                 recovery_lift=0.05,
                 n_field_frames=40,
                 n_field_frames_recovery=10,

@@ -17,22 +17,38 @@
     9. Steady state        — RF/SCOF plateau over the second half of the scratch
    10. Settling            — kinetic energy decayed before the residual profile is trusted
    11. Recovery            — residual ~ 0 (hyperelastic) / groove expected (dissipative)
-   12. Residual profile    — residual depth & pile-up, measured on the steady-state
-                             part of the groove (see measure_residual_profile)
+   12. Residual profile    — residual depth & lateral pile-up, measured on the
+                             cross-section facing the indenter's final position,
+                             plus frontal pile-up (bow wave at the exit)
+                             (see measure_residual_profile)
 
     The normal force is RF2 in displacement-controlled mode and CFN2 (contact
     pair) in force-controlled mode; see _normal_force_series.
 
-    RESIDUAL-PROFILE ESTIMATOR (rewritten)
+    RESIDUAL-PROFILE ESTIMATOR (rewritten, then repositioned)
     Pile-up used to be  max(y_deformed)  over EVERY surface node. That is an
     extreme order statistic: a single hourglass spike, or the front-of-tool
     ridge left at the EXIT of the scratch, sets the value -- and its magnitude
     grows on a coarse mesh, so the reported pile-up drifts along a mesh
     convergence ladder while the physical solution does not.
-    The estimator below excludes the entry crater and the exit ridge, measures
-    one ridge height per mesh layer inside a fixed physical window, and reports
-    the MEDIAN over those layers. The legacy value is still reported so an
-    existing run can be re-analysed and the two compared.
+    A first rewrite excluded the entry crater and the exit ridge and reported
+    the MEDIAN ridge height over a window spanning most of the scratch length.
+    That window is itself wrong for depth_mode='progressive': depth_amplitude()
+    and length_amplitude() share the same normalized table (base.py,
+    uses_single_amplitude), so the commanded depth ramps together with the
+    z-position -- shallow near z=0, full depth only near z=scratch_length.
+    Averaging ridge/groove over the whole window mixed those depths and
+    biased the reported pile-up low, and against a reference depth (the
+    FINAL commanded depth) that did not match where it was measured.
+    The estimator below instead measures a SINGLE cross-section, at the mesh
+    layer closest to the indenter's final position (z = scratch_length),
+    within the same lateral band as before. Nodal displacement there is
+    stable (no local-spike risk), so no window/median is needed. The
+    front-of-tool bow wave pushed out ahead of the tool is reported
+    separately as pile_up_frontal_mm = max(h) over the full node cloud, with
+    no restriction -- it is a distinct physical phenomenon (transient
+    ejection during exit), not bounded by the same contact-radius argument
+    as the lateral ridge.
 """
 
 import numpy as np
@@ -60,14 +76,15 @@ HARDNESS_TOLERANCE_FACTOR = 3.0  # dissipative families: force within x3 of C*si
 CONSTRAINT_FACTOR = 2.0          # Tabor constraint factor C for polymers (~1.5-2.6)
 
 #  Thresholds — residual profile. Lengths in contact radii a = sqrt(depth * R)
-#  so the window scales with the indentation, not with the mesh
+#  so the band scales with the indentation, not with the mesh
 #  (R = 0.2 mm, 40 um scratch -> a = 0.089 mm).
-PROFILE_EDGE_MARGIN_A    = 3.0   # entry/exit exclusion at each end of the scratch [a]
+PROFILE_EDGE_MARGIN_A    = 3.0   # unused by the active estimator; kept for _measure_profile_windowed (superseded, retained for reference)
 PROFILE_RIDGE_SPAN_A     = 4.0   # lateral search band, measured from the symmetry plane [a]
-PROFILE_MIN_LAYERS       = 8     # fewer mesh layers in the window -> legacy fallback
+PROFILE_MIN_LAYERS       = 8     # unused by the active estimator; kept for _measure_profile_windowed (superseded, retained for reference)
+PROFILE_MIN_NODES_IN_BAND = 3    # fewer nodes at the final-position cross-section -> fallback
 PROFILE_COORD_TOL        = 1e-4  # [mm] layer grouping; << finest mesh (7 um), >> float noise
-PILEUP_LOCAL_SPIKE_RATIO = 2.0   # WARN when one layer exceeds this multiple of the median
-PILEUP_MAX_DEPTH_RATIO   = 1.0   # FAIL above this multiple of the reference depth
+PILEUP_LOCAL_SPIKE_RATIO = 2.0   # unused by the active estimator; kept for _measure_profile_windowed (superseded, retained for reference)
+PILEUP_MAX_DEPTH_RATIO   = 1.0   # FAIL above this multiple of the reference depth (lateral pile-up)
 
 #  CSV Parser
 def parse_results_csv(filepath):
@@ -1065,8 +1082,81 @@ def _escalate(current, candidate):
     return candidate if _STATUS_RANK.get(candidate, 0) > _STATUS_RANK.get(current, 0) else current
 
 
+def _measure_profile_at_position(nodes, metadata, ref):
+    """
+    Ridge (pile-up) and groove (residual depth) on the single cross-section
+    facing the indenter's FINAL position, i.e. z = scratch_length.
+
+    depth_amplitude() and length_amplitude() share the same normalized
+    table in progressive mode (base.py, uses_single_amplitude), so by design
+    the indenter reaches full commanded depth exactly as it reaches
+    z = scratch_length. Measuring there -- instead of averaging over a
+    window spanning shallower z -- gives the ridge/groove actually left by
+    the tool at its final, full-depth position, and matches the reference
+    depth used for relative_percent / the geometric plausibility check.
+
+      1. lateral band x <= 4a (unchanged from the previous estimator): keeps
+         the ridge and groove, excludes the far field / model outer edge.
+      2. within that band, the mesh layer whose undeformed z is closest to
+         scratch_length (structured/HEX mesh -> layers are exact, no binning
+         artefact).
+      3. ridge = max(h), groove = min(h) over the nodes of that single
+         layer/band. No window, no median: a single stable cross-section,
+         not an average across varying depths, so the extra robustness
+         machinery of the old estimator (median over many layers,
+         local-spike WARN) has nothing left to guard against here.
+    """
+    und, defo = nodes["undeformed"], nodes["deformed"]
+    if und.shape[0] == 0 or defo.shape[0] != und.shape[0]:
+        return None, ["undeformed/deformed node arrays missing or inconsistent"]
+
+    x0 = und[:, 0].astype(float)
+    z0 = und[:, 2].astype(float)
+    h = defo[:, 1].astype(float) - und[:, 1].astype(float)   # height above the original surface
+
+    flags = []
+    R = float(metadata.get("tip_radius", 0.2) or 0.2)
+    L = float(metadata.get("scratch_length", 0.0) or 0.0)
+    a = float(np.sqrt(ref * R)) if (ref > 0.0 and R > 0.0) else 0.0
+    if L <= 0.0 or a <= 0.0:
+        return None, ["scratch_length or reference depth missing: cannot locate the indenter's final position"]
+
+    #  1. Lateral band 
+    x_lo = float(np.min(x0))
+    x_band = x_lo + min(PROFILE_RIDGE_SPAN_A * a, 0.5 * (float(np.max(x0)) - x_lo))
+    lateral = (x0 <= x_band)
+    if not np.any(lateral):
+        return None, flags + ["no surface node inside the lateral band"]
+
+    #  2. Mesh layer closest to z = scratch_length (indenter final position) 
+    z_lat = z0[lateral]
+    layer_z = float(z_lat[np.argmin(np.abs(z_lat - L))])
+    sel = lateral & (np.abs(z0 - layer_z) <= PROFILE_COORD_TOL)
+    n_nodes = int(np.sum(sel))
+    if n_nodes < PROFILE_MIN_NODES_IN_BAND:
+        return None, flags + ["only %d node(s) on the cross-section at the indenter's final "
+                              "position (z=%.3f mm, < %d)" % (n_nodes, layer_z, PROFILE_MIN_NODES_IN_BAND)]
+
+    #  3. Ridge / groove on that single cross-section 
+    hs = h[sel]
+    return {
+        "profile_method": "at_final_position",
+        "profile_z_mm": layer_z,
+        "profile_n_nodes": n_nodes,
+        "pile_up_signed_mm": float(np.max(hs)),
+        "groove_depth_signed_mm": float(np.min(hs)),
+    }, flags
+
+
 def _measure_profile_windowed(nodes, metadata, ref):
     """
+    SUPERSEDED by _measure_profile_at_position -- kept for reference, not
+    called by measure_residual_profile anymore. Averaging ridge/groove over
+    this window mixes shallow and full-depth cross-sections in progressive
+    depth_mode (depth ramps together with z, see base.py
+    uses_single_amplitude), biasing the median low against a reference depth
+    (scratch_depth) that corresponds only to the final, deepest position.
+
     Ridge height and groove depth on the steady-state part of the scratch.
 
     Returns (dict | None, warn_flags). None means the run cannot be measured
@@ -1146,18 +1236,23 @@ def measure_residual_profile(nodes, metadata, timeseries=None):
     can still report its residual depth and pile-up. Returns None when no
     node data is available.
 
-      residual_depth_mm      median groove depth over the steady window
-      pile_up_mm             median ridge height over the same window
-                             (clamped at 0; pile_up_signed_mm is the signed
-                             value, negative = net sink-in)
-      pile_up_max_mm         largest layer ridge -- local-spike detector
-      profile_method         "windowed_median" or "legacy_global (fallback)"
-      profile_window_z_mm    (z_lo, z_hi) of the steady window
-      profile_n_layers       mesh layers inside the window
+      residual_depth_mm      groove depth at the indenter's final position
+      pile_up_mm             LATERAL ridge height at the indenter's final
+                             position (clamped at 0; pile_up_signed_mm is
+                             the signed value, negative = net sink-in)
+      pile_up_frontal_mm     FRONTAL pile-up: bow wave pushed ahead of the
+                             tool, max(h) over the whole node cloud, no
+                             restriction (stable, no windowing needed) --
+                             a distinct phenomenon from the lateral ridge,
+                             not bounded by PILEUP_MAX_DEPTH_RATIO
+      profile_method         "at_final_position" or "legacy_global (fallback)"
+      profile_z_mm           z of the measured cross-section (~ scratch_length)
+      profile_n_nodes        nodes on that cross-section, in the lateral band
       profile_warn_flags     caveats, escalate the check to WARN
       profile_fail_flags     geometric impossibilities, escalate to FAIL
 
-      pile_up_raw_mm         LEGACY pile-up: global max over the node cloud
+      pile_up_raw_mm         alias of pile_up_frontal_mm, kept for any
+                             downstream reader of the old field name
       residual_depth_p1_mm   LEGACY residual: 1st percentile of downward disp.
       residual_depth_raw_mm  deepest node (reference / outlier check)
       reference_mm           commanded depth (displacement mode) or measured
@@ -1171,22 +1266,27 @@ def measure_residual_profile(nodes, metadata, timeseries=None):
 
     y_def = nodes["deformed"][:, 1]
 
-    # LEGACY estimators -- superseded by the windowed measurement below, kept
-    # as reported values so an existing run can be re-analysed and the two
-    # compared. Both are biased: max() is set by a single node, and a
-    # percentile over the node POPULATION is not a spatial statistic (the
-    # fraction of nodes inside the groove changes with the mesh size).
+    # LEGACY residual-depth estimator -- kept as a reported value so an
+    # existing run can be re-analysed. Biased: a percentile over the node
+    # POPULATION is not a spatial statistic (the fraction of nodes inside
+    # the groove changes with the mesh size).
     #     residual = abs(float(np.percentile(y_neg, 1))) if y_neg.size else 0.0
-    #     pile_up  = max(float(np.max(y_def)), 0.0)
     y_neg = y_def[y_def < 0.0]
     legacy_residual = abs(float(np.percentile(y_neg, 1))) if y_neg.size else 0.0
-    legacy_pile_up = max(float(np.max(y_def)), 0.0)
     residual_raw = abs(min(float(np.min(y_def)), 0.0))   # kept for reference
+
+    # FRONTAL pile-up: the bow wave pushed ahead of the tool at the exit.
+    # This used to be the (mis-applied) estimator for the LATERAL ridge --
+    # max(y_deformed) over every node is a single-node order statistic that
+    # drifts with the mesh. As a measure of the frontal ridge specifically
+    # it is the right quantity: nodal displacement there is stable, no
+    # spurious spike risk, so the raw global max is meaningful as-is.
+    pile_up_frontal = max(float(np.max(y_def)), 0.0)
 
     # Reference depth: peak commanded depth in displacement mode (valid for
     # the progressive ramp), measured peak penetration in force mode.
-    # (Moved ahead of the measurement: the steady window is sized on the
-    #  contact radius a = sqrt(ref * R), so ref is needed first.)
+    # (Moved ahead of the measurement: the final-position cross-section is
+    #  sized on the contact radius a = sqrt(ref * R), so ref is needed first.)
     control_mode = str(metadata.get("control_mode", "displacement"))
     if control_mode == "force":
         ref, ref_src = (0.0, "unavailable")
@@ -1207,12 +1307,13 @@ def measure_residual_profile(nodes, metadata, timeseries=None):
                       if ref_is_guess else "")
     ref = float(ref)
 
-    win, flags = _measure_profile_windowed(nodes, metadata, ref)
+    win, flags = _measure_profile_at_position(nodes, metadata, ref)
 
     out = {
         "residual_depth_raw_mm": residual_raw,
         "residual_depth_p1_mm": legacy_residual,
-        "pile_up_raw_mm": legacy_pile_up,
+        "pile_up_frontal_mm": pile_up_frontal,
+        "pile_up_raw_mm": pile_up_frontal,   # alias, backward-compatible name
         "reference_mm": ref,
         "reference_note": guess_note,
     }
@@ -1220,16 +1321,15 @@ def measure_residual_profile(nodes, metadata, timeseries=None):
     if win is None:
         out.update({
             "profile_method": "legacy_global (fallback)",
-            "profile_window_z_mm": (float("nan"), float("nan")),
-            "profile_n_layers": 0,
+            "profile_z_mm": float("nan"),
+            "profile_n_nodes": 0,
             "residual_depth_mm": legacy_residual,
-            "pile_up_mm": legacy_pile_up,
-            "pile_up_signed_mm": legacy_pile_up,
-            "pile_up_max_mm": legacy_pile_up,
+            "pile_up_mm": pile_up_frontal,
+            "pile_up_signed_mm": pile_up_frontal,
         })
-        flags = list(flags) + ["windowed profile unavailable: falling back to the legacy "
-                               "global max/percentile, which is set by a single node and "
-                               "drifts with the mesh size"]
+        flags = list(flags) + ["final-position profile unavailable: falling back to the "
+                               "legacy global max/percentile, which is set by a single "
+                               "node and drifts with the mesh size"]
     else:
         out.update(win)
         out["residual_depth_mm"] = abs(win["groove_depth_signed_mm"])
@@ -1237,7 +1337,10 @@ def measure_residual_profile(nodes, metadata, timeseries=None):
 
     out["relative_percent"] = (out["residual_depth_mm"] / ref * 100.0) if ref > 1e-12 else 0.0
 
-    #  Geometric plausibility 
+    #  Geometric plausibility -- lateral ridge only 
+    # (the frontal bow wave is a transient ejection at the exit, not bounded
+    #  by the same contact-radius argument, so it is reported but not
+    #  checked against PILEUP_MAX_DEPTH_RATIO.)
     fail_flags = []
     pile_up = out["pile_up_mm"]
     if ref > 1e-12 and pile_up > PILEUP_MAX_DEPTH_RATIO * ref:
@@ -1246,15 +1349,6 @@ def measure_residual_profile(nodes, metadata, timeseries=None):
             "geometrically impossible for a conical/spherical tip -- the surface "
             "geometry of this run is not usable"
             % (pile_up, PILEUP_MAX_DEPTH_RATIO, ref, pile_up / ref))
-
-    # The median ignores a single bad layer, but a layer far above it still
-    # means something is wrong locally (hourglass spike, element close to
-    # inversion). Reported as a quality signal; the median stays valid.
-    pile_max = out["pile_up_max_mm"]
-    if pile_up > 1e-12 and pile_max > PILEUP_LOCAL_SPIKE_RATIO * pile_up:
-        flags.append("one mesh layer reaches %.3e mm, %.1f x the median ridge: local "
-                     "spike inside the steady window (the median is unaffected)"
-                     % (pile_max, pile_max / pile_up))
 
     out["profile_warn_flags"] = list(flags)
     out["profile_fail_flags"] = fail_flags
@@ -1266,19 +1360,19 @@ def _profile_wrap(m, status, verdict):
     (status, message) for a profile-based check: numeric summary, the caller's
     verdict, then the flags -- which escalate the status but never downgrade it.
     """
-    if m.get("profile_method", "").startswith("windowed"):
-        z_lo, z_hi = m["profile_window_z_mm"]
-        summary = ("Residual depth = %.3e mm (%.1f%% of ref %.3f mm) | pile-up = %.3e mm "
-                   "(max layer %.3e) | window z=[%.3f, %.3f] mm, %d layers | "
-                   "legacy(global max/p1) = %.3e / %.3e mm"
+    if m.get("profile_method", "") == "at_final_position":
+        summary = ("Residual depth = %.3e mm (%.1f%% of ref %.3f mm) | lateral pile-up = "
+                   "%.3e mm | frontal pile-up = %.3e mm | cross-section z=%.3f mm "
+                   "(indenter final position), %d nodes | legacy(p1 depth) = %.3e mm"
                    % (m["residual_depth_mm"], m["relative_percent"], m["reference_mm"],
-                      m["pile_up_mm"], m["pile_up_max_mm"], z_lo, z_hi,
-                      m["profile_n_layers"], m["pile_up_raw_mm"], m["residual_depth_p1_mm"]))
+                      m["pile_up_mm"], m["pile_up_frontal_mm"], m["profile_z_mm"],
+                      m["profile_n_nodes"], m["residual_depth_p1_mm"]))
     else:
         summary = ("Residual depth = %.3e mm (%.1f%% of ref %.3f mm), pile-up = %.3e mm "
-                   "| raw min = %.3e mm [LEGACY global estimator]"
+                   "| frontal pile-up = %.3e mm | raw min = %.3e mm [LEGACY global estimator, "
+                   "final-position cross-section unavailable]"
                    % (m["residual_depth_mm"], m["relative_percent"], m["reference_mm"],
-                      m["pile_up_mm"], m["residual_depth_raw_mm"]))
+                      m["pile_up_mm"], m["pile_up_frontal_mm"], m["residual_depth_raw_mm"]))
 
     flag_text = "".join([" [!] %s." % f for f in m.get("profile_fail_flags", [])] +
                         [" [~] %s." % f for f in m.get("profile_warn_flags", [])])
