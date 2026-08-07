@@ -174,15 +174,13 @@ def _glassy_pc_config():
     cfg.material = Material_Config(
         rho=1.20e-9,
         hyperelastic=LinearElastic_Config(E=2300.0, nu=0.37),
-        #plasticity=None,
         plasticity=DruckerPrager_Config(
             friction_angle=27.13, flow_stress_ratio=0.85, dilation_angle=0.0,
             yield_table=gsell_jonas_table(sigma_y0=70.0, h=0.35,
                                           soft_drop=12.0, eps_soft=0.05,
                                           eps_max=2.5, n_points=60),
             rate_dependent=None),
-            # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=70.0, S_per_decade=4.5)),
-        friction=Friction_Config.briscoe(tau0=38.32, alpha=0.06),                                           # Plausible value for tau0 and alpha, to be determined
+        friction=Friction_Config.briscoe(tau0=38.32, alpha=0.06),                                           # Hossain Values
         #friction=Friction_Config(mu=0.3),
         family="glassy_pc",
     )
