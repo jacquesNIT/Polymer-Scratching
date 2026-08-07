@@ -8,13 +8,13 @@ import time
 
 JOBS = [
 
-    ("mesh", "glassy_pmma", {"tag": "mesh100", "ALE": False, "scratch_time": 0.1, "distortion": True, "length": 0.1}),
-    ("mesh", "glassy_pmma", {"tag": "mesh50", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-    ("mesh", "glassy_pmma", {"tag": "mesh25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    ("mesh", "glassy_pmma", {"tag": "mesh10", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    ("mesh", "glassy_pmma", {"tag": "mesh5", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh100", "ALE": False, "scratch_time": 0.1, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh50", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh10", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    #("mesh", "glassy_pmma", {"tag": "mesh5", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
 
-    #("single", "glassy_pmma", {"tag": "Verif10", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
+    ("single", "glassy_pmma", {"tag": "quick_test", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
     #("single", "glassy_pmma", {"tag": "Verif25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     #("single", "glassy_pmma", {"tag": "Verif50", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
 
