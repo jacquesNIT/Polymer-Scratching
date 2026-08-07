@@ -14,7 +14,7 @@ JOBS = [
     #("mesh", "glassy_pmma", {"tag": "mesh10", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
     #("mesh", "glassy_pmma", {"tag": "mesh5", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1}),
 
-    ("single", "glassy_pmma", {"tag": "quick_test2", "ALE": False, "scratch_time": 0.01,"unload_time": 0.001,"recovery_time": 0.001, "distortion": True, "length": 0.1}),
+    ("single", "glassy_pmma", {"tag": "quick_test3", "ALE": False, "scratch_time": 0.01,"unload_time": 0.002,"recovery_time": 0.002, "distortion": True, "length": 0.1}),
     #("single", "glassy_pmma", {"tag": "Verif25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     #("single", "glassy_pmma", {"tag": "Verif50", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
 
