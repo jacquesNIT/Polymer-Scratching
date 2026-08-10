@@ -9,7 +9,7 @@ class Indenter_Config:
     ROCKWELL = "rockwell"
     PYRAMID = "pyramid"          
 
-    def __init__( self, indenter_type="rockwell", tip_radius=0.2, cone_angle=60, rigid=True,
+    def __init__( self, indenter_type="pyramid", tip_radius=0.2, cone_angle=60, rigid=True,
                   n_faces=4, face_angle=None, base_apothem=0.2, orientation="face",
                   extrude_depth=None, mesh_size=None, mesh_min_size=None, tip_bias=False ):
     # [mm] [degrees]
