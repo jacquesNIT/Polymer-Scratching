@@ -271,10 +271,33 @@ def post_process(job_name, file_name, cfg):
         ts = time_module.strftime("%Y-%m-%d %H:%M:%S", time_module.localtime())
         f.write("# Simulation date and time: %s\n" % ts)
         f.write("# ----------------------------\n")
-        f.write(
-            "# Indenter type: %s with tip radius %smm and cone angle %s degrees\n"
-            % (indenter.indenter_type, indenter.tip_radius, indenter.cone_angle)
-        )
+        # --- original indenter header (PYRAMID_INDENTER_PATCH) ---
+#         f.write(
+#             "# Indenter type: %s with tip radius %smm and cone angle %s degrees\n"
+#             % (indenter.indenter_type, indenter.tip_radius, indenter.cone_angle)
+#         )
+        if getattr(indenter, "indenter_type", "") == "pyramid":
+            _pyr = indenter.Pyramid_coords()
+            _eqa = indenter.pyramid_equivalent_cone_angle()
+            # "tip radius 0.0mm" + the EQUIVALENT cone angle are written on purpose:
+            # results_verifier._contact_radius(depth, R=0, alpha) then returns
+            # depth*tan(alpha), i.e. the equal-projected-area cone radius.
+            f.write(
+                "# Indenter type: pyramid (%d faces, %s-forward), face semi-angle "
+                "%.6g degrees, tip radius 0.0mm and cone angle %.4f degrees "
+                "(equivalent cone)\n"
+                % (_pyr["n"], indenter.orientation, float(indenter.face_angle), _eqa)
+            )
+            f.write("# pyramid_n_faces=%d\n" % _pyr["n"])
+            f.write("# pyramid_face_angle=%.6g\n" % float(indenter.face_angle))
+            f.write("# pyramid_base_apothem=%.6g\n" % _pyr["a0"])
+            f.write("# pyramid_apex_height=%.6g\n" % _pyr["H"])
+            f.write("# pyramid_equivalent_cone_angle=%.6g\n" % _eqa)
+        else:
+            f.write(
+                "# Indenter type: %s with tip radius %smm and cone angle %s degrees\n"
+                % (indenter.indenter_type, indenter.tip_radius, indenter.cone_angle)
+            )
         mat_str = ", ".join(["%s=%s" % (k, v) for k, v in material_params.items()])
         f.write("# Material parameters: %s\n" % mat_str)
         f.write("# family = %s\n" % getattr(cfg.material, "family", "elastomer_mr"))

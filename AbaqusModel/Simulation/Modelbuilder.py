@@ -2,7 +2,7 @@
 #Orchestrates geometry creation, assembly, step definition, boundary conditions, contact modelling, and output requests.
 
 from ScratchSimulation.AbaqusModel.abaqus_env import *
-from ScratchSimulation.AbaqusModel.Geometry.indenter import create_indenter
+from ScratchSimulation.AbaqusModel.Geometry.indenter import create_indenter, place_indenter   # PYRAMID_INDENTER_PATCH
 from ScratchSimulation.AbaqusModel.Geometry.substrate import create_substrate, mesh_substrate
 
 def build_scratch_model(cfg):
@@ -31,8 +31,10 @@ def build_scratch_model(cfg):
     sub_inst = asm.instances[names.substrate_instance]
 
     # Position indenter: tip at top surface of substrate, at z = dpo_z
-    asm.translate(instanceList=(names.indenter_instance,), vector=(0.0, sub.ys2, 0.0))
-    asm.translate(instanceList=(names.indenter_instance,), vector=(0.0, 0.0, sub.dpo_z))
+    # --- original placement (PYRAMID_INDENTER_PATCH) ---
+#     asm.translate(instanceList=(names.indenter_instance,), vector=(0.0, sub.ys2, 0.0))
+#     asm.translate(instanceList=(names.indenter_instance,), vector=(0.0, 0.0, sub.dpo_z))
+    place_indenter(asm, cfg)      # rotation + translation, indenter-type aware
 
     #  3. Steps (needs asm: mass scaling is scoped to the substrate instance set)
     steps = _create_steps(model, asm, cfg)
@@ -518,15 +520,35 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
     )
 
     # Surfaces 
-    rc = cfg.indenter.Rockwell_coords()
+    # --- original master surface (PYRAMID_INDENTER_PATCH) ---
+#     rc = cfg.indenter.Rockwell_coords()
 
-    asm.Surface(
-        name=names.master_surface,
-        side1Faces=ind_inst.faces.findAt(
-            ((sub.xs1, sub.ys2, sub.zs1 + sub.dpo_z),),
-            ((sub.xs1 + rc["xl2"], sub.ys2 + rc["yl2"], sub.zs1 + sub.dpo_z),),
-        ),
-    )
+#     asm.Surface(
+#         name=names.master_surface,
+#         side1Faces=ind_inst.faces.findAt(
+#             ((sub.xs1, sub.ys2, sub.zs1 + sub.dpo_z),),
+#             ((sub.xs1 + rc["xl2"], sub.ys2 + rc["yl2"], sub.zs1 + sub.dpo_z),),
+#         ),
+#     )
+
+    if cfg.indenter.indenter_type == cfg.indenter.PYRAMID:
+        # One probe point per lateral face, taken at mid-height of the pyramid.
+        # Rigid-element surfaces are double-sided in Abaqus/Explicit general
+        # contact, so side1Faces is sufficient here.
+        _pyr_pts = cfg.indenter.pyramid_face_points(sub.ys2, sub.zs1 + sub.dpo_z)
+        asm.Surface(
+            name=names.master_surface,
+            side1Faces=ind_inst.faces.findAt(*tuple([(p,) for p in _pyr_pts])),
+        )
+    else:
+        rc = cfg.indenter.Rockwell_coords()
+        asm.Surface(
+            name=names.master_surface,
+            side1Faces=ind_inst.faces.findAt(
+                ((sub.xs1, sub.ys2, sub.zs1 + sub.dpo_z),),
+                ((sub.xs1 + rc["xl2"], sub.ys2 + rc["yl2"], sub.zs1 + sub.dpo_z),),
+            ),
+        )
 
     asm.Surface(
         name=names.slave_surface,

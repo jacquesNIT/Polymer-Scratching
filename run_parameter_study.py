@@ -429,7 +429,7 @@ DEFAULT_MESH_SIZES = [
     [0.01, 0.01, 0.01],
     [0.007, 0.007, 0.007],
 ]
-DEFAULT_MASS_SCALES = [5000, 2000, 1000, 500, 300, 100]
+DEFAULT_MASS_SCALES = [20000, 10000]
 DEFAULT_DT_SCALES = [30, 40, 80] # NB : For base MS = 500, sqrt(500) = 22, need more than ~20 to make a difference
 DEFAULT_MU_VALUES = [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
 DEFAULT_DEPTHS = [-40e-3, -60e-3, -80e-3, -100e-3] 

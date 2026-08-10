@@ -2,19 +2,33 @@
 
 import numpy as np
 
-# 1. Indenter (Rockwell)
+# 1. Indenter (Rockwell sphere-cone / pyramid)
 class Indenter_Config:
     # Creates the indenter configuration according to the specified values
-    # As of now, only the Rockwell indenter
 
     ROCKWELL = "rockwell"
+    PYRAMID = "pyramid"          
 
-    def __init__( self, indenter_type="rockwell", tip_radius=0.2, cone_angle=60, rigid=True ):          
-    # [mm] [degrees] 
+    def __init__( self, indenter_type="rockwell", tip_radius=0.2, cone_angle=60, rigid=True,
+                  n_faces=4, face_angle=None, base_apothem=0.2, orientation="face",
+                  extrude_depth=None, mesh_size=None, mesh_min_size=None, tip_bias=False ):
+    # [mm] [degrees]
 
         self.indenter_type = indenter_type
-        self.tip_radius = tip_radius
-        self.cone_angle = cone_angle
+        self.tip_radius = tip_radius        # Rockwell only [mm]
+        self.cone_angle = cone_angle        # Rockwell: HALF-apex angle from the axis [deg]
+        self.rigid = rigid
+
+        # pyramid-only parameters 
+        self.n_faces = int(n_faces)                 # 3 (Berkovich-like) or 4 (Vickers-like)
+        self.face_angle = cone_angle if face_angle is None else face_angle
+                                                    # HALF-apex angle, axis -> FACE plane [deg]
+        self.base_apothem = base_apothem            # axis -> face distance at the base [mm]
+        self.orientation = orientation              # "face" = a face leads +z, "edge" = an edge leads
+        self.extrude_depth = extrude_depth          # [mm], None -> automatic
+        self.mesh_size = mesh_size                  # [mm], None -> 0.5 * substrate fine size
+        self.mesh_min_size = mesh_min_size          # [mm], only used when tip_bias is True
+        self.tip_bias = tip_bias                    # bias the rigid seeds towards the apex
 
     def Rockwell_coords(self):
     # Returns a dictionnary with the Indenter coordinates
@@ -37,6 +51,55 @@ class Indenter_Config:
         yl2 = yl1 + 0.5 * np.sin((90.0 - theta) * rad)
 
         return dict( xc1=xc1, yc1=yc1, xc2=xc2, yc2=yc2, xc3=xc3, yc3=yc3, xl1=xl1, yl1=yl1, xl2=xl2, yl2=yl2)
+
+    #  Pyramidal indenter (PYRAMID_INDENTER_PATCH)
+    def Pyramid_coords(self):
+        n = int(self.n_faces)
+        if n < 3:
+            raise ValueError("n_faces must be >= 3 (got %s)" % n)
+
+        rad = np.pi / 180.0
+        theta = float(self.face_angle) * rad          # half-apex angle, axis -> face
+        if not (0.0 < theta < np.pi / 2.0):
+            raise ValueError("face_angle must lie strictly between 0 and 90 degrees")
+
+        a0 = float(self.base_apothem)                 # apothem of the base polygon
+        R0 = a0 / np.cos(np.pi / n)                   # circumradius of the base polygon
+        H = a0 / np.tan(theta)                        # apex height above the base plane
+
+        # Azimuth of the first face normal: 0 -> a face leads the scratch (+z)
+        phi0 = 0.0 if str(self.orientation).lower().startswith("f") else np.pi / n
+
+        face_azim = [phi0 + 2.0 * np.pi * k / n for k in range(n)]
+        vert_azim = [phi0 + (2.0 * k + 1.0) * np.pi / n for k in range(n)]
+        vertices = [(R0 * np.sin(p), R0 * np.cos(p)) for p in vert_azim]
+
+        return dict(n=n, theta=theta, theta_deg=float(self.face_angle), a0=a0, R0=R0,
+                    H=H, phi0=phi0, face_azim=face_azim, vert_azim=vert_azim,
+                    vertices=vertices)
+
+    def pyramid_face_points(self, y_apex, z_apex, x_apex=0.0, h_frac=0.5):
+        # One probe point per lateral face, in GLOBAL coordinates, for
+        # ind_inst.faces.findAt(). h_frac is the relative height above the apex.
+        pc = self.Pyramid_coords()
+        h = float(h_frac) * pc["H"]
+        r = h * np.tan(pc["theta"])                   # axis -> face distance at height h
+        return [(x_apex + r * np.sin(p), y_apex + h, z_apex + r * np.cos(p))
+                for p in pc["face_azim"]]
+
+    def pyramid_edge_points(self, s=0.35):
+        # One probe point per lateral (corner) edge, in PART LOCAL coordinates.
+        pc = self.Pyramid_coords()
+        return [((1.0 - s) * vx, (1.0 - s) * vy, s * pc["H"])
+                for (vx, vy) in pc["vertices"]]
+
+    def pyramid_equivalent_cone_angle(self):
+        # Half-apex angle of the CONE with the same projected contact area vs depth:
+        #   pi * a_eq^2 = n * (h tan(theta))^2 * tan(pi/n)
+        # 4 faces / theta=60 deg -> 62.90 deg ; 3 faces / theta=60 deg -> 65.81 deg.
+        pc = self.Pyramid_coords()
+        k = np.sqrt(pc["n"] * np.tan(np.pi / pc["n"]) / np.pi)
+        return float(np.degrees(np.arctan(k * np.tan(pc["theta"]))))
      
 # 2. Substrate
 class Substrate_Config:
@@ -785,9 +848,9 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.02,       
-                fine_size_y=0.02,
-                fine_size_z=0.02,    
+                fine_size_x=0.015,       
+                fine_size_y=0.015,
+                fine_size_z=0.015,    
                 coarse_size_0=0.02,     # Unused
                 coarse_size_1=0.028,     # 0.07*4 
                 coarse_size_2=0.056,     # 0.07*8
@@ -810,7 +873,7 @@ class Simulation_Config:
             solver=Solver_Config(
                 mass_scale=500,    
                 target_time_increment=0.0,
-                use_ALE=False,                      # Only useful for important scratch depths (>60um)
+                use_ALE=False,                     
                 num_cpus=6,                        # "submit.sh CPU value is prioritized"
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
@@ -833,7 +896,7 @@ class Simulation_Config:
                 unload_time=0.02,
                 recovery_time=0.02,
                 recovery_lift=0.05,
-                n_field_frames=40,
+                n_field_frames=20,
                 n_field_frames_recovery=10,
                 n_history_points=100,
             ),
