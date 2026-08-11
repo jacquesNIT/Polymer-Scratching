@@ -214,7 +214,7 @@ def _glassy_pmma_config():
         family="glassy_pmma",
     )
     #cfg.solver.target_time_increment = 50.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)
-    cfg.solver.mass_scale = 500
+    cfg.solver.mass_scale = 10000
     return cfg
 
 ELASTOMER_MR = PolymerFamily(

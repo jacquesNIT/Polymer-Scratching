@@ -14,7 +14,12 @@ JOBS = [
     #("mesh", "glassy_pc", {"tag": "mesh10", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
     #("mesh", "glassy_pc", {"tag": "mesh5bis", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
 
-    ("mass_scale", "glassy_pmma", {"tag": "MS001bis", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
+    #("mass_scale", "glassy_pmma", {"tag": "MS001bis2", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
+
+    ("mesh", "glassy_pmma", {"tag": "Fmesh_ALE", "ALE": True, "scratch_time": 0.05, "distortion": False,"unload_time": 0.01,"recovery_time": 0.01}),
+    ("mesh", "glassy_pmma", {"tag": "Fmesh_nothing", "ALE": False, "scratch_time": 0.05, "distortion": False,"unload_time": 0.01,"recovery_time": 0.01}),
+    ("mesh", "glassy_pmma", {"tag": "Fmesh_dist", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1, "unload_time": 0.01,"recovery_time": 0.01}),
+
 
     #("single", "glassy_pmma", {"tag": "quick_test0", "ALE": False, "scratch_time": 0.05,"unload_time": 0.01,"recovery_time": 0.01, "distortion": True, "length": 0.1}),
     #("single", "glassy_pmma", {"tag": "Verif25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),

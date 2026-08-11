@@ -96,9 +96,16 @@ def data_loader(simID, path=None):
                             parameters[key] = val_conv
 
                     # ensure consistent ordering of data
+                    # Le tri d'origine servait AUSSI de filtre : tout ce qui
+                    # n'etait pas dans sort_order etait supprime. Sur un header
+                    # ScratchSimulation (glassy_pc) cela ne laissait que "E" et
+                    # jetait rho, nu, sigma_y0, friction_angle, dilation_angle,
+                    # mu_friction, mu_pressure_dep... Les cles connues restent en
+                    # tete dans le meme ordre, les autres suivent.
                     sort_order = ["id", "E", "A", "B", "n", "mu"]
                     parameters = {
-                        k: parameters[k] for k in sort_order if k in parameters
+                        **{k: parameters[k] for k in sort_order if k in parameters},
+                        **{k: v for k, v in parameters.items() if k not in sort_order},
                     }
 
                     break
@@ -135,15 +142,10 @@ def extract_forces(rfs, z_values):
         interpolated onto ``z_values``. ``NaN`` outside the recorded range.
     """
     # Simulation data is a half-model, so multiply by 2 to get the full force.
-    normal_force_clean = 2*rfs[~np.isnan(rfs[:, 1]), 1]
-    tangential_force_clean = 2*rfs[~np.isnan(rfs[:, 2]), 2]
-
-    # Modified : Takes the max values of force extracted (accounts for smoothing)
-    i_end = int(np.argmax(np.abs(normal_force_clean)))
-    normal_force_clean = normal_force_clean[: i_end + 1]
-    tangential_force_clean = tangential_force_clean[: i_end + 1]
-
+    normal_force_clean = 2 * rfs[~np.isnan(rfs[:, 1]), 1]
+    tangential_force_clean = 2 * rfs[~np.isnan(rfs[:, 2]), 2]
     rfs_len = len(normal_force_clean)
+
     z_force_domain = np.linspace(0, C.scratch_length, rfs_len)
 
     normal_forces_mapped = np.interp(

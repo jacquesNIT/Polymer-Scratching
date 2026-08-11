@@ -6,10 +6,10 @@ from ScratchSimulation.AbaqusModel.abaqus_env import *
 def _zone_bounds(cfg):
     sub = cfg.substrate
     # Adjustable fractions for mesh refining
-    fx = sub.xs2 * 0.50          # fine | C1   (x)
-    cx = sub.xs2 * 0.75          # C1   | C2   (x)
-    y_fine = sub.ys2 * 0.50      # fine | C1   (y, from surface)
-    y_c1   = sub.ys2 * 0.25      # C1   | C2   (y)
+    fx = sub.xs2 * 0.6          # fine | C1   (x)
+    cx = sub.xs2 * 0.8          # C1   | C2   (x)
+    y_fine = sub.ys2 * 0.6      # fine | C1   (y, from surface)
+    y_c1   = sub.ys2 * 0.2      # C1   | C2   (y)
     fz = sub.dpo_z               
     cz = sub.dpo_z * 0.50        
     return dict(fx=fx, cx=cx, y_fine=y_fine, y_c1=y_c1,

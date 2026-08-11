@@ -5,9 +5,9 @@ import os
 # scratch_experimental_helpers.py, and several plotting/*.py scripts.
 target_shape = (80, 420)
 scratch_length = 2.0  # mm.
-scratch_domain_width = 0.48  # mm. Full width.
+scratch_domain_width = 0.6  # mm. Full width.
 scratch_domain_length = 2.5  # mm. Full length of the domain to be mapped to.
-prescribed_max_depth = 0.02  # mm. The maximum depth of the scratch.
+prescribed_max_depth = 0.04  # mm. The maximum depth of the scratch.
 
 
 def prescribed_depth(z):

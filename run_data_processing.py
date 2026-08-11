@@ -20,8 +20,8 @@ modifiee) :
   * creation du dossier de sortie des figures s'il n'existe pas.
 
 Usage :
-    python run_data_processing.py <dossier_des_csv> [<dossier_de_sortie>]
-    python run_data_processing.py            # -> dossier courant
+    python run_data_processing.py <dossier_ou_csv> [<dossier_de_sortie>] [<z_mm>]
+    python run_data_processing.py            # -> dossier courant, z = scratch_length
 """
 
 import os
@@ -30,12 +30,10 @@ from pathlib import Path
 
 import matplotlib
 
-matplotlib.use("Agg")  # pas de DISPLAY sur le cluster
+matplotlib.use("Agg")  
 
 import pandas as pd
 
-# Le package est resolu qu'il soit importe depuis la racine du depot ou que ce
-# script soit lance depuis un autre repertoire de travail.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ScratchFeatures.constants as C
@@ -45,12 +43,21 @@ from ScratchFeatures.scratch_feature_extraction_helpers import (
 )
 
 
-def main(data_dir=None, out_dir=None):
-    data_dir = Path(data_dir) if data_dir else Path.cwd()
+def main(target=None, out_dir=None, z_value=None):
+    target = Path(target) if target else Path.cwd()
+
+    z_value = float(z_value) if z_value is not None else C.scratch_length
+
+    if target.is_file():
+        data_dir = target.parent
+        sim_files = [target]
+    else:
+        data_dir = target
+        sim_files = sorted(data_dir.glob("*_Results.csv"))
+
     out_dir = Path(out_dir) if out_dir else data_dir
     os.makedirs(str(out_dir), exist_ok=True)
 
-    sim_files = sorted(data_dir.glob("*_Results.csv"))
     if not sim_files:
         print(f"No *_Results.csv found in {data_dir}")
         return
@@ -60,7 +67,7 @@ def main(data_dir=None, out_dir=None):
         X, Y, Z, F_n, F_t, parameters = simulation_main(
             simID=sim_file.name,
             path=str(data_dir),
-            z_values=[C.scratch_length],
+            z_values=[z_value],
         )
 
         features = feature_extraction_pipeline(
@@ -70,7 +77,7 @@ def main(data_dir=None, out_dir=None):
             F_n=F_n,
             F_t=F_t,
             parameters=parameters,
-            z_value=C.scratch_length,
+            z_value=z_value,
             plot=True,
             save_dir=f"{out_dir}/",
             get_additional_features=True,
@@ -78,6 +85,7 @@ def main(data_dir=None, out_dir=None):
             get_volume_features=True,
         )
         features["sim_id"] = sim_file.stem.removesuffix("_Results")
+        features["z_extraction_mm"] = z_value
         all_features.append(features)
 
     features_df = pd.DataFrame(all_features)
@@ -89,4 +97,5 @@ if __name__ == "__main__":
     main(
         sys.argv[1] if len(sys.argv) > 1 else None,
         sys.argv[2] if len(sys.argv) > 2 else None,
+        sys.argv[3] if len(sys.argv) > 3 else None,
     )

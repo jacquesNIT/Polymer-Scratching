@@ -897,7 +897,7 @@ class Simulation_Config:
                 recovery_time=0.02,
                 recovery_lift=0.05,
                 n_field_frames=20,
-                n_field_frames_recovery=10,
+                n_field_frames_recovery=5,
                 n_history_points=100,
             ),
             output=Output_Config(),
