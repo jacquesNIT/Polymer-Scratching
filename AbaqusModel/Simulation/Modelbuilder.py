@@ -535,7 +535,12 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
         # One probe point per lateral face, taken at mid-height of the pyramid.
         # Rigid-element surfaces are double-sided in Abaqus/Explicit general
         # contact, so side1Faces is sufficient here.
+        # (PYRAMID_TIP_CONTACT_PATCH) the FLAT TIP face must be part of the master surface:
+        # without it the truncated indenter has a hole at its lowest point,
+        # exactly where every slave node passes underneath.
         _pyr_pts = cfg.indenter.pyramid_face_points(sub.ys2, sub.zs1 + sub.dpo_z)
+        _pyr_pts = list(_pyr_pts) + list(
+            cfg.indenter.pyramid_tip_face_point(sub.ys2, sub.zs1 + sub.dpo_z))
         asm.Surface(
             name=names.master_surface,
             side1Faces=ind_inst.faces.findAt(*tuple([(p,) for p in _pyr_pts])),
@@ -571,6 +576,21 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
         assignments=((GLOBAL, SELF, names.contact_property),),
         stepName="Initial",
     )
+
+    # (PYRAMID_TIP_CONTACT_PATCH) optional control of the feature edges used by edge-to-edge
+    # general contact. Opt-in via Indenter_Config.feature_edge_criterion; the
+    # call is guarded because its signature could not be verified offline.
+    _fec = getattr(cfg.indenter, "feature_edge_criterion", None)
+    if _fec is not None:
+        _crit = {"NONE": NONE, "PERIMETER": PERIMETER, "ALL": ALL}.get(
+            str(_fec).upper(), _fec)
+        try:
+            model.interactions[names.contact_interaction].surfaceFeatureAssignments.appendInStep(
+                assignments=((asm.surfaces[names.master_surface], _crit),),
+                stepName="Initial",
+            )
+        except Exception as _err:
+            print("WARNING: feature_edge_criterion ignored (%s)" % _err)
 
     # Node set for post-processing
     asm.Set(

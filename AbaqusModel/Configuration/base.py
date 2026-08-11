@@ -9,9 +9,11 @@ class Indenter_Config:
     ROCKWELL = "rockwell"
     PYRAMID = "pyramid"          
 
-    def __init__( self, indenter_type="rockwell", tip_radius=0.2, cone_angle=60, rigid=True,
+    def __init__( self, indenter_type="pyramid", tip_radius=0.2, cone_angle=60, rigid=True,
                   n_faces=4, face_angle=None, base_apothem=0.2, orientation="face",
-                  extrude_depth=None, mesh_size=None, mesh_min_size=None, tip_bias=False ):
+                  extrude_depth=None, mesh_size=None, mesh_min_size=None, tip_bias=False,
+                  tip_flat=0.005, rigid_mass=1e-6, rigid_inertia=None,
+                  feature_edge_criterion=None ):    # PYRAMID_TIP_CONTACT_PATCH
     # [mm] [degrees]
 
         self.indenter_type = indenter_type
@@ -29,6 +31,12 @@ class Indenter_Config:
         self.mesh_size = mesh_size                  # [mm], None -> 0.5 * substrate fine size
         self.mesh_min_size = mesh_min_size          # [mm], only used when tip_bias is True
         self.tip_bias = tip_bias                    # bias the rigid seeds towards the apex
+        # --- tip / contact conditioning (PYRAMID_TIP_CONTACT_PATCH) ---
+        self.tip_flat = tip_flat                    # apothem of the flat tip [mm], 0 -> sharp apex
+        self.rigid_mass = rigid_mass                # point mass at the RP [tonne]
+        self.rigid_inertia = rigid_inertia          # None -> rigid_mass * base_apothem**2
+        self.feature_edge_criterion = feature_edge_criterion
+                                                    # None / "NONE" / "PERIMETER" / "ALL" / angle [deg]
 
     def Rockwell_coords(self):
     # Returns a dictionnary with the Indenter coordinates
@@ -67,6 +75,17 @@ class Indenter_Config:
         R0 = a0 / np.cos(np.pi / n)                   # circumradius of the base polygon
         H = a0 / np.tan(theta)                        # apex height above the base plane
 
+        # Truncated tip (PYRAMID_TIP_CONTACT_PATCH): the pyramid is built as a frustum, the
+        # virtual apex being cut h_tip above the flat. A sharp apex (tip_flat=0)
+        # has no defined contact normal and traps slave nodes inside the body.
+        a_tip = max(0.0, float(self.tip_flat or 0.0))  # apothem of the flat tip
+        if a_tip >= a0:
+            raise ValueError("tip_flat (%g) must be smaller than base_apothem (%g)"
+                             % (a_tip, a0))
+        h_tip = a_tip / np.tan(theta)                 # height of the removed apex cone
+        H_frustum = H - h_tip                         # actual extrusion depth
+        R_tip = a_tip / np.cos(np.pi / n)             # circumradius of the flat tip
+
         # Azimuth of the first face normal: 0 -> a face leads the scratch (+z)
         phi0 = 0.0 if str(self.orientation).lower().startswith("f") else np.pi / n
 
@@ -76,21 +95,36 @@ class Indenter_Config:
 
         return dict(n=n, theta=theta, theta_deg=float(self.face_angle), a0=a0, R0=R0,
                     H=H, phi0=phi0, face_azim=face_azim, vert_azim=vert_azim,
-                    vertices=vertices)
+                    vertices=vertices,
+                    a_tip=a_tip, h_tip=h_tip, H_frustum=H_frustum, R_tip=R_tip)  # PYRAMID_TIP_CONTACT_PATCH
 
     def pyramid_face_points(self, y_apex, z_apex, x_apex=0.0, h_frac=0.5):
         # One probe point per lateral face, in GLOBAL coordinates, for
         # ind_inst.faces.findAt(). h_frac is the relative height above the apex.
+        # (PYRAMID_TIP_CONTACT_PATCH) heights are now measured from the FLAT TIP, not from
+        # the virtual apex: r = a_tip + h tan(theta). Identical to the previous
+        # formula when tip_flat = 0.
         pc = self.Pyramid_coords()
-        h = float(h_frac) * pc["H"]
-        r = h * np.tan(pc["theta"])                   # axis -> face distance at height h
+        h = float(h_frac) * pc["H_frustum"]
+        r = pc["a_tip"] + h * np.tan(pc["theta"])    # axis -> face distance at height h
         return [(x_apex + r * np.sin(p), y_apex + h, z_apex + r * np.cos(p))
                 for p in pc["face_azim"]]
+
+    def pyramid_tip_face_point(self, y_tip, z_tip, x_tip=0.0):
+        # (PYRAMID_TIP_CONTACT_PATCH) probe point on the FLAT TIP face, in GLOBAL coordinates.
+        # Returns [] for a sharp apex (there is no tip face to select).
+        pc = self.Pyramid_coords()
+        if pc["a_tip"] <= 0.0:
+            return []
+        return [(x_tip, y_tip, z_tip)]
 
     def pyramid_edge_points(self, s=0.35):
         # One probe point per lateral (corner) edge, in PART LOCAL coordinates.
         pc = self.Pyramid_coords()
-        return [((1.0 - s) * vx, (1.0 - s) * vy, s * pc["H"])
+        # (PYRAMID_TIP_CONTACT_PATCH) the lateral edges now run from the base vertex to the
+        # TOP (frustum) vertex, so the radial scaling is no longer (1 - s).
+        f = 1.0 - s * (1.0 - pc["R_tip"] / pc["R0"])
+        return [(f * vx, f * vy, s * pc["H_frustum"])
                 for (vx, vy) in pc["vertices"]]
 
     def pyramid_equivalent_cone_angle(self):
@@ -387,7 +421,7 @@ class Scratch_Config:
                  scratch_time=0.01, indentation_time=0.001, unload_time=0.0001, recovery_time=1.0,              # [s] To be studied
                  recovery_lift=0.05,                                                                            # [mm] clearance above surface during recovery
                  n_field_frames=20, n_field_frames_recovery=50, n_history_points=100,                           # Number of frames / field outputs for each step
-                 amplitude_smoothing=0.0,                                                                    # [-] SMOOTH fraction of the tabular amplitudes (0-0.5, None = solver default).
+                 amplitude_smoothing=0.25,                                                                    # [-] SMOOTH fraction of the tabular amplitudes (0-0.5, None = solver default).
                  depth_hold_frac=0.05 ):   # [-] PROGRESSIVE: plateau plat au sommet, fraction de scratch_time (garantit la profondeur nominale malgre le lissage du pic ; cf depth_amplitude()).
                                                                                                                 # Rounds the velocity discontinuities at the amplitude kinks (t1/t2/t3).
                                                                                                                  
@@ -848,12 +882,12 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.015,       
-                fine_size_y=0.015,
-                fine_size_z=0.015,    
+                fine_size_x=0.02,       
+                fine_size_y=0.02,
+                fine_size_z=0.02,    
                 coarse_size_0=0.02,     # Unused
-                coarse_size_1=0.028,     # 0.07*4 
-                coarse_size_2=0.056,     # 0.07*8
+                coarse_size_1=0.04,     # 0.07*4 
+                coarse_size_2=0.08,     # 0.07*8
                 hourglass_control="ENHANCED",      # RELAX STIFFNESS with ALE / ENHANCED without ALE 
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
@@ -871,7 +905,7 @@ class Simulation_Config:
                 family="elastomer_mr",
             ),
             solver=Solver_Config(
-                mass_scale=500,    
+                mass_scale=5000,    
                 target_time_increment=0.0,
                 use_ALE=False,                     
                 num_cpus=6,                        # "submit.sh CPU value is prioritized"

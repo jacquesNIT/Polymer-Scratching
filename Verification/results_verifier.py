@@ -787,15 +787,15 @@ def _normal_force_series(timeseries, metadata):
 
     if control_mode == "force":
         if _nonzero(cfn2):
-            return cfn2, "CFN2"
+            return 2*cfn2, "CFN2"
         if _nonzero(rf2):
-            return rf2, "RF2 (fallback, CFN2 unavailable/zero)"
+            return 2*rf2, "RF2 (fallback, CFN2 unavailable/zero)"
         return None, "unavailable"
 
     if _nonzero(rf2):
-        return rf2, "RF2"
+        return 2*rf2, "RF2"
     if _nonzero(cfn2):
-        return cfn2, "CFN2 (fallback, RF2 unavailable/zero)"
+        return 2*cfn2, "CFN2 (fallback, RF2 unavailable/zero)"
     return None, "unavailable"
 
 
