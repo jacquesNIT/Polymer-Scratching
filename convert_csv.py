@@ -30,10 +30,10 @@ Usage
     python convert_results_csv.py <input_dir> -o <output_dir>
     python convert_results_csv.py in/ -o out/ --recursive --suffix _legacy
     python convert_results_csv.py in/ --no-blank-lines --strict
-    python convert_results_csv.py file.csv -o out/          # single file
     python convert_results_csv.py in/ -o out/ --header-mode legacy
 
-Input files are never modified.
+The input must be a directory containing .csv files; a single file path is
+rejected. Input files are never modified.
 """
 
 from __future__ import print_function
@@ -233,9 +233,12 @@ def convert_file(src_path, dst_path, energy_scope="auto", strict=False,
 
 
 def collect_inputs(in_path, recursive=False, pattern=None):
-    """Return a list of (absolute_path, path_relative_to_root)."""
-    if os.path.isfile(in_path):
-        return [(in_path, os.path.basename(in_path))]
+    """Return a list of (absolute_path, path_relative_to_root).
+
+    `in_path` must be a directory; single files are not accepted.
+    """
+    if not os.path.isdir(in_path):
+        raise NotADirectoryError("Input must be a directory: %s" % in_path)
 
     rx = re.compile(pattern) if pattern else None
     found = []
@@ -259,7 +262,7 @@ def main(argv=None):
         description="Convert extended result CSVs to the reduced legacy format "
                     "(Time,RF1,RF2,RF3,IE,KE,NodeLabel,coords), keeping the "
                     "original header comments.")
-    p.add_argument("input", help="Input CSV directory (or single file).")
+    p.add_argument("input", help="Input directory containing .csv files.")
     p.add_argument("-o", "--output", default=None,
                    help="Output directory (default: <input>_converted).")
     p.add_argument("-r", "--recursive", action="store_true",
@@ -290,14 +293,16 @@ def main(argv=None):
     in_path = os.path.abspath(args.input)
     if not os.path.exists(in_path):
         p.error("Path not found: %s" % in_path)
+    if not os.path.isdir(in_path):
+        p.error("Input must be a directory containing .csv files, not a single "
+                "file: %s" % in_path)
 
     if args.output:
         out_root = os.path.abspath(args.output)
     else:
-        base = in_path if os.path.isdir(in_path) else os.path.dirname(in_path)
-        out_root = base.rstrip(os.sep) + "_converted"
+        out_root = in_path.rstrip(os.sep) + "_converted"
 
-    if os.path.isdir(in_path) and os.path.normpath(out_root) == os.path.normpath(in_path):
+    if os.path.normpath(out_root) == os.path.normpath(in_path):
         p.error("Output directory must differ from the input directory.")
 
     items = collect_inputs(in_path, args.recursive, args.pattern)

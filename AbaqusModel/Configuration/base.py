@@ -387,7 +387,7 @@ class Scratch_Config:
                  scratch_time=0.01, indentation_time=0.001, unload_time=0.0001, recovery_time=1.0,              # [s] To be studied
                  recovery_lift=0.05,                                                                            # [mm] clearance above surface during recovery
                  n_field_frames=20, n_field_frames_recovery=50, n_history_points=100,                           # Number of frames / field outputs for each step
-                 amplitude_smoothing=0.25,                                                                    # [-] SMOOTH fraction of the tabular amplitudes (0-0.5, None = solver default).
+                 amplitude_smoothing=0.0,                                                                    # [-] SMOOTH fraction of the tabular amplitudes (0-0.5, None = solver default).
                  depth_hold_frac=0.05 ):   # [-] PROGRESSIVE: plateau plat au sommet, fraction de scratch_time (garantit la profondeur nominale malgre le lissage du pic ; cf depth_amplitude()).
                                                                                                                 # Rounds the velocity discontinuities at the amplitude kinks (t1/t2/t3).
                                                                                                                  
