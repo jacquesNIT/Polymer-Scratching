@@ -21,7 +21,7 @@ JOBS = [
     #("mesh", "glassy_pmma", {"tag": "Fmesh_dist", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1, "unload_time": 0.01,"recovery_time": 0.01}),
 
 
-    ("single", "glassy_pmma", {"tag": "pyra", "ALE": False, "scratch_time": 0.05,"unload_time": 0.01,"recovery_time": 0.01, "distortion": True, "length": 0.1}),
+    ("single", "glassy_pmma", {"tag": "MS001_adap", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
     #("single", "glassy_pmma", {"tag": "Verif25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     #("single", "glassy_pmma", {"tag": "Verif50", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
 
