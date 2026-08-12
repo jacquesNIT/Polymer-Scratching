@@ -3,6 +3,7 @@ from .base import (Simulation_Config, Material_Config,
                    LinearElastic_Config, J2Plasticity_Config,
                    DruckerPrager_Config, Prony_Config, Friction_Config,
                    RateDependent_Config, gsell_jonas_table, natural_dt)
+from .sampling import SAMPLING_DP_UNIFIED
 
 
 
@@ -213,7 +214,7 @@ def _glassy_pmma_config():
         #friction=Friction_Config(mu=0.3),
         family="glassy_pmma",
     )
-    cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)
+    cfg.solver.target_time_increment = 50.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)
     #cfg.solver.mass_scale = 10000
     return cfg
 
@@ -242,7 +243,7 @@ SEMICRYSTALLINE_DP = PolymerFamily(
     label="Soft semicrystalline (linear elastic + Drucker-Prager plasticity)",
     config_factory=_semicrystalline_dp_config,
     checks=_SEMICRYSTALLINE_CHECKS,
-    sampling=None,
+    sampling=SAMPLING_DP_UNIFIED,
     description=("Linear-elastic base + pressure-dependent Drucker-Prager "
                  "plasticity; same calibration as semicrystalline_j2 with a "
                  "placeholder beta=12 deg -- isolates pressure sensitivity."),
@@ -274,7 +275,7 @@ GLASSY_PC = PolymerFamily(
     label="Polycarbonate (elastic + Drucker-Prager, softening + G'Sell hardening, rate-dependent)",
     config_factory=_glassy_pc_config,
     checks=_GLASSY_CHECKS,
-    sampling=None,
+    sampling=SAMPLING_DP_UNIFIED,
     description=("Literature based PC: beta=15 deg, intrinsic softening, "
                  "exponential orientation hardening, Cowper-Symonds rate "
                  "dependence fitted on an Eyring slope of 4.5 MPa/decade."),

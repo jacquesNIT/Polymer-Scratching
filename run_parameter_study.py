@@ -5,6 +5,7 @@
 # " abaqus cae noGUI=run_parameter_study.py -- mass_scale "
 # " abaqus cae noGUI=run_parameter_study.py -- material "
 # " abaqus cae noGUI=run_parameter_study.py -- friction "
+# " abaqus cae noGUI=run_parameter_study.py -- design <family> "
 #
 # JOB-SPLITTING TOKENS (after '--', any order; used by launch_cluster_jobs.py):
 #   <study> [family] [i/N] [cpus=K] [tag=NAME]
@@ -328,6 +329,76 @@ def material_study(parameters):
         label=lambda p: "Material_%s" % p["id"],
     )
 
+# Screening / sweep design produced by generate_design.py. Resolved relative to
+# THIS script because run_parameter_study() chdirs into runs/ afterwards.
+DEFAULT_DESIGN_DIR = "designs"
+
+
+def _design_path(family_key, csv_path=None):
+    if csv_path:
+        return csv_path
+    for method in ("morris", "sobol"):
+        p = os.path.join(_HERE, DEFAULT_DESIGN_DIR, "%s_%s.csv" % (family_key, method))
+        if os.path.exists(p):
+            return p
+    raise SystemExit(
+        "No design file for family '%s' in %s (expected <family>_morris.csv or "
+        "<family>_sobol.csv). Generate it with:\n"
+        "    python3 generate_design.py %s"
+        % (family_key, os.path.join(_HERE, DEFAULT_DESIGN_DIR), family_key))
+
+
+def _load_design(family_key, csv_path=None):
+    # Reads the g_* (dimensionless group) columns only: the material parameters
+    # are re-derived in-kernel by families.py so the CSV cannot drift from it.
+    import csv as _csv
+    path = _design_path(family_key, csv_path)
+    with open(path, "r") as f:
+        lines = [ln for ln in f if not ln.lstrip().startswith("#")]
+    rows = []
+    for rec in _csv.DictReader(lines):
+        groups = {}
+        for k, v in rec.items():
+            if k and k.startswith("g_") and v not in (None, ""):
+                groups[k[2:]] = float(v)
+        if not groups:
+            raise SystemExit("Design %s has no g_* column." % path)
+        rows.append({"id": rec["id"], "groups": groups})
+    print(">>> Loaded %d design points from %s" % (len(rows), path))
+    return rows
+
+
+def design_study(family_key, csv_path=None):
+    """
+    Screening / sweep driven by a design generated with generate_design.py.
+    Every case is applied through the family's own sampling campaign, which
+    validates the model form and rebuilds the yield table, the friction model
+    and the target time increment. Run it as:
+        abaqus cae noGUI=run_parameter_study.py -- design glassy_pc
+    """
+    fam = get_family(family_key)
+    spec = getattr(fam, "sampling", None)
+    if spec is None:
+        raise SystemExit(
+            "Family '%s' carries no sampling campaign. Campaign hosts are the "
+            "families with sampling=... in families.py; the other families of "
+            "the same model class are covered by their host's ranking."
+            % family_key)
+    cases = _load_design(family_key, csv_path)
+    print(">>> Campaign %s (%s): %d factors %s"
+          % (spec.campaign, spec.label, spec.dim, spec.names))
+
+    def apply(cfg, case):
+        spec.configure(cfg, case["groups"])
+
+    return ParameterStudy(
+        name="DesignSweep",
+        cases=cases,
+        apply_case=apply,
+        label=lambda case: "Design_%s" % case["id"],
+    )
+
+
 def model_study(mu0=2.2, K_mu=55.0):
     """
     Hyperelastic model-form comparison: one scratch per constitutive model (Mooney-Rivlin, Arruda-Boyce, Yeoh, Ogden N=2), 
@@ -467,6 +538,7 @@ STUDIES = {
     "target_dt":  lambda: target_dt_study(DEFAULT_DT_SCALES),
     "friction":   lambda: friction_study(DEFAULT_MU_VALUES),
     "material":   lambda: material_study(_load_material_parameters()),
+    "design":     lambda: design_study(_selected_family()),
     "models":     lambda: model_study(),
     "depth":      lambda: depth_study(DEFAULT_DEPTHS),
     "gsell_h":    lambda: gsell_h_study(DEFAULT_GSELL_H),
