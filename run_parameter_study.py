@@ -164,20 +164,43 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
         _makedirs_safe(output_subdir)
 
     n_total = len(cases)
+    failed_cases = []
     for i, case in enumerate(cases, start=1):
 
         study.apply_case(cfg, case)
         stem = study.label(case)
 
-        model, substrate_part = build_scratch_model(cfg)
-        SubstrateMaterialAssignment(model, substrate_part, cfg).apply()
+        # A parameter sweep explores corners where Abaqus can legitimately
+        # abort (element distortion, contact instability). Without this
+        # guard a single aborted job would kill every remaining case of the
+        # chunk. SystemExit is NOT caught: configuration errors must stop.
+        case_error = None
+        try:
+            model, substrate_part = build_scratch_model(cfg)
+            SubstrateMaterialAssignment(model, substrate_part, cfg).apply()
 
+            run_job_and_wait(cfg.job_name, cfg)
+            post_process(cfg.job_name, stem, cfg)
+        except Exception as _exc:
+            case_error = ("%s: %s" % (type(_exc).__name__, _exc))[:300]
 
+        try:
+            mdb.close()
+        except Exception:
+            pass
 
-        run_job_and_wait(cfg.job_name, cfg)
-        post_process(cfg.job_name, stem, cfg)
-
-        mdb.close()   
+        if case_error is not None:
+            failed_cases.append((stem, case_error))
+            print(">>> [%d/%d] %s -> %s FAILED, continuing. %s"
+                  % (i, n_total, study.name, stem, case_error))
+            for ext in (move_exts + (".lck",)):
+                stale = cfg.job_name + ext
+                if os.path.exists(stale):
+                    try:
+                        os.remove(stale)
+                    except OSError:
+                        pass
+            continue
 
         if output_subdir and stem != cfg.job_name:
             for ext in move_exts:
@@ -186,6 +209,18 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
                     shutil.move(src, os.path.join(output_subdir, stem + ext))
 
         print(">>> [%d/%d] %s -> %s done." % (i, n_total, study.name, stem))
+
+    if failed_cases:
+        print(">>> %d of %d case(s) FAILED in this chunk:"
+              % (len(failed_cases), n_total))
+        for stem, msg in failed_cases:
+            print(">>>    %s : %s" % (stem, msg))
+        try:
+            with open("FAILED_CASES.txt", "a") as _f:
+                for stem, msg in failed_cases:
+                    _f.write("%s\t%s\n" % (stem, msg))
+        except (IOError, OSError):
+            pass
 
     cleanup_abaqus_junk(base_dir=run_dir_abs)
 

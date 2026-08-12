@@ -254,7 +254,7 @@ GLASSY_DP = PolymerFamily(
     label="Glassy amorphous thermoplastic (linear elastic + Drucker-Prager)",
     config_factory=_glassy_config,
     checks=_GLASSY_CHECKS,
-    sampling=None,
+    sampling=SAMPLING_DP_UNIFIED,
     description=("Linear-elastic base + pressure-dependent Drucker-Prager "
                  "plasticity; permanent groove expected."),
 )
@@ -286,7 +286,7 @@ GLASSY_PMMA = PolymerFamily(
     label="PMMA (elastic + Drucker-Prager, softening + G'Sell hardening, rate-dependent)",
     config_factory=_glassy_pmma_config,
     checks=_GLASSY_CHECKS,
-    sampling=None,
+    sampling=SAMPLING_DP_UNIFIED,
     description=("Literature based PMMA: beta=20 deg, strong intrinsic "
                  "softening, h=0.45 orientation hardening, Cowper-Symonds "
                  "rate dependence fitted on 9 MPa/decade."),
