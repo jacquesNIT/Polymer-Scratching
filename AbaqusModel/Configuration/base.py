@@ -920,15 +920,15 @@ class Simulation_Config:
                 ale_in_passive_steps=False,       # no advection during unload / recovery
             ),
             scratch=Scratch_Config(
-                depth_mode=Scratch_Config.PROGRESSIVE,
+                depth_mode=Scratch_Config.CONSTANT,
                 control_mode=Scratch_Config.DISPLACEMENT,
                 scratch_length=2.0,
                 scratch_force=40e-3,
                 scratch_depth=-40e-3,
                 scratch_time=0.05,
                 indentation_time=0.01,
-                unload_time=0.02,
-                recovery_time=0.02,
+                unload_time=0.01,
+                recovery_time=0.01,
                 recovery_lift=0.05,
                 n_field_frames=20,
                 n_field_frames_recovery=5,
