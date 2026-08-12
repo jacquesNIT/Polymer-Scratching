@@ -22,7 +22,7 @@ JOBS = [
 
 
     ("single", "glassy_pmma", {"tag": "Test_C_P", "indenter": "pyramid", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
-    ("single", "glassy_pmma", {"tag": "Test_C_P", "indenter": "rockwell", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
+    ("single", "glassy_pmma", {"tag": "Test_C_R", "indenter": "rockwell", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
     #("single", "glassy_pmma", {"tag": "Verif25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     #("single", "glassy_pmma", {"tag": "Verif50", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
 
