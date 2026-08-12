@@ -1,32 +1,4 @@
-"""Extraction de valeurs brutes d'un run ScratchSimulation. Aucun check, aucun
-verdict, aucun seuil : uniquement les grandeurs mesurees, avec leurs unites.
-
-Format d'entree : le CSV complet du post-processeur (27 colonnes de series
-temporelles + IndenterU2, NodeLabel et les 6 colonnes de coordonnees). Les
-colonnes sont selectionnees par NOM, pas par position.
-
-Fichier autonome : toutes les fonctions utilisees sont recopiees ici depuis
-leurs sources d'origine, sans modification de la logique de calcul.
-
-  * Energies et SCOF -> recopies de results_verifier.py
-                 (parse_results_csv, _active_end, _peak, _normal_force_series,
-                  WM_BALANCE_TERMS, et le corps de check_quasi_static /
-                  check_hourglass / check_energy_total /
-                  check_artificial_energy / check_settling /
-                  check_friction_physics, ampute de ses branches de verdict).
-  * Forces et
-    topographie -> recopies du pipeline ScratchFeatures
-                 (extract_forces, map_coords_to_new_grid,
-                  get_profiles_from_coords, calc_xy_peak_indexes,
-                  get_pile_up_height, get_residual_depth, _safe_nanmean,
-                  et la branche h_fp de get_data_from_yz_profile).
-
-Systeme d'unites du modele : mm, tonne, s, MPa, N. L'energie est donc en
-N.mm = mJ.
-
-Dependances : numpy, scipy.
-
-Usage :
+"""
     python results_values_full.py <dossier_ou_csv> [<csv_sortie>] [<z_mm>]
 """
 
@@ -529,9 +501,10 @@ def scof_values(timeseries, metadata):
 def force_values(timeseries, metadata, z_value):
     """Forces normale et tangentielle du modele complet a z = z_value.
 
-    La serie est d'abord restreinte a la phase active, puis etiree lineairement
-    sur z in [0, SCRATCH_LENGTH] et interpolee a z_value. Le facteur 2 corrige
-    la symetrie du demi-modele.
+    La serie est d'abord restreinte a la fenetre pendant laquelle l'indenteur
+    avance (phase active en progressive, phase de scratch seule en constant),
+    puis etiree lineairement sur z in [0, SCRATCH_LENGTH] et interpolee a
+    z_value. Le facteur 2 corrige la symetrie du demi-modele.
     """
     out = {}
     rf3 = timeseries.get("RF3")
@@ -543,6 +516,20 @@ def force_values(timeseries, metadata, z_value):
     if time is not None and len(time) == len(rf2):
         t_act = _active_end(metadata, float(time[-1]))
         keep = time <= t_act * (1.0 + TIME_TOL)
+        # En depth_mode=constant l'indentation precede le scratch : z reste
+        # nul pendant indentation_time. Le mapping lineaire temps -> z de
+        # extract_forces suppose que z avance de 0 a SCRATCH_LENGTH sur TOUS
+        # les echantillons fournis ; garder la phase d'indentation decalerait
+        # donc tout z intermediaire. On restreint a [t_act - scratch_time,
+        # t_act], comme le fait deja scof_values. En progressive, indentation
+        # et scratch sont concurrents : pas de restriction supplementaire.
+        st = metadata.get("scratch_time")
+        constant_mode = not str(
+            metadata.get("depth_mode", "")
+        ).lower().startswith("prog")
+        if constant_mode and st and float(st) > 0.0:
+            t_scratch_start = t_act - float(st)
+            keep = keep & (time >= t_scratch_start - abs(t_act) * TIME_TOL)
     else:
         keep = np.ones(len(rf2), dtype=bool)
     if not keep.any():
