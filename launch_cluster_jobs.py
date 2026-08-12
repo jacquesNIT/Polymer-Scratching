@@ -20,7 +20,7 @@ JOBS = [
     #("mesh", "glassy_pmma", {"tag": "AFmesh_nothing", "ALE": False, "scratch_time": 0.05, "distortion": False,"unload_time": 0.01,"recovery_time": 0.01}),
     #("mesh", "glassy_pmma", {"tag": "AFmesh_dist", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1, "unload_time": 0.01,"recovery_time": 0.01}),
 
-    ("design", "glassy_pmma", {"tag": "morris_dp002", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
+    ("design", "glassy_pc", {"tag": "morris_dp002", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
 
 
     #("single", "glassy_pmma", {"tag": "Test_C_P", "indenter": "pyramid", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
