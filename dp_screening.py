@@ -24,7 +24,7 @@ except NameError:
     _HERE = os.path.abspath(".")
 sys.path.insert(0, _HERE)
 
-import ScratchSimulation.morris_analysis as MA
+import morris_analysis as MA
 
 
 DEFAULT_QOI = [

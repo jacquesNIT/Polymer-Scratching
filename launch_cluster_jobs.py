@@ -16,9 +16,11 @@ JOBS = [
 
     #("mass_scale", "glassy_pmma", {"tag": "MS001bis2", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
 
-    ("mesh", "glassy_pmma", {"tag": "AFmesh_ALE", "ALE": True, "scratch_time": 0.05, "distortion": False,"unload_time": 0.01,"recovery_time": 0.01}),
-    ("mesh", "glassy_pmma", {"tag": "AFmesh_nothing", "ALE": False, "scratch_time": 0.05, "distortion": False,"unload_time": 0.01,"recovery_time": 0.01}),
-    ("mesh", "glassy_pmma", {"tag": "AFmesh_dist", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1, "unload_time": 0.01,"recovery_time": 0.01}),
+    #("mesh", "glassy_pmma", {"tag": "AFmesh_ALE", "ALE": True, "scratch_time": 0.05, "distortion": False,"unload_time": 0.01,"recovery_time": 0.01}),
+    #("mesh", "glassy_pmma", {"tag": "AFmesh_nothing", "ALE": False, "scratch_time": 0.05, "distortion": False,"unload_time": 0.01,"recovery_time": 0.01}),
+    #("mesh", "glassy_pmma", {"tag": "AFmesh_dist", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1, "unload_time": 0.01,"recovery_time": 0.01}),
+
+    ("design", "glassy_pmma", {"tag": "morris_dp002", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
 
 
     #("single", "glassy_pmma", {"tag": "Test_C_P", "indenter": "pyramid", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
@@ -33,54 +35,10 @@ JOBS = [
     #("mesh", "elastomer_mr", {"tag": "mesh1.2", "ALE": False, "scratch_time": 0.025, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
     #("mesh", "elastomer_ve", {"tag": "mesh1.2", "ALE": False, "scratch_time": 0.025, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
 
-    #("mesh", "glassy_pc", {"tag": "mesh1-3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    #("mesh", "glassy_dp", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_j2", {"tag": "mesh1-3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    #("mesh", "semicrystalline_dp", {"tag": "mesh1-3", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    #("mesh", "elastomer_mr", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
-    #("mesh", "elastomer_ve", {"tag": "mesh1.3", "ALE": False, "scratch_time": 0.01, "hourglass": "RELAX STIFFNESS", "distortion": True, "length": 0.1}),
-
-    #("single", "elastomer_ve", {"tag": "rec_test30", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.3, "hourglass": "RELAX STIFFNESS"}),
-    #("single", "elastomer_ve", {"tag": "rec_test100", "ALE": True, "scratch_time": 0.05, "recovery_time": 1.0, "hourglass": "RELAX STIFFNESS"}),
-    #("single", "elastomer_ve", {"tag": "rec_test10", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
-    #("single", "elastomer_ve", {"tag": "rec_test50", "ALE": True, "scratch_time": 0.05, "recovery_time": 0.5, "hourglass": "RELAX STIFFNESS"}),
-
-    #("single", "elastomer_ve", {"tag": "rec_test30-01", "ALE": True, "scratch_time": 0.1, "recovery_time": 0.3, "hourglass": "RELAX STIFFNESS"}),
-    #("single", "elastomer_ve", {"tag": "rec_test100-01", "ALE": True, "scratch_time": 0.1, "recovery_time": 1.0, "hourglass": "RELAX STIFFNESS"}),
-    #("single", "elastomer_ve", {"tag": "rec_test10-01", "ALE": True, "scratch_time": 0.1, "recovery_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
-    #("single", "elastomer_ve", {"tag": "rec_test50-01", "ALE": True, "scratch_time": 0.1, "recovery_time": 0.5, "hourglass": "RELAX STIFFNESS"}),
-
-    #("single", "elastomer_ve", {"tag": "rec_test30-001", "ALE": True, "scratch_time": 0.01, "recovery_time": 0.3, "hourglass": "RELAX STIFFNESS"}),
-    #("single", "elastomer_ve", {"tag": "rec_test100-001", "ALE": True, "scratch_time": 0.01, "recovery_time": 1.0, "hourglass": "RELAX STIFFNESS"}),
-    #("single", "elastomer_ve", {"tag": "rec_test10-001", "ALE": True, "scratch_time": 0.01, "recovery_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
-    #("single", "elastomer_ve", {"tag": "rec_test50-001", "ALE": True, "scratch_time": 0.01, "recovery_time": 0.5, "hourglass": "RELAX STIFFNESS"}),
-
-    #("mesh", "glassy_pc", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
-    #("mesh", "glassy_dp", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
-    #("mesh", "glassy_pmma", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1})
-    #("mesh", "semicrystalline_j2", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
-    #("mesh", "semicrystalline_dp", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1}),
-    #("mesh", "elastomer_mr", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
-    #("mesh", "elastomer_ve", {"tag": "mesh5", "ALE": True, "scratch_time": 0.1, "hourglass": "RELAX STIFFNESS"}),
-
-    #("mesh", "glassy_dp", {"tag": "ALE20", "ALE": True, "scratch_time": 0.05, "freq": 20, "sweeps": 1}),
-    #("mesh", "glassy_dp", {"tag": "ALE200", "ALE": True, "scratch_time": 0.05, "freq": 200, "sweeps": 3}),
-    #("mesh", "glassy_dp", {"tag": "ALE650", "ALE": True, "scratch_time": 0.05, "freq": 650, "sweeps": 3}),
-    #("mesh", "glassy_dp", {"tag": "ALE1300", "ALE": True, "scratch_time": 0.05, "freq": 1300, "sweeps": 5}),
-
-
-    #("single", "glassy_pc", {"tag": "quick_pc5", "ALE": False, "scratch_time": 0.05}),
-    #("single", "glassy_pc", {"tag": "quick_pc10", "ALE": False, "scratch_time": 0.1}),
-
-    #("single", "glassy_pmma", {"tag": "Frictionless1-001", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1}),
-    #("single", "glassy_pmma", {"tag": "Frictionless1-0025", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
-    #("single", "glassy_pmma", {"tag": "Frictionless1-005", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
-
-    #("single", "glassy_dp", {"tag": "quick_dp5", "ALE": False, "scratch_time": 0.05}),
-    #("single", "glassy_dp", {"tag": "quick_dp10", "ALE": False, "scratch_time": 0.1}),
 ]
 
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
+DESIGN_JOBS = 5                  # number of jobs for the "design" sweep
 SUBMIT_TEMPLATE = "submit.sh"
 RELAY_PARTITION = "q64"
 DRY_RUN = False                 # True for testing only
@@ -239,10 +197,11 @@ def expand_jobs():
         tag, over = _opt_tokens(opts, entry)
         base_label = "%s_%s" % (study, family) + (("_%s" % tag) if tag else "")
         tag_tok = (["tag=%s" % tag] if tag else [])
-        if study == "material" and SWEEP_JOBS > 1:
-            for i in range(SWEEP_JOBS):
-                label = "%s_c%03dof%03d" % (base_label, i, SWEEP_JOBS)
-                out.append((label, [study, family, "%d/%d" % (i, SWEEP_JOBS)]
+        n_chunks = {"material": SWEEP_JOBS, "design": DESIGN_JOBS}.get(study, 1)
+        if n_chunks > 1:
+            for i in range(n_chunks):
+                label = "%s_c%03dof%03d" % (base_label, i, n_chunks)
+                out.append((label, [study, family, "%d/%d" % (i, n_chunks)]
                             + tag_tok + over))
         else:
             out.append((base_label, [study, family] + tag_tok + over))
