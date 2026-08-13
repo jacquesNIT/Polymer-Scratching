@@ -8,21 +8,21 @@ import time
 
 JOBS = [
 
-    ("single", "glassy_pmma", {"tag": "ALE20_1", "ALE": True, "freq": 20, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("single", "glassy_pmma", {"tag": "ALE50_1", "ALE": True, "freq": 50, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("single", "glassy_pmma", {"tag": "ALE100_1", "ALE": True, "freq": 100, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("single", "glassy_pmma", {"tag": "ALE200_1", "ALE": True, "freq": 200, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("single", "glassy_pmma", {"tag": "ALE20_2", "ALE": True, "freq": 20, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("single", "glassy_pmma", {"tag": "ALE50_2", "ALE": True, "freq": 50, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("single", "glassy_pmma", {"tag": "ALE100_2", "ALE": True, "freq": 100, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("single", "glassy_pmma", {"tag": "ALE200_2", "ALE": True, "freq": 200, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("single", "glassy_pmma", {"tag": "ALE20_3", "ALE": True, "freq": 20, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("single", "glassy_pmma", {"tag": "ALE50_3", "ALE": True, "freq": 50, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("single", "glassy_pmma", {"tag": "ALE100_3", "ALE": True, "freq": 100, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("single", "glassy_pmma", {"tag": "ALE200_3", "ALE": True, "freq": 200, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE20_1", "ALE": True, "freq": 20, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE50_1", "ALE": True, "freq": 50, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE100_1", "ALE": True, "freq": 100, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE200_1", "ALE": True, "freq": 200, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE20_2", "ALE": True, "freq": 20, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE50_2", "ALE": True, "freq": 50, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE100_2", "ALE": True, "freq": 100, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE200_2", "ALE": True, "freq": 200, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE20_3", "ALE": True, "freq": 20, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE50_3", "ALE": True, "freq": 50, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE100_3", "ALE": True, "freq": 100, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("single", "glassy_pmma", {"tag": "ALE200_3", "ALE": True, "freq": 200, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
 
     # To launch on 0.01 mesh with freq=20 ALE (~2-4 days)
-    #("design", "glassy_dp", {"tag": "Morris_001", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
+    ("design", "glassy_pc", {"tag": "Morris_001", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
 
 
     #("single", "glassy_pmma", {"tag": "Test_C_P", "indenter": "pyramid", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
