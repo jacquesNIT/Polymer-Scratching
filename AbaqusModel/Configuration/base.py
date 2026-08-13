@@ -911,8 +911,8 @@ class Simulation_Config:
                 num_cpus=6,                        # "submit.sh CPU value is prioritized"
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
-                ale_frequency=400,                # C_remesh ~ 0.1 (glassy) to ~0.6 (elastomer); see ale_remesh_courant()
-                ale_mesh_sweeps=3,                # absorbs the larger distortion between two (now rarer) remeshings
+                ale_frequency=20,                # C_remesh ~ 0.1 (glassy) to ~0.6 (elastomer); see ale_remesh_courant()
+                ale_mesh_sweeps=1,                # absorbs the larger distortion between two (now rarer) remeshings
                 ale_smoothing_priority="GRADED",
                 ale_smoothing_algorithm="GEOMETRY_ENHANCED",
                 ale_curvature_refinement=1,       # try 2-3 to sharpen the groove shoulder (pile-up resolution)
