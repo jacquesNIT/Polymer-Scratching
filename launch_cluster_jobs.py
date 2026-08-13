@@ -8,19 +8,21 @@ import time
 
 JOBS = [
 
-    #("mesh", "glassy_pc", {"tag": "mesh100", "ALE": False, "scratch_time": 0.1, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
-    #("mesh", "glassy_pc", {"tag": "mesh50", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
-    #("mesh", "glassy_pc", {"tag": "mesh25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
-    #("mesh", "glassy_pc", {"tag": "mesh10", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
-    #("mesh", "glassy_pc", {"tag": "mesh5bis", "ALE": False, "scratch_time": 0.005, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
+    ("single", "glassy_pmma", {"tag": "ALE20_1", "ALE": True, "freq": 20, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("single", "glassy_pmma", {"tag": "ALE50_1", "ALE": True, "freq": 50, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("single", "glassy_pmma", {"tag": "ALE100_1", "ALE": True, "freq": 100, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("single", "glassy_pmma", {"tag": "ALE200_1", "ALE": True, "freq": 200, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("single", "glassy_pmma", {"tag": "ALE20_2", "ALE": True, "freq": 20, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("single", "glassy_pmma", {"tag": "ALE50_2", "ALE": True, "freq": 50, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("single", "glassy_pmma", {"tag": "ALE100_2", "ALE": True, "freq": 100, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("single", "glassy_pmma", {"tag": "ALE200_2", "ALE": True, "freq": 200, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("single", "glassy_pmma", {"tag": "ALE20_3", "ALE": True, "freq": 20, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("single", "glassy_pmma", {"tag": "ALE50_3", "ALE": True, "freq": 50, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("single", "glassy_pmma", {"tag": "ALE100_3", "ALE": True, "freq": 100, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("single", "glassy_pmma", {"tag": "ALE200_3", "ALE": True, "freq": 200, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
 
-    #("mass_scale", "glassy_pmma", {"tag": "MS001bis2", "ALE": False, "scratch_time": 0.01, "distortion": True, "length": 0.1,"unload_time": 0.05,"recovery_time": 0.05}),
-
-    #("mesh", "glassy_pmma", {"tag": "AFmesh_ALE", "ALE": True, "scratch_time": 0.05, "distortion": False,"unload_time": 0.01,"recovery_time": 0.01}),
-    #("mesh", "glassy_pmma", {"tag": "AFmesh_nothing", "ALE": False, "scratch_time": 0.05, "distortion": False,"unload_time": 0.01,"recovery_time": 0.01}),
-    #("mesh", "glassy_pmma", {"tag": "AFmesh_dist", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1, "unload_time": 0.01,"recovery_time": 0.01}),
-
-    ("design", "semicrystalline_dp", {"tag": "retry_morris_dp002", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
+    # To launch on 0.01 mesh with freq=20 ALE (~2-4 days)
+    #("design", "glassy_dp", {"tag": "Morris_001", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
 
 
     #("single", "glassy_pmma", {"tag": "Test_C_P", "indenter": "pyramid", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),

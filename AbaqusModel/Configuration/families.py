@@ -121,6 +121,7 @@ def _semicrystalline_dp_config():
         family="semicrystalline_dp",
     )
     cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : same s as semicrystalline_j2 (same rho/E/mesh -> same natural dt)
+    cfg.solver.mass_scale = 20000
     return cfg
 
 def _elastomer_ve_config():
@@ -158,8 +159,8 @@ def _glassy_config():
         #friction=Friction_Config(mu=0.3),
         family="glassy_dp",
     )
-    # cfg.solver.mass_scale = 500        # MS convergence study: < 5% only for MS <= 500.
-    cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 15 : Same as PC
+    cfg.solver.mass_scale = 20000        
+    #cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 15 : Same as PC
     return cfg
 
 def _glassy_pc_config():
@@ -186,7 +187,7 @@ def _glassy_pc_config():
         family="glassy_pc",
     )
     #cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 15 : results from the target time study (-5 for safety)
-    cfg.solver.mass_scale = 5000
+    cfg.solver.mass_scale = 20000
     return cfg
 
 
@@ -214,8 +215,8 @@ def _glassy_pmma_config():
         #friction=Friction_Config(mu=0.3),
         family="glassy_pmma",
     )
-    cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)
-    #cfg.solver.mass_scale = 10000
+    #cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)
+    cfg.solver.mass_scale = 20000
     return cfg
 
 ELASTOMER_MR = PolymerFamily(
