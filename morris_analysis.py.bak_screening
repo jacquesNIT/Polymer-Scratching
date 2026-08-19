@@ -68,26 +68,6 @@ def _num(rec, key):
         return float("nan")
 
 
-# [PATCH:screening-fixes] begin -- definition unique de "run exploitable".
-def _usable(rec, drop_status=("FAIL",)):
-    """
-    Vrai si le run peut alimenter un effet elementaire.
-
-    `_coverage` (dp_screening) excluait `parse_error` alors que
-    `elementary_effects` ne l'excluait pas : le nombre de runs annonce en
-    tete du rapport ne correspondait pas a celui reellement utilise. Les
-    deux passent desormais par ici.
-    """
-    if rec is None:
-        return False
-    if str(rec.get("status", "")) in drop_status:
-        return False
-    if rec.get("parse_error"):
-        return False
-    return True
-
-
-# [PATCH:screening-fixes] end
 def elementary_effects(design_rows, table, qoi, delta, drop_status=("FAIL",)):
     """Return (list of (traj, factor, EE), n_missing)."""
     by_traj = {}
@@ -100,8 +80,7 @@ def elementary_effects(design_rows, table, qoi, delta, drop_status=("FAIL",)):
         values = []
         for rid, _d in ordered:
             rec = table.get(rid)
-            # [PATCH:screening-fixes] original : if rec is None or str(rec.get("status", "")) in drop_status:
-            if not _usable(rec, drop_status):
+            if rec is None or str(rec.get("status", "")) in drop_status:
                 values.append(float("nan"))
                 n_missing += 1
             else:
@@ -140,9 +119,6 @@ def summarise(effects, factors, n_bootstrap=N_BOOTSTRAP, seed=0, ci_low=None):
                 boot[f].append(np.mean(acc[f]) if acc[f] else np.nan)
 
     lo_pct = CI[0] if ci_low is None else float(ci_low)
-    # [PATCH:screening-fixes] l'intervalle doit etre symetrique du test applique :
-    # hi restait fige a 95 % meme quand lo etait corrige a 0.833 %.
-    hi_pct = CI[1] if ci_low is None else (100.0 - float(ci_low))
     out = {}
     for f in factors:
         vals = np.asarray(per_factor[f], dtype=float)
@@ -158,8 +134,7 @@ def summarise(effects, factors, n_bootstrap=N_BOOTSTRAP, seed=0, ci_low=None):
             "mu": float(np.mean(vals)),
             "n_eff": int(vals.size),
             "mu_star_lo": float(np.percentile(b, lo_pct)) if b.size else np.nan,
-            # [PATCH:screening-fixes] original : float(np.percentile(b, CI[1]))
-            "mu_star_hi": float(np.percentile(b, hi_pct)) if b.size else np.nan,
+            "mu_star_hi": float(np.percentile(b, CI[1])) if b.size else np.nan,
         }
     return out
 
@@ -206,15 +181,6 @@ def main():
     ap.add_argument("--bootstrap", type=int, default=N_BOOTSTRAP)
     ap.add_argument("--keep-failed", action="store_true",
                     help="keep runs whose verifier status is FAIL")
-    # [PATCH:screening-fixes] meme correction de multiplicite que dp_screening.py,
-    # sans quoi les deux scripts rendaient des verdicts differents sur les
-    # memes donnees. La regle 'retenu pour au moins une QoI' est une union
-    # de n_qoi tests ; sans correction le risque de faux positif par facteur
-    # atteint 26 % sur 6 QoI.
-    ap.add_argument("--fwer", default="qoi", choices=("qoi", "none"),
-                    help="multiplicity correction over the QoI union test. "
-                         "'qoi' (default, matches dp_screening.py): bootstrap "
-                         "threshold corrected to alpha/n_qoi. 'none': 5%% per test.")
     args = ap.parse_args()
 
     meta, design_rows = read_design(args.design)
@@ -254,21 +220,10 @@ def main():
     if not os.path.isdir(args.out_dir):
         os.makedirs(args.out_dir)
 
-    # [PATCH:screening-fixes] begin -- correction de multiplicite (etait absente ici).
-    n_tests = len(qois) if args.fwer == "qoi" else 1
-    ci_low = CI[0] / float(n_tests)
-    if args.fwer == "qoi" and args.bootstrap * ci_low / 100.0 < 20:
-        need = int(np.ceil(20 * 100.0 / ci_low))
-        print("  bootstrap porte a %d pour resoudre le percentile corrige %.3f%%"
-              % (need, ci_low))
-        args.bootstrap = need
-    # [PATCH:screening-fixes] end
     rows, retained = [], set()
     for qoi in qois:
         effects, n_missing = elementary_effects(design_rows, table, qoi, delta, drop)
-        # [PATCH:screening-fixes] original : summarise(effects, factors, n_bootstrap=args.bootstrap)
-        summary = summarise(effects, factors, n_bootstrap=args.bootstrap,
-                            ci_low=ci_low)
+        summary = summarise(effects, factors, n_bootstrap=args.bootstrap)
         mu_max = max([summary[f]["mu_star"] for f in factors
                       if np.isfinite(summary[f]["mu_star"])] or [np.nan])
         sig_num = float(noise[qoi]) if qoi in noise else None

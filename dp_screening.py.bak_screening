@@ -54,11 +54,8 @@ def _collect(results_dir, design, out_csv):
 
 def _coverage(design_rows, table):
     ids = set(design_rows)
-    # [PATCH:screening-fixes] original (definition dupliquee, divergeait de
-    # elementary_effects qui ignorait parse_error) :
-    # have = set(k for k, v in table.items()
-    #            if k in ids and not v.get("parse_error") and v.get("status") != "FAIL")
-    have = set(k for k, v in table.items() if k in ids and MA._usable(v))
+    have = set(k for k, v in table.items()
+               if k in ids and not v.get("parse_error") and v.get("status") != "FAIL")
     per_traj = {}
     for rid, d in design_rows.items():
         per_traj.setdefault(int(d["traj"]), []).append(rid)
@@ -84,13 +81,8 @@ def _analyse(design_rows, table, factors, delta, qoi_keys, noise, noise_rel,
         mu_null = (np.sqrt(2.0 / np.pi) * ee_noise) if ee_noise is not None else None
         mu_max = max([summary[f]["mu_star"] for f in factors
                       if np.isfinite(summary[f]["mu_star"])] or [np.nan])
-        # [PATCH:screening-fixes] original : ne filtrait que mu_star_hi, donc un
-        # mu_star_lo NaN propageait un NaN dans la mediane et annulait le mde.
-        # spread = [summary[f]["mu_star_hi"] - summary[f]["mu_star_lo"] for f in factors
-        #           if np.isfinite(summary[f]["mu_star_hi"])]
         spread = [summary[f]["mu_star_hi"] - summary[f]["mu_star_lo"] for f in factors
-                  if np.isfinite(summary[f]["mu_star_hi"])
-                  and np.isfinite(summary[f]["mu_star_lo"])]
+                  if np.isfinite(summary[f]["mu_star_hi"])]
         mde = (mu_null + 0.5 * float(np.median(spread))) if (mu_null is not None and spread) else None
         for f in factors:
             s = summary[f]
@@ -110,102 +102,6 @@ def _analyse(design_rows, table, factors, delta, qoi_keys, noise, noise_rel,
     return out
 
 
-# [PATCH:screening-fixes] begin -- points 5 et 6.
-CONFOUND_THRESHOLD = 0.55        # indice de confusion au-dela duquel on alerte
-
-
-def _confounding(per_qoi, factors):
-    """
-    POINT 5 -- exploite le `mu` SIGNE, jusqu'ici calcule et affiche mais
-    absent de tout verdict.
-
-    Deux facteurs entrant de facon additive et antagoniste dans la meme loi
-    ne sont pas separement identifiables. La signature observable est : `mu`
-    de signes opposes, `mu*` de meme ordre, et cela de facon COHERENTE sur
-    les QoI. Indice par paire, moyenne sur les QoI de
-
-        min(mu*_i, mu*_j) / max(mu*_i, mu*_j)  x  max(0, -sign(mu_i) sign(mu_j))
-
-    1 = parfaitement antagonistes et de meme poids ; 0 = pas de signature.
-    """
-    out = []
-    for a in range(len(factors)):
-        for b in range(a + 1, len(factors)):
-            fi, fj = factors[a], factors[b]
-            ws = []
-            for _q, blk in per_qoi.items():
-                si, sj = blk["summary"].get(fi), blk["summary"].get(fj)
-                if not si or not sj:
-                    continue
-                mi, mj = si["mu_star"], sj["mu_star"]
-                if not (np.isfinite(mi) and np.isfinite(mj)) or max(mi, mj) <= 0:
-                    continue
-                bal = min(mi, mj) / max(mi, mj)
-                opp = max(0.0, -((si["mu"] / mi) * (sj["mu"] / mj)))
-                ws.append(bal * opp)
-            if ws:
-                out.append({"pair": (fi, fj), "index": float(np.mean(ws)),
-                            "n_qoi": len(ws)})
-    out.sort(key=lambda r: -r["index"])
-    return out
-
-
-def _structural_floor(design_rows, table, factors, qoi_keys, delta, gates):
-    """
-    POINT 6 -- plancher de bruit STRUCTUREL, gratuit.
-
-    Un facteur peut etre inerte par construction : `eps_soft` ne pilote que
-    la cinetique de l'adoucissement, donc quand `s` vaut sa borne basse il
-    n'entre dans aucune equation. Tout effet elementaire mesure sur ces
-    paires est nul par construction : ce qui reste est du bruit, mesure sur
-    la campagne reelle -- maillage, mass scaling et extraction reels --
-    sans aucun run supplementaire.
-
-    `gates` est une liste de couples (gate, inert).
-    """
-    res = []
-    by_traj = {}
-    for rid, d in design_rows.items():
-        by_traj.setdefault(int(d["traj"]), {})[int(d["step"])] = (rid, d)
-    for gate, inert in gates:
-        col = "g_" + gate
-        if gate not in factors or inert not in factors:
-            continue
-        try:
-            lo = min(float(d[col]) for d in design_rows.values())
-        except (KeyError, ValueError):
-            continue
-        pairs = []
-        for _t, steps in sorted(by_traj.items()):
-            seq = [steps[k] for k in sorted(steps)]
-            for k in range(1, len(seq)):
-                rid1, d1 = seq[k]
-                rid0, _d0 = seq[k - 1]
-                if d1.get("moved") != inert:
-                    continue
-                if abs(float(d1[col]) - lo) > 1e-9:
-                    continue
-                pairs.append((rid0, rid1))
-        floors = {}
-        for q in qoi_keys:
-            vals = []
-            for a, b in pairs:
-                ra, rb = table.get(a), table.get(b)
-                if not (MA._usable(ra) and MA._usable(rb)):
-                    continue
-                y0, y1 = MA._num(ra, q), MA._num(rb, q)
-                if np.isfinite(y0) and np.isfinite(y1):
-                    vals.append(abs(y1 - y0) / delta)
-            if vals:
-                v = np.asarray(vals, dtype=float)
-                floors[q] = {"n": int(v.size), "mean": float(v.mean()),
-                             "max": float(v.max())}
-        res.append({"gate": gate, "inert": inert, "lo": lo,
-                    "n_pairs": len(pairs), "floors": floors})
-    return res
-
-
-# [PATCH:screening-fixes] end
 def _consolidate(per_qoi, factors):
     rows = []
     for f in factors:
@@ -343,10 +239,7 @@ def _fmt(v, n=4):
     return ("%." + str(n) + "g") % v
 
 
-def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
-                 extra=None):
-    # [PATCH:screening-fixes] `extra` porte les blocs des points 5 et 6 ; valeur par
-    # defaut None pour ne pas casser les appels existants.
+def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs):
     L = []
     A = L.append
     keys = [q for q, _, _ in qoi_meta if q in per_qoi]
@@ -484,72 +377,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
           "geles en milieu de plage. Passer de %d a %d facteurs est ce qui rend 1024 "
           "points suffisants." % (len(factors), len(retained) + len(marginal)))
     A("")
-    # [PATCH:screening-fixes] begin -- sections ajoutees (points 5 et 6).
-    extra = extra or {}
-    conf = extra.get("confounding") or []
-    hot = [c for c in conf if c["index"] >= CONFOUND_THRESHOLD]
-    A("## 3bis. Identifiabilite et plancher structurel")
-    A("")
-    A("### Signature de confusion entre facteurs")
-    A("")
-    if hot:
-        A("> **%d paire(s) au-dessus du seuil %.2f.** `mu` de signes opposes et "
-          "`mu*` de meme ordre, de facon coherente sur les QoI : c'est ce que "
-          "produisent deux termes additifs antagonistes de la meme loi. Seule "
-          "leur difference est identifiable, et Morris attribue a chacun la "
-          "moitie d'un effet unique. Les `mu*` de ces facteurs ne doivent pas "
-          "etre lus separement." % (len(hot), CONFOUND_THRESHOLD))
-        A("")
-    elif conf:
-        A("Aucune paire au-dessus du seuil %.2f : pas de signature de "
-          "confusion detectee." % CONFOUND_THRESHOLD)
-        A("")
-    if conf:
-        A("| Paire | indice | QoI |")
-        A("|---|---|---|")
-        for c in conf[:8]:
-            A("| `%s` / `%s` | %s | %d |"
-              % (c["pair"][0], c["pair"][1], _fmt(c["index"], 3), c["n_qoi"]))
-        A("")
-    A("### Plancher de bruit structurel")
-    A("")
-    sf = extra.get("structural") or []
-    if not sf:
-        A("_Aucune relation d'inertie declaree (`--gates`)._")
-        A("")
-    for blk in sf:
-        A("`%s` est inerte par construction quand `%s` = %s : %d paire(s) dans "
-          "le plan. Les effets elementaires mesures y sont nuls par "
-          "construction, donc ce qui reste est du bruit -- mesure sur la "
-          "campagne reelle, sans run supplementaire."
-          % (blk["inert"], blk["gate"], _fmt(blk["lo"], 3), blk["n_pairs"]))
-        A("")
-        if not blk["floors"]:
-            A("_Aucune paire exploitable : les runs concernes sont manquants._")
-            A("")
-            continue
-        A("| QoI | n | mu* nul observe | max | seuil fourni | Coherence |")
-        A("|---|---|---|---|---|---|")
-        for q in keys:
-            fl = blk["floors"].get(q)
-            if not fl:
-                continue
-            supplied = per_qoi[q]["mu_null"] if q in per_qoi else None
-            if supplied is None:
-                verdict = "-"
-            elif supplied < fl["mean"]:
-                verdict = "**seuil trop bas**"
-            else:
-                verdict = "ok"
-            A("| `%s` | %d | %s | %s | %s | %s |"
-              % (q, fl["n"], _fmt(fl["mean"]), _fmt(fl["max"]),
-                 _fmt(supplied), verdict))
-        A("")
-        A("> Un `seuil trop bas` signifie que le plancher fourni est inferieur "
-          "au bruit reellement mesure sur des effets nuls par construction : "
-          "des facteurs sont alors retenus a tort.")
-        A("")
-    # [PATCH:screening-fixes] end
     A("## 4. Reserves")
     A("")
     A("- Le classement vaut pour la **classe Drucker-Prager**, pas pour une famille "
@@ -583,12 +410,6 @@ def main():
     ap.add_argument("--qoi", default=None, help="sous-ensemble de QoI, separees par des virgules")
     ap.add_argument("--out-dir", default="screening_dp")
     ap.add_argument("--bootstrap", type=int, default=4000)
-    # [PATCH:screening-fixes] point 6 : relations d'inertie structurelle.
-    ap.add_argument("--gates", default="s:eps_soft",
-                    help="couples gate:inert separes par des virgules. "
-                         "`inert` est sans effet quand `gate` est a sa borne "
-                         "basse, donc les effets elementaires mesures la sont "
-                         "du bruit pur. Vide pour desactiver.")
     ap.add_argument("--fwer", default="qoi", choices=("qoi", "none"),
                     help="correction de multiplicite. 'qoi' (defaut) : la regle "
                          "'retenu pour au moins une QoI' est une union de n_qoi tests, "
@@ -690,27 +511,9 @@ def main():
                         r["rank_mean"], r["sigma_ratio_max"], r["margin_best"],
                         r["n_retained"], ";".join(r["retained_in"]), r["verdict"]])
 
-    # [PATCH:screening-fixes] begin -- points 5 et 6.
-    gates = []
-    for spec in (args.gates or "").split(","):
-        if ":" in spec:
-            g, i = [x.strip() for x in spec.split(":", 1)]
-            if g and i:
-                gates.append((g, i))
-    extra = {
-        "confounding": _confounding(per_qoi, factors),
-        "structural": _structural_floor(design_rows, table, factors,
-                                        [q for q, _, _ in qoi_meta],
-                                        meta["delta"], gates),
-    }
-    for c in extra["confounding"][:1]:
-        if c["index"] >= CONFOUND_THRESHOLD:
-            print("  ATTENTION confusion probable : %s / %s (indice %.3f)"
-                  % (c["pair"][0], c["pair"][1], c["index"]))
-    # [PATCH:screening-fixes] end
     md_path = os.path.join(args.out_dir, "SCREENING_REPORT.md")
     retained, marginal, frozen = write_report(md_path, meta, cov, per_qoi, cons,
-                                    factors, qoi_meta, args, figs, extra=extra)
+                                    factors, qoi_meta, args, figs)
 
     json_path = os.path.join(args.out_dir, "retained_factors_%s.json" % (meta["family"] or "dp"))
     with open(json_path, "w") as f:

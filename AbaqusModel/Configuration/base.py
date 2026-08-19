@@ -1020,7 +1020,7 @@ def ale_remesh_courant(cfg):
 
 # G'Sell-Jonas dense hardening-table generator (used for the yield tables)
 def gsell_jonas_table(sigma_y0, h, Q=0.0, b=0.0, soft_drop=0.0, eps_soft=0.05,
-                      eps_max=3.0, n_points=60):
+                      eps_max=3.0, n_points=100):
     # Dense (sigma_y, eps_p) table for *PLASTIC / *DRUCKER PRAGER HARDENING:
     # sigma(eps_p) = [sigma_y0 - soft_drop*(1 - exp(-eps_p/eps_soft)) + Q*(1 - exp(-b*eps_p))] * exp(h*eps_p^2)
 

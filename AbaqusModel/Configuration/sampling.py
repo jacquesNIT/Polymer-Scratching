@@ -341,7 +341,40 @@ def _derive_dp(g, cfg, frozen, with_softening):
     return out
 
 
+# [PATCH:exclusive-post-yield] begin -- exclusivite structurelle des termes post-seuil.
+#
+# Deux mecanismes post-seuil additifs et antagonistes ne sont pas
+# separement identifiables : avec b_voce = 8 (echelle 0.125) et eps_soft
+# jusqu'a 0.12, deux couples (q, s) de meme difference q - s donnent des
+# tables d'ecrouissage separees par moins de 0.5 % de sigma_y0. Aucune des
+# deux campagnes historiques ne les autorise ensemble (C3 gele
+# soft_drop_MPa = 0, C4 gele b_voce = 0) et aucune famille calibree ne les
+# porte simultanement. La regle est donc une INVARIANTE du modele, pas une
+# preference de campagne, et elle est verifiee au point de passage commun.
+EXCLUSIVE_PARAM_PAIRS = (
+    ("Q", "soft_drop"),
+)
+
+
+def _assert_exclusive(p, campaign="?"):
+    """Leve si deux parametres declares mutuellement exclusifs sont actifs."""
+    for a, b in EXCLUSIVE_PARAM_PAIRS:
+        va = abs(float(p.get(a, 0.0) or 0.0))
+        vb = abs(float(p.get(b, 0.0) or 0.0))
+        if va > 1e-12 and vb > 1e-12:
+            raise ValueError(
+                "Campaign '%s': '%s' (=%g) and '%s' (=%g) are mutually "
+                "exclusive but both are active. They are antagonistic "
+                "additive terms of the same hardening law and are not "
+                "separately identifiable; use the signed factor 'w' "
+                "instead of independent 'q' and 's'."
+                % (campaign, a, va, b, vb))
+    return p
+
+
+# [PATCH:exclusive-post-yield] end
 def _apply_dp(cfg, p):
+    _assert_exclusive(p)
     cfg.material.rho = p["rho"]
     cfg.material.hyperelastic = LinearElastic_Config(E=p["E"], nu=p["nu"])
     cfg.material.plasticity = DruckerPrager_Config(
@@ -429,7 +462,11 @@ CDP_FROZEN = {
     "sigma_y0_ref_MPa": 50.0,
     "nu": 0.39,
     "rho": 1.10e-9,
+    # [PATCH:exclusive-post-yield] b_voce n'est plus gele : il vaut 1/eps_c sur la
+    # branche Voce. La valeur reste declaree pour la tracabilite et pour
+    # les campagnes qui passent encore par _derive_dp sans aiguillage.
     "b_voce": 8.0,
+    "b_voce_note": "superseded by 1/eps_c in CDP; kept for traceability",
     "dilation_angle_deg": 0.0,
     "eps_max": 2.5,
     "n_points": 60,
@@ -440,9 +477,17 @@ CDP_FROZEN = {
 CDP_FACTORS = [
     Factor("X",        5.0, 60.0, "log", "-",   "Johnson parameter E* tan(theta) / sigma_y0"),
     Factor("h",        0.0, 0.45, "lin", "-",   "G'Sell orientation hardening exp(h eps^2)"),
-    Factor("q",        0.0, 0.35, "lin", "-",   "Voce amplitude Q / sigma_y0 (0 = glassy limit)"),
-    Factor("s",        0.0, 0.35, "lin", "-",   "intrinsic softening drop / sigma_y0 (0 = semicrystalline limit)"),
-    Factor("eps_soft", 0.02, 0.12, "lin", "-",  "softening strain scale"),
+    # [PATCH:exclusive-post-yield] q / s / eps_soft remplaces par (w, eps_c).
+    # Originaux -- q et s sont antagonistes et confondus dans le crochet :
+    # Factor("q",        0.0, 0.35, "lin", "-",   "Voce amplitude Q / sigma_y0 (0 = glassy limit)"),
+    # Factor("s",        0.0, 0.35, "lin", "-",   "intrinsic softening drop / sigma_y0 (0 = semicrystalline limit)"),
+    # Factor("eps_soft", 0.02, 0.12, "lin", "-",  "softening strain scale"),
+    Factor("w",     -0.35, 0.35, "lin", "-",  "signed post-yield amplitude / sigma_y0: "
+                                             "w < 0 = intrinsic softening (glassy), "
+                                             "w > 0 = Voce hardening (semicrystalline)"),
+    Factor("eps_c", 0.02, 0.12, "lin", "-",  "strain scale of whichever post-yield "
+                                             "branch is active (eps_soft if w < 0, "
+                                             "1/b if w > 0)"),
     Factor("beta",     1.0, 35.0, "lin", "deg", "Drucker-Prager friction angle (1 deg ~ J2)"),
     Factor("K",        0.778, 1.0, "lin", "-",  "flow stress ratio (Abaqus lower bound 0.778)"),
     Factor("mu_eff",   0.05, 0.45, "lin", "-",  "effective friction at scratch pressure"),
@@ -450,8 +495,54 @@ CDP_FACTORS = [
 ]
 
 
+# [PATCH:exclusive-post-yield] begin -- aiguillage exclusif des deux branches post-seuil.
+def _split_post_yield(w, eps_c, sy):
+    """
+    Traduit (w, eps_c) en la paire de termes post-seuil de
+    gsell_jonas_table, avec UN SEUL des deux actif.
+
+        w < 0 : branche vitreuse    -> soft_drop = |w| * sy, eps_soft = eps_c,
+                                       Q = 0
+        w > 0 : branche semi-crist. -> Q = w * sy, b = 1 / eps_c,
+                                       soft_drop = 0
+        w = 0 : ni l'un ni l'autre (parfaitement plastique + orientation)
+
+    Sur la grille Morris a p = 4 niveaux, w vaut -0.35, -0.1167, +0.1167
+    ou +0.35 : w = 0 n'est jamais echantillonne, donc chaque point du plan
+    appartient a une branche et a une seule.
+    """
+    w = float(w)
+    eps_c = float(eps_c)
+    if eps_c <= 0.0:
+        raise ValueError("eps_c must be strictly positive (got %g)" % eps_c)
+    if w < 0.0:
+        return {"Q": 0.0, "b": 1.0 / eps_c,
+                "soft_drop": -w * sy, "eps_soft": eps_c, "branch": -1.0}
+    if w > 0.0:
+        return {"Q": w * sy, "b": 1.0 / eps_c,
+                "soft_drop": 0.0, "eps_soft": eps_c, "branch": 1.0}
+    return {"Q": 0.0, "b": 1.0 / eps_c,
+            "soft_drop": 0.0, "eps_soft": eps_c, "branch": 0.0}
+
+
 def _derive_cdp(g, cfg):
-    return _derive_dp(g, cfg, CDP_FROZEN, with_softening=True)
+    # [PATCH:exclusive-post-yield] original :
+    # return _derive_dp(g, cfg, CDP_FROZEN, with_softening=True)
+    sy = float(CDP_FROZEN["sigma_y0_ref_MPa"])
+    br = _split_post_yield(g["w"], g["eps_c"], sy)
+    inner = dict(g)
+    inner.pop("w", None)
+    inner.pop("eps_c", None)
+    inner["s"] = br["soft_drop"] / sy
+    inner["eps_soft"] = br["eps_soft"]
+    out = _derive_dp(inner, cfg, CDP_FROZEN, with_softening=True)
+    out["Q"] = br["Q"]
+    out["b"] = br["b"]
+    out["w"] = float(g["w"])
+    out["eps_c"] = float(g["eps_c"])
+    out["branch"] = br["branch"]
+    return _assert_exclusive(out, "CDP_drucker_prager_unified")
+# [PATCH:exclusive-post-yield] end
 
 
 SAMPLING_DP_UNIFIED = FamilySampling(
@@ -464,9 +555,15 @@ SAMPLING_DP_UNIFIED = FamilySampling(
     covers=("semicrystalline_j2", "semicrystalline_dp",
             "glassy_dp", "glassy_pc", "glassy_pmma"),
     label="Unified Drucker-Prager (semicrystalline + glassy)",
-    notes="s=0 is the semicrystalline corner, q=0 the glassy corner, beta=1 deg "
-          "with K=1 the J2 corner. Softening and Voce hardening coexist in the "
-          "interior of the box, which is a superset of both calibrations.",
+    # [PATCH:exclusive-post-yield] note reecrite : la coexistence est desormais interdite.
+    # notes="s=0 is the semicrystalline corner, q=0 the glassy corner, ...
+    notes="w < 0 is the glassy branch (intrinsic softening), w > 0 the "
+          "semicrystalline branch (Voce hardening); the two are mutually "
+          "exclusive by construction and w = 0 is never sampled on the p=4 "
+          "grid. beta=1 deg with K=1 remains the J2 corner. Orientation "
+          "hardening h is shared by BOTH branches -- it is present in C3 and "
+          "C4 alike and both calibrated glassy families carry h > 0 together "
+          "with softening, so h is never exclusive with w.",
 )
 
 
