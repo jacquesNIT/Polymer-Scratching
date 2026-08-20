@@ -42,7 +42,7 @@ JOBS = [
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 DESIGN_JOBS = 6                  # number of jobs for the "design" sweep
 SUBMIT_TEMPLATE = "submit.sh"
-RELAY_PARTITION = "q64"
+RELAY_PARTITION = "q36"
 DRY_RUN = False                 # True for testing only
 
 # Valid tokens 
