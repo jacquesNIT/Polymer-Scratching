@@ -23,7 +23,7 @@ JOBS = [
 
     # To launch on 0.01 mesh with freq=20 ALE (~2-4 days)
     #("design", "glassy_pc", {"tag": "Morris3_001", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
-    ("design", "glassy_pc", {"tag": "Morris3_001", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
+    ("design", "glassy_pc", {"tag": "Morris4_001", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
 
 
     #("single", "glassy_pmma", {"tag": "Test_C_P", "indenter": "pyramid", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
