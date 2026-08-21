@@ -1,27 +1,26 @@
-# Useful classes for the simulation 
+# Useful classes for the simulation
 
 import numpy as np
 
 # 1. Indenter (Rockwell sphere-cone / pyramid)
 class Indenter_Config:
-    # Creates the indenter configuration according to the specified values
+    """Indenter geometry and meshing configuration (Rockwell sphere-cone or pyramid)."""
 
     ROCKWELL = "rockwell"
-    PYRAMID = "pyramid"          
+    PYRAMID = "pyramid"
 
-    def __init__( self, indenter_type="rockwell", tip_radius=0.2, cone_angle=60, rigid=True,
-                  n_faces=4, face_angle=None, base_apothem=0.2, orientation="face",
-                  extrude_depth=None, mesh_size=None, mesh_min_size=None, tip_bias=False,
-                  tip_flat=0.005, rigid_mass=1e-6, rigid_inertia=None,
-                  feature_edge_criterion=None ):    # PYRAMID_TIP_CONTACT_PATCH
-    # [mm] [degrees]
+    def __init__(self, indenter_type="rockwell", tip_radius=0.2, cone_angle=60, rigid=True,
+                 n_faces=4, face_angle=None, base_apothem=0.2, orientation="face",
+                 extrude_depth=None, mesh_size=None, mesh_min_size=None, tip_bias=False,
+                 tip_flat=0.005, rigid_mass=1e-6, rigid_inertia=None,
+                 feature_edge_criterion=None):
 
         self.indenter_type = indenter_type
-        self.tip_radius = tip_radius        # Rockwell only [mm]
-        self.cone_angle = cone_angle        # Rockwell: HALF-apex angle from the axis [deg]
+        self.tip_radius = tip_radius               # Rockwell only [mm]
+        self.cone_angle = cone_angle               # Rockwell: HALF-apex angle from the axis [deg]
         self.rigid = rigid
 
-        # pyramid-only parameters 
+        # Pyramid-only parameters
         self.n_faces = int(n_faces)                 # 3 (Berkovich-like) or 4 (Vickers-like)
         self.face_angle = cone_angle if face_angle is None else face_angle
                                                     # HALF-apex angle, axis -> FACE plane [deg]
@@ -31,7 +30,8 @@ class Indenter_Config:
         self.mesh_size = mesh_size                  # [mm], None -> 0.5 * substrate fine size
         self.mesh_min_size = mesh_min_size          # [mm], only used when tip_bias is True
         self.tip_bias = tip_bias                    # bias the rigid seeds towards the apex
-        # --- tip / contact conditioning (PYRAMID_TIP_CONTACT_PATCH) ---
+
+        # Tip / contact conditioning
         self.tip_flat = tip_flat                    # apothem of the flat tip [mm], 0 -> sharp apex
         self.rigid_mass = rigid_mass                # point mass at the RP [tonne]
         self.rigid_inertia = rigid_inertia          # None -> rigid_mass * base_apothem**2
@@ -39,14 +39,11 @@ class Indenter_Config:
                                                     # None / "NONE" / "PERIMETER" / "ALL" / angle [deg]
 
     def Rockwell_coords(self):
-    # Returns a dictionnary with the Indenter coordinates
-
-        # Indenter parameters 
+        """Returns a dict with the Rockwell sphere-cone indenter sketch coordinates."""
         R = self.tip_radius
         theta = self.cone_angle
         rad = np.pi / 180.0
 
-        # Indenter coordinates generation
         xc1 = 0.0
         yc1 = 0.0
         xc2 = R * np.cos(-theta * rad)
@@ -58,33 +55,36 @@ class Indenter_Config:
         xl2 = xl1 + 0.5 * np.cos((90.0 - theta) * rad)
         yl2 = yl1 + 0.5 * np.sin((90.0 - theta) * rad)
 
-        return dict( xc1=xc1, yc1=yc1, xc2=xc2, yc2=yc2, xc3=xc3, yc3=yc3, xl1=xl1, yl1=yl1, xl2=xl2, yl2=yl2)
+        return dict(xc1=xc1, yc1=yc1, xc2=xc2, yc2=yc2, xc3=xc3, yc3=yc3,
+                    xl1=xl1, yl1=yl1, xl2=xl2, yl2=yl2)
 
-    #  Pyramidal indenter (PYRAMID_INDENTER_PATCH)
     def Pyramid_coords(self):
+        """
+        Returns a dict with the pyramidal indenter sketch coordinates. The pyramid
+        is built as a frustum: the virtual apex is cut h_tip above the flat tip,
+        since a sharp apex (tip_flat=0) has no defined contact normal and traps
+        slave nodes inside the body.
+        """
         n = int(self.n_faces)
         if n < 3:
             raise ValueError("n_faces must be >= 3 (got %s)" % n)
 
         rad = np.pi / 180.0
-        theta = float(self.face_angle) * rad          # half-apex angle, axis -> face
+        theta = float(self.face_angle) * rad           # half-apex angle, axis -> face
         if not (0.0 < theta < np.pi / 2.0):
             raise ValueError("face_angle must lie strictly between 0 and 90 degrees")
 
-        a0 = float(self.base_apothem)                 # apothem of the base polygon
-        R0 = a0 / np.cos(np.pi / n)                   # circumradius of the base polygon
-        H = a0 / np.tan(theta)                        # apex height above the base plane
+        a0 = float(self.base_apothem)                   # apothem of the base polygon
+        R0 = a0 / np.cos(np.pi / n)                      # circumradius of the base polygon
+        H = a0 / np.tan(theta)                           # apex height above the base plane
 
-        # Truncated tip (PYRAMID_TIP_CONTACT_PATCH): the pyramid is built as a frustum, the
-        # virtual apex being cut h_tip above the flat. A sharp apex (tip_flat=0)
-        # has no defined contact normal and traps slave nodes inside the body.
-        a_tip = max(0.0, float(self.tip_flat or 0.0))  # apothem of the flat tip
+        a_tip = max(0.0, float(self.tip_flat or 0.0))    # apothem of the flat tip
         if a_tip >= a0:
             raise ValueError("tip_flat (%g) must be smaller than base_apothem (%g)"
                              % (a_tip, a0))
-        h_tip = a_tip / np.tan(theta)                 # height of the removed apex cone
-        H_frustum = H - h_tip                         # actual extrusion depth
-        R_tip = a_tip / np.cos(np.pi / n)             # circumradius of the flat tip
+        h_tip = a_tip / np.tan(theta)                    # height of the removed apex cone
+        H_frustum = H - h_tip                            # actual extrusion depth
+        R_tip = a_tip / np.cos(np.pi / n)                # circumradius of the flat tip
 
         # Azimuth of the first face normal: 0 -> a face leads the scratch (+z)
         phi0 = 0.0 if str(self.orientation).lower().startswith("f") else np.pi / n
@@ -96,14 +96,15 @@ class Indenter_Config:
         return dict(n=n, theta=theta, theta_deg=float(self.face_angle), a0=a0, R0=R0,
                     H=H, phi0=phi0, face_azim=face_azim, vert_azim=vert_azim,
                     vertices=vertices,
-                    a_tip=a_tip, h_tip=h_tip, H_frustum=H_frustum, R_tip=R_tip)  # PYRAMID_TIP_CONTACT_PATCH
+                    a_tip=a_tip, h_tip=h_tip, H_frustum=H_frustum, R_tip=R_tip)
 
     def pyramid_face_points(self, y_apex, z_apex, x_apex=0.0, h_frac=0.5):
-        # One probe point per lateral face, in GLOBAL coordinates, for
-        # ind_inst.faces.findAt(). h_frac is the relative height above the apex.
-        # (PYRAMID_TIP_CONTACT_PATCH) heights are now measured from the FLAT TIP, not from
-        # the virtual apex: r = a_tip + h tan(theta). Identical to the previous
-        # formula when tip_flat = 0.
+        """
+        One probe point per lateral face, in GLOBAL coordinates, for
+        ind_inst.faces.findAt(). h_frac is the relative height above the flat
+        tip: r = a_tip + h * tan(theta) (identical to the sharp-apex formula
+        when tip_flat = 0).
+        """
         pc = self.Pyramid_coords()
         h = float(h_frac) * pc["H_frustum"]
         r = pc["a_tip"] + h * np.tan(pc["theta"])    # axis -> face distance at height h
@@ -111,38 +112,46 @@ class Indenter_Config:
                 for p in pc["face_azim"]]
 
     def pyramid_tip_face_point(self, y_tip, z_tip, x_tip=0.0):
-        # (PYRAMID_TIP_CONTACT_PATCH) probe point on the FLAT TIP face, in GLOBAL coordinates.
-        # Returns [] for a sharp apex (there is no tip face to select).
+        """
+        Probe point on the flat tip face, in GLOBAL coordinates. Returns [] for
+        a sharp apex (there is no tip face to select).
+        """
         pc = self.Pyramid_coords()
         if pc["a_tip"] <= 0.0:
             return []
         return [(x_tip, y_tip, z_tip)]
 
     def pyramid_edge_points(self, s=0.35):
-        # One probe point per lateral (corner) edge, in PART LOCAL coordinates.
+        """
+        One probe point per lateral (corner) edge, in PART LOCAL coordinates.
+        The lateral edges run from the base vertex to the top (frustum) vertex,
+        so the radial scaling is not simply (1 - s).
+        """
         pc = self.Pyramid_coords()
-        # (PYRAMID_TIP_CONTACT_PATCH) the lateral edges now run from the base vertex to the
-        # TOP (frustum) vertex, so the radial scaling is no longer (1 - s).
         f = 1.0 - s * (1.0 - pc["R_tip"] / pc["R0"])
         return [(f * vx, f * vy, s * pc["H_frustum"])
                 for (vx, vy) in pc["vertices"]]
 
     def pyramid_equivalent_cone_angle(self):
-        # Half-apex angle of the CONE with the same projected contact area vs depth:
-        #   pi * a_eq^2 = n * (h tan(theta))^2 * tan(pi/n)
-        # 4 faces / theta=60 deg -> 62.90 deg ; 3 faces / theta=60 deg -> 65.81 deg.
+        """
+        Half-apex angle of the CONE with the same projected contact area vs depth:
+
+            pi * a_eq^2 = n * (h tan(theta))^2 * tan(pi/n)
+
+        4 faces / theta=60 deg -> 62.90 deg ; 3 faces / theta=60 deg -> 65.81 deg.
+        """
         pc = self.Pyramid_coords()
         k = np.sqrt(pc["n"] * np.tan(np.pi / pc["n"]) / np.pi)
         return float(np.degrees(np.arctan(k * np.tan(pc["theta"]))))
-     
+
 # 2. Substrate
 class Substrate_Config:
-    # Dimensions and partitions of the substrate block
+    """Dimensions and partitioning of the substrate block."""
 
     def __init__(self,
-                 xs1=0.0, ys1=0.0, zs1=0.0,             # Substrate box  (origin at xs1, ys1, zs1)
-                 xs2=0.6, ys2=0.5, zs2=3.0,             # Width, height  and depth of the box [mm] (z is the scratch direction)
-                 dpo_x=0.25, dpo_y=0.15, dpo_z=0.25 ):  # Partition offsets (from edges of refined zone) 
+                 xs1=0.0, ys1=0.0, zs1=0.0,             # Substrate box origin
+                 xs2=0.6, ys2=0.5, zs2=3.0,              # Width, height and depth of the box [mm] (z is the scratch direction)
+                 dpo_x=0.25, dpo_y=0.15, dpo_z=0.25):    # Partition offsets (from edges of refined zone)
 
         self.xs1 = xs1
         self.ys1 = ys1
@@ -156,17 +165,17 @@ class Substrate_Config:
 
 # 3. Mesh
 class Mesh_Config:
-    # Mesh size and Element control
+    """Mesh sizes and element-control options."""
 
     def __init__(self,
-                 fine_size_x=0.020, fine_size_y=0.020, fine_size_z=0.020,      # Fine mesh sizes in the refined contact zone (actual values to be determined after mesh convergence)
-                 coarse_size_0=0.05, coarse_size_1=0.15, coarse_size_2=0.30,   # Coarse mesh (transition away from contact zone)
-                 hourglass_control="RELAX STIFFNESS",                          # 'ENHANCED' for important deformations ('DEFAULT' otherwise)
-                 distortion_control="DEFAULT",                                 # 'DEFAULT' for important deformations ('OFF' otherwise)
-                 max_degradation=0.9,                                          # Best value for polymers ?
-                 element_deletion=False,                                       # 'False' to capture the recovery phenomenon
-                 second_order_accuracy=False,                                  # 'True' for complex models (AB, DP) (False otherwise) (increases simulation time)
-                 length_ratio=0.1):                                            # For distortion control, between 0 and 1
+                 fine_size_x=0.010, fine_size_y=0.010, fine_size_z=0.010,      # Fine mesh sizes in the refined contact zone
+                 coarse_size_0=0.00, coarse_size_1=0.03, coarse_size_2=0.06,   # Coarse mesh (transition away from contact zone)
+                 hourglass_control="ENHANCED",                                 # "ENHANCED" for Plastic families, "RELAX STIFNESS" for visco-elastic ones
+                 distortion_control="DEFAULT",                                 # "OFF" decided
+                 max_degradation=0.9,
+                 element_deletion=False,                                       # False to capture the recovery phenomenon
+                 second_order_accuracy=False,                                  # True for complex models (AB, DP); increases simulation time
+                 length_ratio=0.1):                                            # Distortion control ratio, in [0, 1]
 
         self.fine_size_x = fine_size_x
         self.fine_size_y = fine_size_y
@@ -195,22 +204,26 @@ class LinearElastic_Config:
 
 # 4b. Hyper-elastic Model (Mooney-Rivlin)
 class HE_Model_Config:
-    #  W = C10 * (I1_bar - 3) + C01 * (I2_bar - 3) + (1/D1) * (J_el - 1)^2
+    """W = C10 * (I1_bar - 3) + C01 * (I2_bar - 3) + (1/D1) * (J_el - 1)^2"""
+
     MODEL = "mooney_rivlin"
 
-    def __init__(self, C10=1.0, C01=0.1, D1=0.018): # First and second parameter [MPa], Compressibility parameter [1/MPa]
-        # change to MPa
-        self.C10 = C10   
-        self.C01 = C01   
-        self.D1 = D1   
+    def __init__(self, C10=1.0, C01=0.1, D1=0.018):
+        self.C10 = C10   # [MPa]
+        self.C01 = C01   # [MPa]
+        self.D1 = D1     # [1/MPa]
 
     def params(self):
         return {"C10": self.C10, "C01": self.C01, "D1": self.D1}
-    
+
 # 4c. Arruda-Boyce (eight-chain) hyper-elastic Model
 class AB_Model_Config:
-    #  W = mu * sum_{i=1..5} C_i / lambda_m^(2i-2) * (I1_bar^i - 3^i) + (1/D) * ((J_el^2 - 1)/2 - ln(J_el))
-    # Abaqus direct-coefficient table order: (mu, lambda_m, D).
+    """
+    W = mu * sum_{i=1..5} C_i / lambda_m^(2i-2) * (I1_bar^i - 3^i)
+        + (1/D) * ((J_el^2 - 1)/2 - ln(J_el))
+    Abaqus direct-coefficient table order: (mu, lambda_m, D).
+    """
+
     MODEL = "arruda_boyce"
 
     def __init__(self, mu=2.0, lambda_m=2.5, D=0.018):
@@ -223,17 +236,20 @@ class AB_Model_Config:
 
 # 4d. Yeoh (reduced 3rd-order polynomial, I1-only) hyper-elastic model
 class Yeoh_Model_Config:
-    #  W = sum_{i=1..3} Ci0 * (I1_bar - 3)^i + sum_{i=1..3} (1/Di) * (J_el - 1)^(2i)
-    # Abaqus table order: (C10, C20, C30, D1, D2, D3).
-    # I1-only: cheap and stable up to large strains; C20 < 0 reproduces the
-    # mid-strain softening of filled rubbers, C30 > 0 the final upturn.
-    # Initial shear modulus mu_0 = 2*C10 (C20/C30 do not contribute at I1=3).
+    """
+    W = sum_{i=1..3} Ci0 * (I1_bar - 3)^i + sum_{i=1..3} (1/Di) * (J_el - 1)^(2i)
+    Abaqus table order: (C10, C20, C30, D1, D2, D3).
+    I1-only: cheap and stable up to large strains; C20 < 0 reproduces the
+    mid-strain softening of filled rubbers, C30 > 0 the final upturn.
+    Initial shear modulus mu_0 = 2*C10 (C20/C30 do not contribute at I1=3).
+    """
+
     MODEL = "yeoh"
 
     def __init__(self, C10=1.1, C20=-0.055, C30=0.0055, D1=0.0165):
         self.C10 = C10   # [MPa]
-        self.C20 = C20   # [MPa]  (usually < 0)
-        self.C30 = C30   # [MPa]  (usually > 0, upturn)
+        self.C20 = C20   # [MPa], usually < 0
+        self.C30 = C30   # [MPa], usually > 0 (upturn)
         self.D1 = D1     # [1/MPa], D1 = 2/K0 ; D2 = D3 = 0 (single volumetric term)
 
     def params(self):
@@ -242,12 +258,16 @@ class Yeoh_Model_Config:
 
 # 4e. Ogden (principal-stretch based) hyper-elastic model
 class Ogden_Model_Config:
-    #  W = sum_{i=1..N} 2*mu_i/alpha_i^2 * (lam1_bar^alpha_i + lam2_bar^alpha_i + lam3_bar^alpha_i - 3) + sum_{i=1..N} (1/Di) * (J_el - 1)^(2i)
-    # Abaqus N=2 table order: (mu1, alpha1, mu2, alpha2, D1, D2).
-    # In the Abaqus convention the initial shear modulus is mu_0 = sum(mu_i)
-    # regardless of the alpha_i. Principal-stretch formulation: the only one
-    # of the four that is NOT a pure I1/I2 function -- discriminates in
-    # non-equibiaxial states like the scratch bow-wave.
+    """
+    W = sum_{i=1..N} 2*mu_i/alpha_i^2 * (lam1_bar^alpha_i + lam2_bar^alpha_i + lam3_bar^alpha_i - 3)
+        + sum_{i=1..N} (1/Di) * (J_el - 1)^(2i)
+    Abaqus N=2 table order: (mu1, alpha1, mu2, alpha2, D1, D2).
+    In the Abaqus convention the initial shear modulus is mu_0 = sum(mu_i)
+    regardless of the alpha_i. Principal-stretch formulation: the only one of
+    the four that is NOT a pure I1/I2 function -- discriminates in
+    non-equibiaxial states like the scratch bow-wave.
+    """
+
     MODEL = "ogden"
 
     def __init__(self, mu=(1.87, 0.33), alpha=(1.6, 5.5), D1=0.0165):
@@ -272,18 +292,20 @@ class Ogden_Model_Config:
             d["alpha%d_O" % i] = a
         return d
 
-
 # 5. Visco-elastic Models (empty)
 class VE_Model_Config:
     MODEL = "none"
 
     def params(self):
         return {}
-    
+
 # 5b. Prony-series linear viscoelasticity
 class Prony_Config:
-    # prony_table: ((g_i, k_i, tau_i), ...) — normalized shear/bulk moduli and
-    # relaxation times [s]. sum(g_i) < 1 for stability; k_i often 0 (shear only).
+    """
+    prony_table: ((g_i, k_i, tau_i), ...) -- normalized shear/bulk moduli and
+    relaxation times [s]. sum(g_i) < 1 for stability; k_i often 0 (shear only).
+    """
+
     MODEL = "prony"
 
     def __init__(self, prony_table=((0.2, 0.0, 0.1), (0.1, 0.0, 0.001))):
@@ -304,40 +326,40 @@ class P_Model_Config:
 # 6b. Von Mises plasticity (isochoric, pressure-independent)
 class J2Plasticity_Config:
     """
-    Usually used for metals.
-    Plasticity is driven by distortion energy only.
+    Usually used for metals. Plasticity is driven by distortion energy only.
     """
     MODEL = "mises"
 
-    def __init__(self, 
-                 yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6)),        # (yield_stress [MPa], plastic_strain [-])
-                 rate_dependent=None):                                       # RateDependent_Config or None
+    def __init__(self,
+                 yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6)),   # (yield_stress [MPa], plastic_strain [-])
+                 rate_dependent=None):                                 # RateDependent_Config or None
         self.yield_table = tuple(tuple(pt) for pt in yield_table)
         self.rate_dependent = rate_dependent
 
     def params(self):
-        # Expose the initial yield stress for the CSV / verifier; the full hardening table is used only by the material assignment.
+        # Expose the initial yield stress for the CSV / verifier; the full
+        # hardening table is used only by the material assignment.
         d = {"sigma_y0": self.yield_table[0][0]}
         if self.rate_dependent is not None:
             d.update(self.rate_dependent.params())
         return d
-    
+
 # 6c. Drucker-Prager pressure-dependent plasticity (glassy / thermoset bases)
 class DruckerPrager_Config:
     """
-    Makes the Simulation Pressure Dependent (linearly), better for polymers.
+    Makes the simulation pressure-dependent (linearly) -- better suited for polymers.
     """
     MODEL = "drucker_prager"
 
-    def __init__(self, 
-                 friction_angle=25.0,                                   # [deg] friction angle
-                 flow_stress_ratio=0.85,                                # [-] flow_stress_ratio (usually between 0.8 and 1.0)
-                 dilation_angle=10.0,                                   # [deg] Control the change of volume when exposed to shearing
+    def __init__(self,
+                 friction_angle=25.0,      # [deg] friction angle
+                 flow_stress_ratio=0.85,   # [-] flow stress ratio (usually between 0.8 and 1.0)
+                 dilation_angle=10.0,      # [deg] controls the volume change under shearing
                  yield_table=((60.0, 0.0), (70.0, 0.1), (80.0, 0.4)),
-                 rate_dependent=None):                          
-        self.friction_angle = friction_angle            
-        self.flow_stress_ratio = flow_stress_ratio      
-        self.dilation_angle = dilation_angle           
+                 rate_dependent=None):
+        self.friction_angle = friction_angle
+        self.flow_stress_ratio = flow_stress_ratio
+        self.dilation_angle = dilation_angle
         self.yield_table = tuple(tuple(pt) for pt in yield_table)
         self.rate_dependent = rate_dependent
 
@@ -405,6 +427,10 @@ class RateDependent_Config:
 
 # 7. Scratching (Progressive and Constant)
 class Scratch_Config:
+    """
+    Scratch test control: depth profile (progressive / constant), driving mode
+    (displacement / force), phase durations, and output frame counts.
+    """
 
     PROGRESSIVE = "progressive"
     CONSTANT = "constant"
@@ -415,25 +441,29 @@ class Scratch_Config:
     def __init__(self,
                  depth_mode="constant",
                  control_mode="displacement",
-                 scratch_length=2.0, 
-                 scratch_force=20e-3,                                                                           # [N] for force driven scratch (>0)
-                 scratch_depth=-40e-3,                                                                          # [mm] for dispalcement driven scratch (<0)
-                 scratch_time=0.01, indentation_time=0.001, unload_time=0.0001, recovery_time=1.0,              # [s] To be studied
-                 recovery_lift=0.05,                                                                            # [mm] clearance above surface during recovery
-                 n_field_frames=20, n_field_frames_recovery=50, n_history_points=100,                           # Number of frames / field outputs for each step
-                 amplitude_smoothing=0.25,                                                                    # [-] SMOOTH fraction of the tabular amplitudes (0-0.5, None = solver default).
-                 depth_hold_frac=0.05 ):   # [-] PROGRESSIVE: plateau plat au sommet, fraction de scratch_time (garantit la profondeur nominale malgre le lissage du pic ; cf depth_amplitude()).
-                                                                                                                # Rounds the velocity discontinuities at the amplitude kinks (t1/t2/t3).
-                                                                                                                 
+                 scratch_length=2.0,
+                 scratch_force=20e-3,                # [N] for force-driven scratch (>0)
+                 scratch_depth=-40e-3,                # [mm] for displacement-driven scratch (<0)
+                 scratch_time=0.01,                   # [s]
+                 indentation_time=0.001,               # [s]
+                 unload_time=0.0001,                   # [s]
+                 recovery_time=1.0,                    # [s]
+                 recovery_lift=0.05,                   # [mm] clearance above surface during recovery
+                 n_field_frames=20,                    # number of field-output frames during scratch
+                 n_field_frames_recovery=50,           # number of field-output frames during recovery
+                 n_history_points=100,                 # number of history-output points
+                 amplitude_smoothing=0.25,             # [-] SMOOTH fraction of the tabular amplitudes (0-0.5, None = solver default); rounds the velocity discontinuities at the amplitude kinks (t1/t2/t3)
+                 depth_hold_frac=0.05):                # [-] PROGRESSIVE: flat plateau at the peak, as a fraction of scratch_time (ensures the nominal depth is reached despite amplitude smoothing; see depth_amplitude())
+
         if depth_mode not in (self.PROGRESSIVE, self.CONSTANT):
             raise ValueError("depth_mode must be 'progressive' or 'constant', got '%s'" % depth_mode)
-        
+
         if control_mode not in (self.DISPLACEMENT, self.FORCE):
             raise ValueError("control_mode must be 'displacement' or 'force', got '%s'" % control_mode)
-              
+
         if control_mode == self.DISPLACEMENT and recovery_lift <= 0.0 and recovery_time > 0.0:
             raise ValueError("recovery_lift must be positive to ensure indenter separation during recovery")
-        
+
         if control_mode == self.FORCE and scratch_force <= 0.0:
             raise ValueError("scratch_force must be positive for force-controlled scratch, got %s" % scratch_force)
 
@@ -443,8 +473,6 @@ class Scratch_Config:
         if not (0.0 <= depth_hold_frac < 0.5):
             raise ValueError("depth_hold_frac must be in [0, 0.5), got %s" % depth_hold_frac)
 
-
-            
         self.depth_mode = depth_mode
         self.control_mode = control_mode
         self.scratch_length = scratch_length
@@ -461,76 +489,92 @@ class Scratch_Config:
         self.amplitude_smoothing = amplitude_smoothing
         self.depth_hold_frac = depth_hold_frac
 
+    # --- Derived quantities used by other files -----------------------------
 
-    # Functions to gather information about the Scratching for other files
     @property
-    def has_recovery_step(self): # True if there is a post-unload recovery step.
+    def has_recovery_step(self):
+        """True if there is a post-unload recovery step."""
         return self.recovery_time > 0.0
 
     @property
-    def t_indent_end(self): # End of indentation phase [s]. Returns 0 in progressive mode.
+    def t_indent_end(self):
+        """End of the indentation phase [s]. Returns 0 in progressive mode."""
         if self.depth_mode == self.CONSTANT:
             return self.indentation_time
         return 0.0
 
     @property
-    def t_scratch_end(self): # End of scratching phase [s].
+    def t_scratch_end(self):
+        """End of the scratching phase [s]."""
         return self.t_indent_end + self.scratch_time
 
     @property
-    def depth_hold(self): # [s] Plateau tenu a la profondeur pic avant decharge (PROGRESSIVE). Fraction de scratch_time.
+    def depth_hold(self):
+        """[s] Plateau held at peak depth before unload (PROGRESSIVE), as a fraction of scratch_time."""
         return self.depth_hold_frac * self.scratch_time
 
     @property
-    def t_unload_end(self): # End of unloading phase [s].
+    def t_unload_end(self):
+        """End of the unloading phase [s]."""
         return self.t_scratch_end + self.unload_time
 
     @property
-    def t_recovery_end(self): # End of recovery phase [s]. Equals t_unload_end if no recovery.
+    def t_recovery_end(self):
+        """End of the recovery phase [s]. Equals t_unload_end if there is no recovery."""
         return self.t_unload_end + self.recovery_time
 
     @property
-    def total_time(self): # Total simulation time including all phases [s].
+    def total_time(self):
+        """Total simulation time including all phases [s]."""
         return self.t_recovery_end
-    
+
     @property
-    def field_interval_indentation(self): # Field output interval during indentation [s]. Constant mode only.
+    def field_interval_indentation(self):
+        """Field-output interval during indentation [s]. Constant mode only."""
         if self.depth_mode == self.CONSTANT:
             return self.indentation_time / max(self.n_field_frames // 4, 1)
         return None
 
     @property
-    def field_interval_scratch(self): # Field output interval during scratch [s].
+    def field_interval_scratch(self):
+        """Field-output interval during scratch [s]."""
         return self.scratch_time / self.n_field_frames
 
     @property
-    def field_interval_unload(self): # Field output interval during unloading [s].
+    def field_interval_unload(self):
+        """Field-output interval during unloading [s]."""
         return self.unload_time / self.n_field_frames
 
     @property
-    def field_interval_recovery(self): # Field output interval during recovery [s].
+    def field_interval_recovery(self):
+        """Field-output interval during recovery [s]."""
         if self.has_recovery_step:
             return self.recovery_time / self.n_field_frames_recovery
         return None
 
     @property
-    def history_interval(self): # History output interval during scratch [s].
+    def history_interval(self):
+        """History-output interval during scratch [s]."""
         return self.scratch_time / self.n_history_points
-    
+
     @property
-    def is_force_controlled(self): 
+    def is_force_controlled(self):
         return self.control_mode == self.FORCE
 
     @property
-    def uses_single_amplitude(self): 
+    def uses_single_amplitude(self):
         return (not self.is_force_controlled
                 and self.depth_mode == self.PROGRESSIVE
                 and not self.has_recovery_step)
 
-    #  Amplitude tables for Abaqus 
+    # --- Amplitude tables for Abaqus -----------------------------------------
+
     def depth_amplitude(self):
-        # Amplitude table for the depth (u2) displacement BC according to the scratching type
-       
+        """
+        Amplitude table for the depth (u2) displacement BC. In PROGRESSIVE mode
+        the peak is held flat over depth_hold (scaled with scratch_time) so the
+        nominal depth is reached exactly regardless of amplitude smoothing.
+        """
         t1 = self.t_indent_end
         t2 = self.t_scratch_end
         t3 = self.t_unload_end
@@ -538,54 +582,41 @@ class Scratch_Config:
         if self.has_recovery_step:
             t4 = self.t_recovery_end
             lift_value = self.recovery_lift / self.scratch_depth  # negative number
-        
+
         if self.depth_mode == self.PROGRESSIVE:
-            # --- PLATEAU FIX (sous-tir par arrondi du pic interieur) -------------
-            # Original (pic (t2,1.0) interieur -> lisse VERS LE BAS, profondeur nominale
-            # jamais atteinte ; manque ~ smooth_window/scratch_time -> fausse dependance
-            # de RF2 au scratch_time) :
-            #     if not self.has_recovery_step:
-            #         return ((0.0, 0.0),(t2,  1.0),(t3,  0.0))
-            #     else:
-            #         return ((0.0,  0.0),(t2,   1.0),(t3,   lift_value),(t4,   lift_value))
-            # Fix : sommet plat de largeur depth_hold (scale avec scratch_time). L'interieur
-            # plat = depth_hold*(1 - 2*smooth) > 0 est atteint exactement pour tout smooth<0.5,
-            # donc profondeur nominale garantie et profil normalise invariant. t2/t3 inchanges.
             t2h = t2 - self.depth_hold
             if not self.has_recovery_step:
-                return ((0.0, 0.0),(t2h,  1.0),(t2,  1.0),(t3,  0.0))
+                return ((0.0, 0.0), (t2h, 1.0), (t2, 1.0), (t3, 0.0))
             else:
-                return ((0.0,  0.0),(t2h,  1.0),(t2,  1.0),(t3,  lift_value),(t4,  lift_value))
-        
-        else:  
+                return ((0.0, 0.0), (t2h, 1.0), (t2, 1.0), (t3, lift_value), (t4, lift_value))
+
+        else:
             if not self.has_recovery_step:
-                return ((0.0, 0.0),(t1,  1.0),(t2,  1.0),(t3,  0.0))
+                return ((0.0, 0.0), (t1, 1.0), (t2, 1.0), (t3, 0.0))
             else:
-                return ((0.0,  0.0),(t1,   1.0),(t2,   1.0),(t3,   lift_value),(t4,   lift_value))
+                return ((0.0, 0.0), (t1, 1.0), (t2, 1.0), (t3, lift_value), (t4, lift_value))
 
     def length_amplitude(self):
-        # Amplitude table for the length (u3) displacement BC according to the scratching type
-       
+        """Amplitude table for the length (u3) displacement BC."""
         t1 = self.t_indent_end
         t2 = self.t_scratch_end
         t3 = self.t_unload_end
 
         if self.depth_mode == self.PROGRESSIVE:
             if not self.has_recovery_step:
-                return ((0.0, 0.0),(t2,  1.0),(t3,  0.0))
+                return ((0.0, 0.0), (t2, 1.0), (t3, 0.0))
             else:
                 t4 = self.t_recovery_end
-                return ((0.0,  0.0),(t2,   1.0),(t3,   1.0),(t4,   1.0))
-        else:  
+                return ((0.0, 0.0), (t2, 1.0), (t3, 1.0), (t4, 1.0))
+        else:
             if not self.has_recovery_step:
-                return ((0.0, 0.0),(t1,  0.0),(t2,  1.0),(t3,  1.0))
+                return ((0.0, 0.0), (t1, 0.0), (t2, 1.0), (t3, 1.0))
             else:
                 t4 = self.t_recovery_end
-                return ((0.0,  0.0),(t1,   0.0),(t2,   1.0),(t3,   1.0),(t4,   1.0))
-            
-    def force_amplitude(self):
-        # Amplitude table for the force (cf2), goes back to 0 at unload
+                return ((0.0, 0.0), (t1, 0.0), (t2, 1.0), (t3, 1.0), (t4, 1.0))
 
+    def force_amplitude(self):
+        """Amplitude table for the force (cf2) load, returns to 0 at unload."""
         t1 = self.t_indent_end
         t2 = self.t_scratch_end
         t3 = self.t_unload_end
@@ -610,12 +641,13 @@ class Damage_Config:
     def params(self):
         return {}
 
-# 9. Friction Models 
+# 9. Friction Models
 class Friction_Config:
     """
-    Uses either a constant Coulomb mu or a mu_table from Briscoe
+    Constant Coulomb friction (mu), or a pressure/rate-dependent mu_table built
+    from the Briscoe model.
 
-    mu_table follows the Abaqus friction column order: (mm/s, MPa)
+    mu_table follows the Abaqus friction column order (mm/s, MPa):
         (mu[, slip_rate][, contact_pressure])
     """
 
@@ -642,19 +674,22 @@ class Friction_Config:
                            len(row)))
 
     @classmethod
-    def briscoe(cls, 
-                tau0=2.0,                       # [MPa] Briscoe's adhesive shear stress (between 0.5 and 5 depending on the polymer)
-                alpha=0.2,                      # [-] Pressure coefficient, mu asymptote at high pressure
-                p_min=1.0, p_max=600.0,         # [Mpa] Pressure Bounds for the table, covers most polymers
-                n_points=12,                    # Number of points in the table (log sampled)
-                mu_cap=0.6,                     # Ceiling to avoid mu divergence
+    def briscoe(cls,
+                tau0=2.0,                # [MPa] Briscoe's adhesive shear stress (0.5 to 5 depending on the polymer)
+                alpha=0.2,                # [-] pressure coefficient, mu asymptote at high pressure
+                p_min=1.0, p_max=600.0,   # [MPa] pressure bounds for the table, covers most polymers
+                n_points=12,              # number of points in the table (log-sampled)
+                mu_cap=0.6,               # ceiling to avoid mu divergence
                 elastic_slip_fraction=0.005):
         """
-        Pressure-dependent Coulomb table from the Briscoe interfacial shear model: 
+        Pressure-dependent Coulomb table from the Briscoe interfacial shear model:
+
             mu(p) = tau0/p + alpha
 
-        The apparent friction decreases with contact pressure toward the asymptote alpha.
-        NB : Scratch pressures reach ~2-3*sigma_y = 50-100 MPa for semicrystallines and 150-300 MPa for glassy polymers. 
+        The apparent friction decreases with contact pressure toward the
+        asymptote alpha.
+        NB: scratch pressures reach ~2-3*sigma_y = 50-100 MPa for
+        semicrystallines and 150-300 MPa for glassy polymers.
         """
         p = np.logspace(np.log10(p_min), np.log10(p_max), n_points)
         rows = tuple((float(round(min(tau0 / pv + alpha, mu_cap), 4)), float(round(pv, 3)))
@@ -683,7 +718,7 @@ class Friction_Config:
 
 # 10. Material specification
 class Material_Config:
-    # Complete definition of the desired models for the material behavior
+    """Complete definition of the desired models for the material behavior."""
 
     def __init__(self,
                  rho=1.2e-9,
@@ -703,7 +738,6 @@ class Material_Config:
         self.family = family
 
     def to_dict(self):
-
         d = {"rho": self.rho}
         d.update(self.hyperelastic.params())
         d.update(self.viscoelastic.params())
@@ -713,10 +747,9 @@ class Material_Config:
         d["mu_friction"] = self.friction.mu
         d["mu_pressure_dep"] = 1.0 if getattr(self.friction, "pressure_dependent", False) else 0.0
         d["mu_rate_dep"] = 1.0 if getattr(self.friction, "slip_rate_dependent", False) else 0.0
-
         return d
 
-# 11. Solver 
+# 11. Solver
 class Solver_Config:
 
     def __init__(self,
@@ -725,13 +758,13 @@ class Solver_Config:
                  use_ALE=False,
                  num_cpus=6,
                  time_scale_factor=1.0,
-                 linear_bulk_viscosity=0.06, quad_bulk_viscosity=1.2, # Default Abaqus values
-                # ale_frequency=20, ale_mesh_sweeps=1,   # OLD defaults 
-                 ale_frequency=650, ale_mesh_sweeps=3, ale_smoothing_priority="GRADED", ale_smoothing_algorithm="GEOMETRY_ENHANCED", 
+                 linear_bulk_viscosity=0.06, quad_bulk_viscosity=1.2,   # default Abaqus values
+                 ale_frequency=650, ale_mesh_sweeps=3,
+                 ale_smoothing_priority="GRADED", ale_smoothing_algorithm="GEOMETRY_ENHANCED",
                  ale_curvature_refinement=1,      # > 1 concentrates nodes on the groove shoulder (1 = uniform)
                  ale_domain="refined",            # "refined" | "contact" | "full" (legacy) -- see _setup_ale
                  ale_in_passive_steps=False):     # ALE during unload / recovery -- see _setup_ale
-    
+
         if time_scale_factor < 1.0:
             raise ValueError("time_scale_factor must be >= 1 (lab time / simulated time)")
         self.mass_scale = mass_scale
@@ -762,19 +795,17 @@ class Output_Config:
                  history_energy_substrate=None,
                  history_energy_whole=None):
 
-        
-
-        self.field_variables = field_variables or ("S", "MISES", "TRIAX",                           # Stress Distributions
-                                                   "PRESS",                                         # Pressure distribution
-                                                   "LE", "NE", "PE", "PEEQ",                        # Deformation distributions
-                                                   "U", "COORD",                                    # Displacement Distributions
-                                                   "SDV", "SDEG", "STATUS", "CSTRESS")              # State and damage of the mesh
+        self.field_variables = field_variables or ("S", "MISES", "TRIAX",                        # Stress distributions
+                                                     "PRESS",                                     # Pressure distribution
+                                                     "LE", "NE", "PE", "PEEQ",                     # Deformation distributions
+                                                     "U", "COORD",                                 # Displacement distributions
+                                                     "SDV", "SDEG", "STATUS", "CSTRESS")           # State and damage of the mesh
         self.contact_force_variables = contact_force_variables or ("CFORCE",)
-        self.history_force_variables = history_force_variables or ("RF1", "RF2", "RF3")             # Reaction forces
-        self.history_energy_substrate = history_energy_substrate or ("ALLKE", "ALLIE", "ALLAE")     # Substrate energy values 
-        self.history_energy_whole = history_energy_whole or ("ALLKE", "ALLIE", "ALLVD", "ALLFD",    # Whole model energy values
-                                                             "ALLCD", "ALLSE",
-                                                             "ALLWK", "ALLPW", "ALLCW", "ALLMW", "ETOTAL")
+        self.history_force_variables = history_force_variables or ("RF1", "RF2", "RF3")           # Reaction forces
+        self.history_energy_substrate = history_energy_substrate or ("ALLKE", "ALLIE", "ALLAE")   # Substrate energy values
+        self.history_energy_whole = history_energy_whole or ("ALLKE", "ALLIE", "ALLVD", "ALLFD",   # Whole-model energy values
+                                                               "ALLCD", "ALLSE",
+                                                               "ALLWK", "ALLPW", "ALLCW", "ALLMW", "ETOTAL")
 
 # 13. Naming conventions
 class Naming_Config:
@@ -787,10 +818,10 @@ class Naming_Config:
                  slave_surface="s_Surf-1",
                  contact_region_nodes="contactRegionNodes"):
 
-        # Model 
+        # Model
         self.model_name = model_name
 
-        # Parts / instances / sets 
+        # Parts / instances / sets
         self.indenter_name = indenter_name
         self.substrate_name = substrate_name
         self.indenter_set = indenter_name + "Set"
@@ -800,7 +831,7 @@ class Naming_Config:
         self.refined_set = "RefinedArea"
         self.inertia_name = "IndenterInertia"
 
-        # Surfaces / contact-node set 
+        # Surfaces / contact-node set
         self.master_surface = master_surface
         self.slave_surface = slave_surface
         self.contact_region_nodes = contact_region_nodes
@@ -816,7 +847,7 @@ class Naming_Config:
         self.symmetry_bc = "x_axis_symmetry"
         self.indenter_constraint_bc = "IndenterConstraint"
 
-        # Loading: amplitudes & displacement BCs 
+        # Loading: amplitudes & displacement BCs
         self.amp_single = "Amp-1"
         self.amp_depth = "Amp-Depth"
         self.amp_length = "Amp-Length"
@@ -826,7 +857,7 @@ class Naming_Config:
         self.bc_travel = "IndenterTravel"
         self.bc_force = "IndenterForce"
 
-        # Output requests 
+        # Output requests
         self.out_reaction = "ReactionForces"
         self.out_indenter_disp = "IndenterDisp"
         self.out_energy_substrate = "Energy"
@@ -835,15 +866,15 @@ class Naming_Config:
         self.out_contact = "ContactForce"
         self.out_contact_pair = "ContactPairForce"
 
-        # Material / section 
+        # Material / section
         self.material_name = "SubstrateMaterial"
         self.section_name = "SubstrateSection"
 
-        # ALE adaptive meshing 
+        # ALE adaptive meshing
         self.ale_control = "Ada-1"
         self.ale_domain_set = "ALE_Domain"
 
-        # Steps 
+        # Steps
         self.step_indent = "IndentationStep"
         self.step_scratch = "ScratchStep"
         self.step_unload = "UnloadStep"
@@ -863,7 +894,7 @@ class Simulation_Config:
                  naming=None,
                  job_name="ScratchTest",
                  sheet_size=10):
-        
+
         self.indenter = indenter or Indenter_Config()
         self.substrate = substrate or Substrate_Config()
         self.mesh = mesh or Mesh_Config()
@@ -877,18 +908,18 @@ class Simulation_Config:
 
     @staticmethod
     def polymer_default():
-        # Typical polymer scratch test configuration.
+        """Typical polymer scratch test configuration."""
         return Simulation_Config(
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.01,       
+                fine_size_x=0.01,
                 fine_size_y=0.01,
-                fine_size_z=0.01,    
-                coarse_size_0=0.02,     # Unused
-                coarse_size_1=0.028,     # 0.07*4 
-                coarse_size_2=0.056,     # 0.07*8
-                hourglass_control="ENHANCED",      # RELAX STIFFNESS with ALE / ENHANCED without ALE 
+                fine_size_z=0.01,
+                coarse_size_0=0.02,                # Unused
+                coarse_size_1=0.028,                # 0.07*4
+                coarse_size_2=0.056,                # 0.07*8
+                hourglass_control="ENHANCED",       
                 distortion_control="DEFAULT",
                 max_degradation=0.9,
                 element_deletion=False,
@@ -896,7 +927,6 @@ class Simulation_Config:
             ),
             material=Material_Config(
                 rho=1.2e-9,
-                #hyperelastic=HE_Model_Config(C10=1.0, C01=0.1, D1=1.8e-2),
                 hyperelastic=AB_Model_Config(mu=2.0, lambda_m=2.5, D=1.8e-2),
                 viscoelastic=None,
                 plasticity=None,
@@ -905,19 +935,19 @@ class Simulation_Config:
                 family="elastomer_mr",
             ),
             solver=Solver_Config(
-                mass_scale=5000,    
+                mass_scale=5000,
                 target_time_increment=0.0,
-                use_ALE=False,                     
-                num_cpus=6,                        # "submit.sh CPU value is prioritized"
+                use_ALE=False,
+                num_cpus=6,                         # submit.sh CPU value is prioritized
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
-                ale_frequency=20,                # C_remesh ~ 0.1 (glassy) to ~0.6 (elastomer); see ale_remesh_courant()
-                ale_mesh_sweeps=1,                # absorbs the larger distortion between two (now rarer) remeshings
+                ale_frequency=200,                   # C_remesh ~ 0.1 (glassy) to ~0.6 (elastomer); see ale_remesh_courant()
+                ale_mesh_sweeps=2,                  # absorbs the larger distortion between two (now rarer) remeshings
                 ale_smoothing_priority="GRADED",
                 ale_smoothing_algorithm="GEOMETRY_ENHANCED",
-                ale_curvature_refinement=1,       # try 2-3 to sharpen the groove shoulder (pile-up resolution)
-                ale_domain="refined",             # ALE restricted to the refined contact cell
-                ale_in_passive_steps=False,       # no advection during unload / recovery
+                ale_curvature_refinement=1,         # try 2-3 to sharpen the groove shoulder (pile-up resolution)
+                ale_domain="refined",               # ALE restricted to the refined contact cell
+                ale_in_passive_steps=False,         # no advection during unload / recovery
             ),
             scratch=Scratch_Config(
                 depth_mode=Scratch_Config.PROGRESSIVE,
@@ -939,11 +969,14 @@ class Simulation_Config:
             job_name="PolymerScratch",
             sheet_size=10,
         )
-    
+
 # 15. Module-level generators (helpers that build configurations)
 def _ab_mu0_correction(lambda_m):
-    # Initial-shear-modulus correction of the Arruda-Boyce eight-chain model (mu_0 = mu * corr; ~1.11 at lambda_m = 2.5, -> 1 as lambda_m -> inf).
-    # Used for models comparaison
+    """
+    Initial-shear-modulus correction of the Arruda-Boyce eight-chain model
+    (mu_0 = mu * corr; ~1.11 at lambda_m = 2.5, -> 1 as lambda_m -> inf).
+    Used to compare hyperelastic models on the same small-strain response.
+    """
     if not lambda_m or lambda_m <= 0.0:
         return 1.0
     l2 = float(lambda_m) ** 2
@@ -951,12 +984,14 @@ def _ab_mu0_correction(lambda_m):
             + 513.0 / (875.0 * l2 ** 3) + 42039.0 / (67375.0 * l2 ** 4))
 
 def elastic_moduli(material):
-    # Small-strain bulk/shear moduli (K0, G0) [MPa] of the BASE elasticity of
-    # a Material_Config, dispatched on hyperelastic.MODEL. Pure numpy
-    # (Abaqus-free): usable by the CPython samplers and the Abaqus kernel.
-    # Viscoelastic (Prony) families: the hyperelastic constants are the
-    # INSTANTANEOUS moduli, which are exactly what the stable-increment
-    # estimate must use in Explicit.
+    """
+    Small-strain bulk/shear moduli (K0, G0) [MPa] of the base elasticity of a
+    Material_Config, dispatched on hyperelastic.MODEL. Pure numpy (Abaqus-free):
+    usable by both the CPython samplers and the Abaqus kernel.
+    Viscoelastic (Prony) families: the hyperelastic constants are the
+    INSTANTANEOUS moduli, which are exactly what the stable-increment estimate
+    must use in Explicit.
+    """
     he = material.hyperelastic
     m = he.MODEL
     if m == "elastic":
@@ -980,10 +1015,14 @@ def elastic_moduli(material):
 
 def natural_dt(material, L_min):
     """
-    Estimate of the smallest stable time increment [s]: dt_nat = L_min / c_d,   c_d = sqrt(M / rho),   M = K0 + 4*G0/3
-    NB : mesh-based estimate: the increment actually reported in the .sta/.msg can be lower (element distortion, contact penalty stiffness).
-    L_min - Smallest element characteristic size (fine_size_..)
-    c_d - Dilatation wave speed
+    Estimate of the smallest stable time increment [s]: dt_nat = L_min / c_d,
+    c_d = sqrt(M / rho), M = K0 + 4*G0/3.
+
+    L_min - smallest element characteristic size (fine_size_..)
+    c_d   - dilatation wave speed
+
+    NB: mesh-based estimate -- the increment actually reported in the .sta/.msg
+    can be lower (element distortion, contact penalty stiffness).
     """
     K, G = elastic_moduli(material)
     M = K + 4.0 * G / 3.0
@@ -991,16 +1030,20 @@ def natural_dt(material, L_min):
     return float(L_min) / c_d
 
 def ale_remesh_courant(cfg):
-    # Remeshing Courant number of an ALE run:
-    #     C = (indenter travel between two remeshings) / (fine element size)
-    #       = ale_frequency * scratch_length * dt / (scratch_time * L_min)
-    # Because dt ~ L_min / c_d, C is MESH-INDEPENDENT: a single ale_frequency
-    # keeps a consistent advection error across a mesh study.
-    #   C -> 0 : maximum numerical diffusion of the advected state variables
-    #            (PEEQ, stresses) -- biases RF2 low on dissipative families.
-    #   C -> 1 : advection becomes exact, but the mesh must survive a full
-    #            element of distortion between two remeshings.
-    # Target ~ 0.2-0.5. Returns None when the estimate does not apply.
+    """
+    Remeshing Courant number of an ALE run:
+
+        C = (indenter travel between two remeshings) / (fine element size)
+          = ale_frequency * scratch_length * dt / (scratch_time * L_min)
+
+    Because dt ~ L_min / c_d, C is MESH-INDEPENDENT: a single ale_frequency
+    keeps a consistent advection error across a mesh study.
+      C -> 0 : maximum numerical diffusion of the advected state variables
+               (PEEQ, stresses) -- biases RF2 low on dissipative families.
+      C -> 1 : advection becomes exact, but the mesh must survive a full
+               element of distortion between two remeshings.
+    Target ~ 0.2-0.5. Returns None when the estimate does not apply.
+    """
     try:
         L_min = min(cfg.mesh.fine_size_x, cfg.mesh.fine_size_y, cfg.mesh.fine_size_z)
         dt_nat = natural_dt(cfg.material, L_min)
@@ -1021,15 +1064,21 @@ def ale_remesh_courant(cfg):
 # G'Sell-Jonas dense hardening-table generator (used for the yield tables)
 def gsell_jonas_table(sigma_y0, h, Q=0.0, b=0.0, soft_drop=0.0, eps_soft=0.05,
                       eps_max=3.0, n_points=100):
-    # Dense (sigma_y, eps_p) table for *PLASTIC / *DRUCKER PRAGER HARDENING:
-    # sigma(eps_p) = [sigma_y0 - soft_drop*(1 - exp(-eps_p/eps_soft)) + Q*(1 - exp(-b*eps_p))] * exp(h*eps_p^2)
+    """
+    Dense (sigma_y, eps_p) table for *PLASTIC / *DRUCKER PRAGER HARDENING:
 
-    # * exp(h*eps_p^2) : G'Sell-Jonas orientation hardening (the term Bucaille et al. identified as controlling pile-up and scratch resistance)
-    # * soft_drop/eps_soft : intrinsic post-yield softening of glassy polymers (NB: softening makes the response mesh-dependent through localisation)
-    # * Q/b : Voce-type initial hardening (semicrystallines).
+        sigma(eps_p) = [sigma_y0 - soft_drop*(1 - exp(-eps_p/eps_soft))
+                        + Q*(1 - exp(-b*eps_p))] * exp(h*eps_p^2)
 
-    # A dense table up to eps_p ~ 3 avoids the perfectly-plastic plateau that Abaqus extrapolates beyond the last point.
+    * exp(h*eps_p^2)     : G'Sell-Jonas orientation hardening (the term Bucaille
+                            et al. identified as controlling pile-up and scratch resistance)
+    * soft_drop/eps_soft : intrinsic post-yield softening of glassy polymers
+                            (NB: softening makes the response mesh-dependent through localisation)
+    * Q/b                 : Voce-type initial hardening (semicrystallines)
 
+    A dense table up to eps_p ~ 3 avoids the perfectly-plastic plateau that
+    Abaqus extrapolates beyond the last point.
+    """
     if sigma_y0 <= 0.0:
         raise ValueError("sigma_y0 must be positive")
     n_lo = max(n_points // 3, 8)
@@ -1049,10 +1098,12 @@ def matched_hyperelastic_set(mu0=2.2, K_mu=55.0,
                              mr_ratio=0.1, ab_lambda_m=2.5,
                              yeoh_c20_ratio=-0.05, yeoh_c30_ratio=0.005,
                              ogden_alphas=(1.6, 5.5), ogden_weights=(0.85, 0.15)):
-    
-    #Hyperelastic model set calibrated to the same small-strain response (identical mu_0 and K_0 = K_mu * mu_0 for every model)
-    #Scratch comparison isolates the model form: I2-dependence (MR), locking (AB), higher-order I1 (Yeoh), principal-stretch formulation (Ogden)
-    
+    """
+    Hyperelastic model set calibrated to the same small-strain response
+    (identical mu_0 and K_0 = K_mu * mu_0 for every model). Isolates the model
+    form in scratch comparisons: I2-dependence (MR), locking (AB), higher-order
+    I1 (Yeoh), principal-stretch formulation (Ogden).
+    """
     K0 = K_mu * mu0
     D = 2.0 / K0
     out = []
@@ -1078,5 +1129,5 @@ def matched_hyperelastic_set(mu0=2.2, K_mu=55.0,
                         Ogden_Model_Config(mu=mus, alpha=ogden_alphas, D1=D)))
         else:
             raise ValueError("Unknown model '%s' for matched_hyperelastic_set" % m)
-    # plain list of pairs keeps insertion order on Py2 (Abaqus kernel) and Py3
+    # Plain list of pairs keeps insertion order on Py2 (Abaqus kernel) and Py3
     return out
