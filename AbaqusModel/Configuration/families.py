@@ -186,8 +186,8 @@ def _glassy_pc_config():
         #friction=Friction_Config(mu=0.3),
         family="glassy_pc",
     )
-    #cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 15 : results from the target time study (-5 for safety)
-    cfg.solver.mass_scale = 20000
+    cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 15 : results from the target time study (-5 for safety)
+    #cfg.solver.mass_scale = 20000
     return cfg
 
 

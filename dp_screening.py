@@ -2,8 +2,10 @@
 #
 #   python3 dp_screening.py /mon/dossier/resultats \
 #           --design designs/glassy_pc_morris.csv \
-#           --noise-floor noise_dp.json \
 #           --out-dir screening_dp
+#
+# # [PATCH:no-noise-floor] la retention repose sur un seuil RELATIF
+# (mu*_lo / mu*_max >= --retain-frac), pas sur un plancher de bruit absolu.
 #
 # Runs the whole chain -- collect, elementary effects on every QoI, consolidated
 # ranking -- and writes SCREENING_REPORT.md plus the figures next to it.
@@ -27,17 +29,23 @@ sys.path.insert(0, _HERE)
 import morris_analysis as MA
 
 
+# [PATCH:no-noise-floor] H_MPa, Ft_half_N et pile_up_ratio retires :
+#   H_MPa           : contact_radius_mm est constant sur la campagne, donc
+#                     H = Fn / aire fixe et r(H, Fn) = 1.000000. Le garder
+#                     comptait deux fois le meme signal et gonflait la
+#                     correction de multiplicite d'un doublon.
+#   Ft_half_N       : Ft = Fn * scof, redondant avec les deux conserves.
+#   pile_up_ratio   : sigma/mu* entre 1.3 et 2.3 sur les huit facteurs,
+#                     estimateur non exploitable a ce nombre d'EE.
 DEFAULT_QOI = [
     ("Fn_half_N", "Force normale (demi-modele)", "N"),
     ("scof", "Coefficient de frottement apparent", "-"),
-    ("H_MPa", "Durete de rayage Fn/A_c", "MPa"),
     ("residual_depth_mm", "Profondeur residuelle", "mm"),
     ("pile_up_mm", "Bourrelet lateral", "mm"),
-    ("pile_up_ratio", "Bourrelet / profondeur residuelle", "-"),
 ]
 
 SIGMA_RATIO_INTERACTION = 1.0    # sigma/mu* above this => interaction-dominated
-MARGIN_SCRUTINY = 2.0            # mu*/mu*_null below this => retention to scrutinise
+RETAIN_FRAC = 0.10               # mu*_lo / mu*_max minimal pour retenir
 
 
 # ----------------------------------------------------------------------
@@ -68,45 +76,48 @@ def _coverage(design_rows, table):
             "n_traj": len(per_traj), "n_traj_complete": complete}
 
 
-def _analyse(design_rows, table, factors, delta, qoi_keys, noise, noise_rel,
-             bootstrap, ci_low):
+# [PATCH:no-noise-floor] decision sans plancher de bruit.
+#
+# L'ancienne regle testait mu*_lo contre mu*_null = sqrt(2/pi) * sqrt(2)/Delta * sigma_num,
+# c'est-a-dire contre une echelle de bruit ABSOLUE. Sans plancher, aucun
+# verdict n'etait rendu. La regle qui la remplace est RELATIVE :
+#
+#     rel_lo = mu*_lo / mu*_max      (par QoI)
+#     RETAIN   si rel_lo >= retain_frac
+#     RETAIN?  si rel    >= retain_frac mais rel_lo < retain_frac
+#     freeze   sinon
+#
+# Elle conserve la borne basse du bootstrap, donc elle reste sensible a la
+# censure : un facteur ampute a un intervalle plus large et un rel_lo plus
+# bas. Mais elle classe par rapport au facteur dominant de chaque QoI, elle
+# ne teste pas contre zero -- le facteur de tete est retenu par construction
+# et un 'freeze' signifie 'petit devant le plus grand', pas 'nul'.
+def _analyse(design_rows, table, factors, delta, qoi_keys,
+             bootstrap, ci_low, retain_frac=RETAIN_FRAC):
     out = {}
     for q in qoi_keys:
         effects, n_missing = MA.elementary_effects(design_rows, table, q, delta, ("FAIL",))
         if not effects:
             continue
         summary = MA.summarise(effects, factors, n_bootstrap=bootstrap, ci_low=ci_low)
-        sig = noise.get(q)
-        if sig is not None and noise_rel:
-            scale = np.nanmean([MA._num(rec, q) for rec in table.values()])
-            sig = sig * abs(scale)
-        ee_noise = (sig * np.sqrt(2.0) / delta) if sig is not None else None
-        mu_null = (np.sqrt(2.0 / np.pi) * ee_noise) if ee_noise is not None else None
         mu_max = max([summary[f]["mu_star"] for f in factors
                       if np.isfinite(summary[f]["mu_star"])] or [np.nan])
-        # [PATCH:screening-fixes] original : ne filtrait que mu_star_hi, donc un
-        # mu_star_lo NaN propageait un NaN dans la mediane et annulait le mde.
-        # spread = [summary[f]["mu_star_hi"] - summary[f]["mu_star_lo"] for f in factors
-        #           if np.isfinite(summary[f]["mu_star_hi"])]
-        spread = [summary[f]["mu_star_hi"] - summary[f]["mu_star_lo"] for f in factors
-                  if np.isfinite(summary[f]["mu_star_hi"])
-                  and np.isfinite(summary[f]["mu_star_lo"])]
-        mde = (mu_null + 0.5 * float(np.median(spread))) if (mu_null is not None and spread) else None
+        usable_max = mu_max if (mu_max and np.isfinite(mu_max)) else np.nan
         for f in factors:
             s = summary[f]
-            s["rel"] = (s["mu_star"] / mu_max) if mu_max and np.isfinite(mu_max) else np.nan
+            s["rel"] = (s["mu_star"] / usable_max) if np.isfinite(usable_max) else np.nan
+            s["rel_lo"] = (s["mu_star_lo"] / usable_max) if np.isfinite(usable_max) else np.nan
             s["sigma_ratio"] = (s["sigma"] / s["mu_star"]) if s["mu_star"] else np.nan
-            s["margin"] = (s["mu_star"] / mu_null) if mu_null else np.nan
-            if mu_null is None:
-                s["verdict"] = "n/a"
-            elif np.isfinite(s["mu_star_lo"]) and s["mu_star_lo"] > mu_null:
-                s["verdict"] = ("RETAIN" if s["margin"] >= MARGIN_SCRUTINY
-                                else "RETAIN?")
+            if not np.isfinite(s["rel"]):
+                s["verdict"] = "no data"
+            elif np.isfinite(s["rel_lo"]) and s["rel_lo"] >= retain_frac:
+                s["verdict"] = "RETAIN"
+            elif s["rel"] >= retain_frac:
+                s["verdict"] = "RETAIN?"
             else:
                 s["verdict"] = "freeze"
         out[q] = {"summary": summary, "n_effects": len(effects), "n_missing": n_missing,
-                  "mu_null": mu_null, "ee_noise": ee_noise, "mde": mde,
-                  "mu_max": mu_max, "sigma_num": sig}
+                  "mu_max": mu_max, "retain_frac": retain_frac}
     return out
 
 
@@ -150,62 +161,7 @@ def _confounding(per_qoi, factors):
     return out
 
 
-def _structural_floor(design_rows, table, factors, qoi_keys, delta, gates):
-    """
-    POINT 6 -- plancher de bruit STRUCTUREL, gratuit.
-
-    Un facteur peut etre inerte par construction : `eps_soft` ne pilote que
-    la cinetique de l'adoucissement, donc quand `s` vaut sa borne basse il
-    n'entre dans aucune equation. Tout effet elementaire mesure sur ces
-    paires est nul par construction : ce qui reste est du bruit, mesure sur
-    la campagne reelle -- maillage, mass scaling et extraction reels --
-    sans aucun run supplementaire.
-
-    `gates` est une liste de couples (gate, inert).
-    """
-    res = []
-    by_traj = {}
-    for rid, d in design_rows.items():
-        by_traj.setdefault(int(d["traj"]), {})[int(d["step"])] = (rid, d)
-    for gate, inert in gates:
-        col = "g_" + gate
-        if gate not in factors or inert not in factors:
-            continue
-        try:
-            lo = min(float(d[col]) for d in design_rows.values())
-        except (KeyError, ValueError):
-            continue
-        pairs = []
-        for _t, steps in sorted(by_traj.items()):
-            seq = [steps[k] for k in sorted(steps)]
-            for k in range(1, len(seq)):
-                rid1, d1 = seq[k]
-                rid0, _d0 = seq[k - 1]
-                if d1.get("moved") != inert:
-                    continue
-                if abs(float(d1[col]) - lo) > 1e-9:
-                    continue
-                pairs.append((rid0, rid1))
-        floors = {}
-        for q in qoi_keys:
-            vals = []
-            for a, b in pairs:
-                ra, rb = table.get(a), table.get(b)
-                if not (MA._usable(ra) and MA._usable(rb)):
-                    continue
-                y0, y1 = MA._num(ra, q), MA._num(rb, q)
-                if np.isfinite(y0) and np.isfinite(y1):
-                    vals.append(abs(y1 - y0) / delta)
-            if vals:
-                v = np.asarray(vals, dtype=float)
-                floors[q] = {"n": int(v.size), "mean": float(v.mean()),
-                             "max": float(v.max())}
-        res.append({"gate": gate, "inert": inert, "lo": lo,
-                    "n_pairs": len(pairs), "floors": floors})
-    return res
-
-
-# [PATCH:screening-fixes] end
+# [PATCH:no-noise-floor] _structural_floor supprimee (plancher de bruit).
 def _consolidate(per_qoi, factors):
     rows = []
     for f in factors:
@@ -219,9 +175,10 @@ def _consolidate(per_qoi, factors):
                 ranks.append(order.index(f) + 1)
             if np.isfinite(s["sigma_ratio"]):
                 sig_ratio.append(s["sigma_ratio"])
+            # [PATCH:no-noise-floor] margin -> rel_lo.
             if s["verdict"].startswith("RETAIN"):
                 retained_in.append(q)
-                margins.append(s["margin"])
+                margins.append(s.get("rel_lo", np.nan))
         rows.append({
             "factor": f,
             "rel_max": max(rels) if rels else np.nan,
@@ -231,11 +188,12 @@ def _consolidate(per_qoi, factors):
             "sigma_ratio_max": max(sig_ratio) if sig_ratio else np.nan,
             "retained_in": retained_in,
             "n_retained": len(retained_in),
-            "margin_best": max([m for m in margins if np.isfinite(m)] or [np.nan]),
-            "verdict": (("RETAIN" if max([m for m in margins if np.isfinite(m)] or [0])
-                         >= MARGIN_SCRUTINY else "RETAIN?") if retained_in else
-                        ("freeze" if any(blk["mu_null"] is not None for blk in per_qoi.values())
-                         else "n/a")),
+            # [PATCH:no-noise-floor] margin (mu*/seuil de bruit) -> rel_lo_best.
+            "rel_lo_best": max([m for m in margins if np.isfinite(m)] or [np.nan]),
+            "verdict": ("RETAIN" if retained_in else
+                        ("RETAIN?" if any(
+                            blk["summary"][f]["verdict"] == "RETAIN?"
+                            for blk in per_qoi.values()) else "freeze")),
         })
     rows.sort(key=lambda r: (-(r["rel_max"] if np.isfinite(r["rel_max"]) else -1)))
     return rows
@@ -320,9 +278,11 @@ def _fig_mu_sigma(blk, factors, qoi, path):
                     textcoords="offset points", xytext=(6, 4), fontsize=9)
     lim = blk["mu_max"] if np.isfinite(blk["mu_max"]) else 1.0
     ax.plot([0, lim], [0, lim], ls="--", lw=0.8, color="0.6")
-    if blk["mu_null"] is not None:
-        ax.axvline(blk["mu_null"], ls=":", lw=1.0, color="#b3261e")
-        ax.text(blk["mu_null"], ax.get_ylim()[1] * 0.97, " seuil bruit",
+    # [PATCH:no-noise-floor] la ligne verticale marque le seuil RELATIF, pas un bruit.
+    thr = blk.get("retain_frac")
+    if thr and np.isfinite(lim):
+        ax.axvline(thr * lim, ls=":", lw=1.0, color="#b3261e")
+        ax.text(thr * lim, ax.get_ylim()[1] * 0.97, " seuil %.0f%% de mu*max" % (100 * thr),
                 fontsize=7, color="#b3261e", va="top")
     ax.set_xlabel("mu*  (importance)")
     ax.set_ylabel("sigma  (non-linearite / interactions)")
@@ -365,8 +325,9 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
     A("| Pas Delta | %s |" % _fmt(meta["delta"], 6))
     A("| Runs prevus / exploitables | %d / %d |" % (cov["n_design"], cov["n_usable"]))
     A("| Trajectoires completes | %d / %d |" % (cov["n_traj_complete"], cov["n_traj"]))
-    A("| Plancher de bruit | %s |"
-      % ("fourni (%s)" % args.noise_mode if args.noise_floor else "**absent : aucune decision rendue**"))
+    # [PATCH:no-noise-floor] ligne 'plancher de bruit' remplacee par le seuil relatif.
+    A("| Regle de retention | mu*_lo / mu*_max >= %.2f (seuil relatif) |"
+      % args.retain_frac)
     A("| QoI analysees | %d |" % len(keys))
     A("| Correction de multiplicite | %s |"
       % ("alpha/%d sur les QoI (percentile bootstrap %.3f%%)" % (len(keys), 5.0 / len(keys))
@@ -392,13 +353,14 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
       "Aucune correction de multiplicite n'est appliquee : sur %d QoI, le risque de "
       "faux positif par facteur atteint %.0f%%." % (len(keys), 100 * (1 - 0.95 ** len(keys))))
     A("")
-    A("| Facteur | mu* max | mu* moyen | meilleur rang | rang moyen | sigma/mu* max | mu*/seuil | QoI decisives | Verdict |")
+    # [PATCH:no-noise-floor] colonne mu*/seuil -> rel_lo.
+    A("| Facteur | mu* max | mu* moyen | meilleur rang | rang moyen | sigma/mu* max | rel_lo max | QoI decisives | Verdict |")
     A("|---|---|---|---|---|---|---|---|---|")
     for r in cons:
         A("| `%s` | %s | %s | %s | %s | %s | %s | %s | **%s** |"
           % (r["factor"], _fmt(r["rel_max"], 3), _fmt(r["rel_mean"], 3),
              r["rank_best"] if r["rank_best"] else "-", _fmt(r["rank_mean"], 3),
-             _fmt(r["sigma_ratio_max"], 3), _fmt(r["margin_best"], 3),
+             _fmt(r["sigma_ratio_max"], 3), _fmt(r["rel_lo_best"], 3),
              ", ".join("`%s`" % q for q in r["retained_in"]) or "-", r["verdict"]))
     A("")
     if figs.get("consolidated"):
@@ -422,14 +384,14 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
         blk = per_qoi[q]
         A("### `%s` -- %s [%s]" % (q, lab, unit))
         A("")
-        A("%d effets elementaires%s. %s"
+        # [PATCH:no-noise-floor] plus de seuil de bruit ; on affiche le seuil relatif.
+        A("%d effets elementaires%s. Seuil de retention : mu* >= %s "
+          "(%.0f%% du mu* maximal de cette QoI)."
           % (blk["n_effects"],
              (", %d point(s) manquant(s)" % blk["n_missing"]) if blk["n_missing"] else "",
-             ("Seuil de bruit sur mu* : %s ; effet minimal detectable : %s."
-              % (_fmt(blk["mu_null"]), _fmt(blk["mde"])))
-             if blk["mu_null"] is not None else "Pas de plancher de bruit fourni."))
+             _fmt(blk["retain_frac"] * blk["mu_max"]), 100 * blk["retain_frac"]))
         A("")
-        A("| Facteur | mu* | mu*_lo | mu*_hi | sigma | sigma/mu* | mu*/seuil | mu signe | n_eff | Verdict |")
+        A("| Facteur | mu* | mu*_lo | mu*_hi | sigma | sigma/mu* | rel_lo | mu signe | n_eff | Verdict |")
         A("|---|---|---|---|---|---|---|---|---|---|")
         order = sorted(factors, key=lambda f: -(blk["summary"][f]["mu_star"]
                                                 if np.isfinite(blk["summary"][f]["mu_star"]) else -1))
@@ -437,7 +399,7 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
             s = blk["summary"][f]
             A("| `%s` | %s | %s | %s | %s | %s | %s | %s | %d | %s |"
               % (f, _fmt(s["mu_star"]), _fmt(s["mu_star_lo"]), _fmt(s["mu_star_hi"]),
-                 _fmt(s["sigma"]), _fmt(s["sigma_ratio"], 3), _fmt(s.get("margin"), 3),
+                 _fmt(s["sigma"]), _fmt(s["sigma_ratio"], 3), _fmt(s.get("rel_lo"), 3),
                  _fmt(s["mu"]), s["n_eff"], s["verdict"]))
         A("")
         if figs.get(q):
@@ -446,49 +408,42 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
 
     A("## 3. Decision")
     A("")
-    if not args.noise_floor:
-        A("Aucun plancher de bruit n'a ete fourni : les `mu*` et `sigma` ci-dessus sont "
-          "valides, mais **aucune retention ni gel n'est prononce**. Mesurer d'abord "
-          "`sigma_num` avec `noise_floor.py`, puis relancer.")
-    else:
-        A("**Retenus (%d) :** %s" % (len(retained), ", ".join("`%s`" % f for f in retained) or "aucun"))
+    # [PATCH:no-noise-floor] decision fondee sur le seuil relatif.
+    A("**Retenus (%d) :** %s" % (len(retained), ", ".join("`%s`" % f for f in retained) or "aucun"))
+    A("")
+    A("**Retenus mais marginaux (%d) :** %s" % (len(marginal),
+      ", ".join("`%s`" % f for f in marginal) or "aucun"))
+    A("")
+    A("**Geles (%d) :** %s" % (len(frozen), ", ".join("`%s`" % f for f in frozen) or "aucun"))
+    A("")
+    if marginal:
+        A("> Un facteur `RETAIN?` a un `mu*` au-dessus du seuil mais une borne basse "
+          "bootstrap en dessous : l'effet est plausible, la campagne ne le resout pas. "
+          "Les inclure dans le Sobol, ou augmenter r.")
         A("")
-        A("**Retenus mais marginaux (%d) :** %s" % (len(marginal),
-          ", ".join("`%s`" % f for f in marginal) or "aucun"))
-        A("")
-        A("**Geles (%d) :** %s" % (len(frozen), ", ".join("`%s`" % f for f in frozen) or "aucun"))
-        A("")
-        if marginal:
-            A("> Un facteur `RETAIN?` depasse le seuil de moins d'un facteur %.0f. Sur une "
-              "QoI construite comme un **ratio** (`pile_up_ratio`), le plancher de bruit "
-              "est heteroscedastique et sous-estime par une mesure faite en quelques "
-              "points : ces retentions sont les plus susceptibles d'etre des faux "
-              "positifs. Les traiter comme a verifier, soit en densifiant le plancher de "
-              "bruit sur cette QoI, soit en les incluant dans le Sobol ou leur indice "
-              "tranchera." % MARGIN_SCRUTINY)
-            A("")
-        A("Un gel signifie *aucune preuve d'effet au-dessus du bruit*, **pas** une preuve "
-          "de nullite. Les colonnes `mde` de la section 2 indiquent ce que la campagne "
-          "etait capable de detecter ; si le `mde` est du meme ordre que les `mu*` "
-          "retenus, la campagne manquait de puissance et il faut augmenter r plutot que "
-          "conclure.")
-        A("")
-        A("### Sobol")
-        A("")
-        A("```bash")
-        A("python3 generate_design.py %s --method sobol --n 1024 \\" % (meta["family"] or "glassy_pc"))
-        A("        --only %s" % (",".join(retained + marginal) if (retained or marginal) else "..."))
-        A("```")
-        A("")
-        A("Les facteurs marginaux sont inclus par prudence. Les facteurs non listes sont "
-          "geles en milieu de plage. Passer de %d a %d facteurs est ce qui rend 1024 "
-          "points suffisants." % (len(factors), len(retained) + len(marginal)))
+    A("> **Le seuil est RELATIF.** Il compare chaque facteur au plus influent de la "
+      "meme QoI, il ne teste pas contre zero. Trois consequences : le facteur de "
+      "tete est retenu par construction ; un `freeze` signifie *petit devant le plus "
+      "grand*, **pas** *nul* ; et si tous les facteurs avaient un effet reel du meme "
+      "ordre, la regle n'en gelerait aucun. Elle reduit la dimension, elle ne prouve "
+      "aucune nullite.")
+    A("")
+    A("### Sobol")
+    A("")
+    A("```bash")
+    A("python3 generate_design.py %s --method sobol --n 1024 \\" % (meta["family"] or "glassy_pc"))
+    A("        --only %s" % (",".join(retained + marginal) if (retained or marginal) else "..."))
+    A("```")
+    A("")
+    A("Les facteurs marginaux sont inclus par prudence. Les facteurs non listes sont "
+      "geles en milieu de plage. Passer de %d a %d facteurs est ce qui rend 1024 "
+      "points suffisants." % (len(factors), len(retained) + len(marginal)))
     A("")
     # [PATCH:screening-fixes] begin -- sections ajoutees (points 5 et 6).
     extra = extra or {}
     conf = extra.get("confounding") or []
     hot = [c for c in conf if c["index"] >= CONFOUND_THRESHOLD]
-    A("## 3bis. Identifiabilite et plancher structurel")
+    A("## 3bis. Identifiabilite")
     A("")
     A("### Signature de confusion entre facteurs")
     A("")
@@ -511,44 +466,7 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
             A("| `%s` / `%s` | %s | %d |"
               % (c["pair"][0], c["pair"][1], _fmt(c["index"], 3), c["n_qoi"]))
         A("")
-    A("### Plancher de bruit structurel")
-    A("")
-    sf = extra.get("structural") or []
-    if not sf:
-        A("_Aucune relation d'inertie declaree (`--gates`)._")
-        A("")
-    for blk in sf:
-        A("`%s` est inerte par construction quand `%s` = %s : %d paire(s) dans "
-          "le plan. Les effets elementaires mesures y sont nuls par "
-          "construction, donc ce qui reste est du bruit -- mesure sur la "
-          "campagne reelle, sans run supplementaire."
-          % (blk["inert"], blk["gate"], _fmt(blk["lo"], 3), blk["n_pairs"]))
-        A("")
-        if not blk["floors"]:
-            A("_Aucune paire exploitable : les runs concernes sont manquants._")
-            A("")
-            continue
-        A("| QoI | n | mu* nul observe | max | seuil fourni | Coherence |")
-        A("|---|---|---|---|---|---|")
-        for q in keys:
-            fl = blk["floors"].get(q)
-            if not fl:
-                continue
-            supplied = per_qoi[q]["mu_null"] if q in per_qoi else None
-            if supplied is None:
-                verdict = "-"
-            elif supplied < fl["mean"]:
-                verdict = "**seuil trop bas**"
-            else:
-                verdict = "ok"
-            A("| `%s` | %d | %s | %s | %s | %s |"
-              % (q, fl["n"], _fmt(fl["mean"]), _fmt(fl["max"]),
-                 _fmt(supplied), verdict))
-        A("")
-        A("> Un `seuil trop bas` signifie que le plancher fourni est inferieur "
-          "au bruit reellement mesure sur des effets nuls par construction : "
-          "des facteurs sont alors retenus a tort.")
-        A("")
+    # [PATCH:no-noise-floor] section 'plancher structurel' supprimee.
     # [PATCH:screening-fixes] end
     A("## 4. Reserves")
     A("")
@@ -578,17 +496,14 @@ def main():
     ap.add_argument("--design", required=True)
     ap.add_argument("--table", default=None,
                     help="CSV tidy deja produit par sweep_collector.py (evite la collecte)")
-    ap.add_argument("--noise-floor", default=None)
-    ap.add_argument("--noise-mode", default="relative", choices=("relative", "absolute"))
+    # [PATCH:no-noise-floor] --noise-floor / --noise-mode / --gates retires.
     ap.add_argument("--qoi", default=None, help="sous-ensemble de QoI, separees par des virgules")
     ap.add_argument("--out-dir", default="screening_dp")
     ap.add_argument("--bootstrap", type=int, default=4000)
-    # [PATCH:screening-fixes] point 6 : relations d'inertie structurelle.
-    ap.add_argument("--gates", default="s:eps_soft",
-                    help="couples gate:inert separes par des virgules. "
-                         "`inert` est sans effet quand `gate` est a sa borne "
-                         "basse, donc les effets elementaires mesures la sont "
-                         "du bruit pur. Vide pour desactiver.")
+    ap.add_argument("--retain-frac", type=float, default=RETAIN_FRAC,
+                    help="seuil relatif de retention : un facteur est retenu si "
+                         "mu*_lo / mu*_max depasse cette fraction sur au moins "
+                         "une QoI (defaut %.2f)." % RETAIN_FRAC)
     ap.add_argument("--fwer", default="qoi", choices=("qoi", "none"),
                     help="correction de multiplicite. 'qoi' (defaut) : la regle "
                          "'retenu pour au moins une QoI' est une union de n_qoi tests, "
@@ -629,18 +544,7 @@ def main():
     if not qoi_meta:
         raise SystemExit("Aucune QoI demandee n'est presente dans %s" % table_path)
 
-    noise, noise_rel = {}, (args.noise_mode == "relative")
-    if args.noise_floor:
-        with open(args.noise_floor, "r") as f:
-            payload = json.load(f)
-        if "sigma" in payload and isinstance(payload["sigma"], dict):
-            noise = payload["sigma_rel" if noise_rel else "sigma"]
-        else:
-            noise = payload
-            if noise_rel:
-                raise SystemExit("Fichier de bruit plat sans sigma_rel : utiliser "
-                                 "--noise-mode absolute ou regenerer avec noise_floor.py.")
-
+    # [PATCH:no-noise-floor] plus de lecture de plancher de bruit.
     n_tests = len(qoi_meta) if args.fwer == "qoi" else 1
     ci_low = MA.CI[0] / float(n_tests)
     if args.fwer == "qoi" and args.bootstrap * ci_low / 100.0 < 20:
@@ -649,8 +553,8 @@ def main():
               % (need, ci_low))
         args.bootstrap = need
     per_qoi = _analyse(design_rows, table, factors, meta["delta"],
-                       [q for q, _, _ in qoi_meta], noise, noise_rel,
-                       args.bootstrap, ci_low)
+                       [q for q, _, _ in qoi_meta],
+                       args.bootstrap, ci_low, retain_frac=args.retain_frac)
     if not per_qoi:
         raise SystemExit("Aucun effet elementaire calculable : verifier la couverture.")
     cons = _consolidate(per_qoi, factors)
@@ -669,40 +573,31 @@ def main():
     csv_path = os.path.join(args.out_dir, "morris_summary.csv")
     with open(csv_path, "w") as f:
         w = csv.writer(f)
+        # [PATCH:no-noise-floor] colonnes mu_star_null / mu_star_mde retirees.
         w.writerow(["qoi", "factor", "mu_star", "mu_star_lo", "mu_star_hi", "sigma",
-                    "sigma_ratio", "margin", "mu_signed", "n_eff", "rel", "mu_star_null",
-                    "mu_star_mde", "verdict"])
+                    "sigma_ratio", "rel", "rel_lo", "mu_signed", "n_eff",
+                    "mu_star_threshold", "verdict"])
         for q, blk in per_qoi.items():
             for fac in factors:
                 s = blk["summary"][fac]
                 w.writerow([q, fac, s["mu_star"], s["mu_star_lo"], s["mu_star_hi"],
-                            s["sigma"], s["sigma_ratio"], s.get("margin"), s["mu"],
-                            s["n_eff"], s["rel"], blk["mu_null"], blk["mde"], s["verdict"]])
+                            s["sigma"], s["sigma_ratio"], s["rel"], s.get("rel_lo"),
+                            s["mu"], s["n_eff"],
+                            blk["retain_frac"] * blk["mu_max"], s["verdict"]])
 
     cons_path = os.path.join(args.out_dir, "consolidated_ranking.csv")
     with open(cons_path, "w") as f:
         w = csv.writer(f)
         w.writerow(["rank", "factor", "rel_max", "rel_mean", "rank_best", "rank_mean",
-                    "sigma_ratio_max", "margin_best", "n_qoi_retained", "retained_in",
+                    "sigma_ratio_max", "rel_lo_best", "n_qoi_retained", "retained_in",
                     "verdict"])
         for i, r in enumerate(cons, 1):
             w.writerow([i, r["factor"], r["rel_max"], r["rel_mean"], r["rank_best"],
-                        r["rank_mean"], r["sigma_ratio_max"], r["margin_best"],
+                        r["rank_mean"], r["sigma_ratio_max"], r["rel_lo_best"],
                         r["n_retained"], ";".join(r["retained_in"]), r["verdict"]])
 
-    # [PATCH:screening-fixes] begin -- points 5 et 6.
-    gates = []
-    for spec in (args.gates or "").split(","):
-        if ":" in spec:
-            g, i = [x.strip() for x in spec.split(":", 1)]
-            if g and i:
-                gates.append((g, i))
-    extra = {
-        "confounding": _confounding(per_qoi, factors),
-        "structural": _structural_floor(design_rows, table, factors,
-                                        [q for q, _, _ in qoi_meta],
-                                        meta["delta"], gates),
-    }
+    # [PATCH:no-noise-floor] le bloc 'structural' (plancher structurel) est retire.
+    extra = {"confounding": _confounding(per_qoi, factors)}
     for c in extra["confounding"][:1]:
         if c["index"] >= CONFOUND_THRESHOLD:
             print("  ATTENTION confusion probable : %s / %s (indice %.3f)"
@@ -717,7 +612,7 @@ def main():
         json.dump({"family": meta["family"], "campaign": meta["campaign"],
                    "delta": meta["delta"], "factors": factors,
                    "qoi": [q for q, _, _ in qoi_meta],
-                   "noise_floor_supplied": bool(noise), "noise_mode": args.noise_mode,
+                   "retain_frac": args.retain_frac, "decision_rule": "relative",
                    "retained": retained, "marginal": marginal,
                    "keep_for_sobol": retained + marginal,
                    "frozen_candidates": frozen,

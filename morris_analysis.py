@@ -2,11 +2,11 @@
 #
 #   python3 morris_analysis.py sweep_glassy_pc.csv \
 #           --design designs/glassy_pc_morris.csv \
-#           --noise-floor noise_glassy_pc.json \
 #           --out-dir analysis_glassy_pc
 #
-# noise-floor JSON maps a QoI name to its numerical standard deviation in the
-# units of that QoI, e.g. {"Fn_half_N": 1.2e-3, "scof": 0.004}.
+# # [PATCH:no-noise-floor] retention on a RELATIVE threshold: a factor is retained when
+# mu*_lo / mu*_max exceeds --retain-frac on at least one QoI. No absolute
+# noise scale is used anywhere.
 
 import argparse
 import csv
@@ -17,9 +17,12 @@ import re
 import numpy as np
 
 
-DEFAULT_QOI = ["Fn_half_N", "Ft_half_N", "scof", "H_MPa",
-               "residual_depth_mm", "pile_up_mm", "pile_up_ratio"]
-N_BOOTSTRAP = 2000
+# [PATCH:no-noise-floor] Ft_half_N (= Fn * scof), H_MPa (aire de contact constante,
+# donc r(H, Fn) = 1 exactement) et pile_up_ratio (sigma/mu* > 1.3 partout)
+# sont retires : redondants ou non exploitables.
+DEFAULT_QOI = ["Fn_half_N", "scof", "residual_depth_mm", "pile_up_mm"]
+RETAIN_FRAC = 0.20
+N_BOOTSTRAP = 4000
 CI = (5.0, 95.0)
 
 
@@ -196,12 +199,11 @@ def main():
     ap.add_argument("table", help="tidy CSV produced by sweep_collector.py")
     ap.add_argument("--design", required=True, help="Morris design CSV")
     ap.add_argument("--qoi", default=None, help="comma-separated QoI columns")
-    ap.add_argument("--noise-floor", default=None,
-                    help="JSON written by noise_floor.py (or a flat {qoi: sigma})")
-    ap.add_argument("--noise-mode", default="relative", choices=("relative", "absolute"),
-                    help="relative: sigma is a FRACTION of the QoI, rescaled by the "
-                         "mean of that QoI over the design (default, matches the "
-                         "proportional error of Explicit)")
+    # [PATCH:no-noise-floor] --noise-floor / --noise-mode retires.
+    ap.add_argument("--retain-frac", type=float, default=RETAIN_FRAC,
+                    help="relative retention threshold: keep a factor when "
+                         "mu*_lo / mu*_max exceeds this fraction on at least "
+                         "one QoI (default %.2f)." % RETAIN_FRAC)
     ap.add_argument("--out-dir", default="analysis")
     ap.add_argument("--bootstrap", type=int, default=N_BOOTSTRAP)
     ap.add_argument("--keep-failed", action="store_true",
@@ -237,19 +239,7 @@ def main():
     if not qois:
         raise SystemExit("None of the requested QoI columns are present in %s" % args.table)
 
-    noise, noise_is_rel = {}, (args.noise_mode == "relative")
-    if args.noise_floor:
-        with open(args.noise_floor, "r") as f:
-            payload = json.load(f)
-        if "sigma" in payload and isinstance(payload["sigma"], dict):
-            noise = payload["sigma_rel" if noise_is_rel else "sigma"]
-        else:
-            noise = payload
-            if noise_is_rel:
-                raise SystemExit(
-                    "Noise file '%s' is a flat {qoi: sigma} map with no sigma_rel. "
-                    "Re-run noise_floor.py, or pass --noise-mode absolute."
-                    % args.noise_floor)
+    # [PATCH:no-noise-floor] plus de lecture de plancher de bruit.
 
     if not os.path.isdir(args.out_dir):
         os.makedirs(args.out_dir)
@@ -263,61 +253,50 @@ def main():
               % (need, ci_low))
         args.bootstrap = need
     # [PATCH:screening-fixes] end
-    rows, retained = [], set()
+    rows, retained, marginal = [], set(), set()
     for qoi in qois:
         effects, n_missing = elementary_effects(design_rows, table, qoi, delta, drop)
         # [PATCH:screening-fixes] original : summarise(effects, factors, n_bootstrap=args.bootstrap)
         summary = summarise(effects, factors, n_bootstrap=args.bootstrap,
                             ci_low=ci_low)
+        # [PATCH:no-noise-floor] verdict sur seuil RELATIF (mu*_lo / mu*_max).
         mu_max = max([summary[f]["mu_star"] for f in factors
                       if np.isfinite(summary[f]["mu_star"])] or [np.nan])
-        sig_num = float(noise[qoi]) if qoi in noise else None
-        if sig_num is not None and noise_is_rel:
-            scale = np.nanmean([_num(rec, qoi) for rec in table.values()])
-            sig_num = sig_num * abs(scale)
-        ee_noise = (sig_num * np.sqrt(2.0) / delta) if sig_num is not None else None
-        # Under the null, EE ~ N(0, ee_noise) so mu* = mean|EE| has expectation
-        # sqrt(2/pi)*ee_noise, NOT zero: that is the reference to test against.
-        mu_null = (np.sqrt(2.0 / np.pi) * ee_noise) if ee_noise is not None else None
+        has_max = bool(mu_max) and np.isfinite(mu_max)
+        thr = (args.retain_frac * mu_max) if has_max else float("nan")
 
         print("")
         print("QoI %-20s  (%d elementary effects, %d missing points)"
               % (qoi, len(effects), n_missing))
-        if ee_noise is not None:
-            print("  numerical EE floor = %.4g  (sigma_num = %.4g, %s)"
-                  % (ee_noise, sig_num, args.noise_mode))
-        mde = None
-        if mu_null is not None:
-            spread = [s["mu_star_hi"] - s["mu_star_lo"] for s in summary.values()
-                      if np.isfinite(s["mu_star_hi"]) and np.isfinite(s["mu_star_lo"])]
-            mde = mu_null + (0.5 * float(np.median(spread)) if spread else 0.0)
-            print("  mu* null reference = %.4g | minimum detectable mu* ~ %.4g"
-                  % (mu_null, mde))
-        print("  %-12s %11s %11s %11s %11s %6s %10s" %
-              ("factor", "mu*", "mu*_lo", "mu*_hi", "sigma", "n_eff", "verdict"))
+        if has_max:
+            print("  retention threshold = %.4g  (%.0f%% of mu*_max)"
+                  % (thr, 100 * args.retain_frac))
+        print("  %-12s %11s %11s %11s %11s %8s %6s %10s" %
+              ("factor", "mu*", "mu*_lo", "mu*_hi", "sigma", "rel_lo", "n_eff", "verdict"))
         for f in factors:
             s = summary[f]
-            if mu_null is None:
-                verdict = "n/a"
-            elif not np.isfinite(s["mu_star_hi"]):
+            rel = (s["mu_star"] / mu_max) if has_max else float("nan")
+            rel_lo = (s["mu_star_lo"] / mu_max) if has_max else float("nan")
+            if not np.isfinite(rel):
                 verdict = "no data"
-            elif s["mu_star_lo"] > mu_null:
+            elif np.isfinite(rel_lo) and rel_lo >= args.retain_frac:
                 verdict = "RETAIN"
                 retained.add(f)
+            elif rel >= args.retain_frac:
+                verdict = "RETAIN?"
+                marginal.add(f)
             else:
                 verdict = "freeze"
-            print("  %-12s %11.5g %11.5g %11.5g %11.5g %6d %10s"
+            print("  %-12s %11.5g %11.5g %11.5g %11.5g %8.3f %6d %10s"
                   % (f, s["mu_star"], s["mu_star_lo"], s["mu_star_hi"],
-                     s["sigma"], s["n_eff"], verdict))
+                     s["sigma"], rel_lo, s["n_eff"], verdict))
             rows.append({
                 "qoi": qoi, "factor": f,
                 "mu_star": s["mu_star"], "mu_star_lo": s["mu_star_lo"],
                 "mu_star_hi": s["mu_star_hi"], "sigma": s["sigma"], "mu": s["mu"],
                 "n_eff": s["n_eff"],
-                "rel_importance": (s["mu_star"] / mu_max) if mu_max else np.nan,
-                "ee_noise_floor": ("" if ee_noise is None else ee_noise),
-                "mu_star_null": ("" if mu_null is None else mu_null),
-                "mu_star_mde": ("" if mde is None else mde),
+                "rel_importance": rel, "rel_lo": rel_lo,
+                "mu_star_threshold": thr,
                 "verdict": verdict,
             })
         _plot(summary, factors, qoi, os.path.join(args.out_dir, "morris_%s.png" % qoi))
@@ -328,13 +307,16 @@ def main():
         w.writeheader()
         w.writerows(rows)
 
-    keep = set(retained)
+    # [PATCH:no-noise-floor] marginal ajoute, cles de bruit retirees.
+    marginal = marginal - retained
+    keep = set(retained) | marginal
     fam = meta["family"] or "unknown"
     out_json = {
         "family": fam, "campaign": meta["campaign"], "delta": delta,
         "factors": factors, "qoi": qois,
-        "noise_floor_supplied": bool(noise), "noise_mode": args.noise_mode,
+        "retain_frac": args.retain_frac, "decision_rule": "relative",
         "retained": sorted(retained),
+        "marginal": sorted(marginal),
         "keep_for_sobol": sorted(keep),
         "frozen_candidates": sorted(set(factors) - keep),
     }
@@ -345,17 +327,15 @@ def main():
     print("")
     print("Summary -> %s" % summary_path)
     print("Retention -> %s" % json_path)
-    if not noise:
-        print("NOTE: no --noise-floor supplied, so no factor was retained or frozen; "
-              "mu*/sigma are reported but the decision is left open.")
-    else:
-        print("Retained : %s" % (", ".join(sorted(retained)) or "(none)"))
-        print("Freeze   : %s" % (", ".join(sorted(set(factors) - keep)) or "(none)"))
-        print("A 'freeze' means no evidence of an effect above the noise floor, NOT "
-              "proof of nullity: see mu_star_mde in morris_summary.csv for what this "
-              "campaign was able to detect.")
-        print("Next: generate_design.py %s --method sobol --n 1024 --only %s"
-              % (fam, ",".join(sorted(keep)) or "..."))
+    # [PATCH:no-noise-floor] resume sans reference au bruit.
+    print("Retained : %s" % (", ".join(sorted(retained)) or "(none)"))
+    print("Marginal : %s" % (", ".join(sorted(marginal)) or "(none)"))
+    print("Freeze   : %s" % (", ".join(sorted(set(factors) - keep)) or "(none)"))
+    print("The threshold is RELATIVE (mu*_lo / mu*_max >= %.2f): the top factor is "
+          "retained by construction and a 'freeze' means SMALL COMPARED TO THE "
+          "LARGEST, not null." % args.retain_frac)
+    print("Next: generate_design.py %s --method sobol --n 1024 --only %s"
+          % (fam, ",".join(sorted(keep)) or "..."))
 
 
 if __name__ == "__main__":
