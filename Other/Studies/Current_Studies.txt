@@ -1,0 +1,88 @@
+Scratching time comparison:
+
+-> Tests for 0.05s and 0.1s
+
+MR and VE :
+    - Both high AE/IE and ALLPW for finer mesh only (0.01 and 0.007)
+    - Bad reproductibility of SCOF and Pile-up. Might be affected by Energy conservation
+    - Alright reproductibility for RF2
+
+    For MR
+    - ALE decreases the overall stability of the simulations while giving results that are approximately the same. Visually, the absence of heavy distortion explains that ALE is not needed
+    - SCOF goes below mu_input for 0.05s ST
+    - While (no ALE - 0.1s) is still relatively unstable, it seems like the best compromise for now
+
+    For VE
+    - Influence of ST is felt for SCOF, +0.02 on average for 0.1s, no real conclusion can be made on RF2
+
+
+    Simulation Time increases 9x for VE, 2x for MR
+    ALE increases time by 3x for VE, 1x for MR
+
+Glassy (DP and PMMA) :
+    - AE/IE too high for DP, at the limit for PMMA. ALLPW close to fail as well.
+    - Very good results reproductibility for SCOF, RF2, Depth and Pile-up
+    - No proof of convergence for SCOF, RF2, Depth and Pile-up (important differences between mesh)
+
+    - no ALE has given visually non-physical results, very high distortion of elements as well as weird recovery phenomena 
+
+    For DP
+    - ALE completely changes the physic of the simulation, RF2 decreases by 20%, Res depth increases by 20%, Pile-up decreases by 5%
+
+    For PC,
+    - ALe also affects the results, RF2 decreases by 20%, Res depth increases by 10%, Pile-up decreases by 10%
+    Simulation Time increases 2x
+    ALE increases time by 1.2x 
+
+Crys :
+    - AE/IE, KE/IE and ALLPW are all good
+    - Very good results reproductibility in all cases
+    - Relatively close results, but still no proof of convergence for SCOF, RF2, Depth and Pile-up
+
+    Simulation time increases 3x
+    ALE increases time by 2x 
+
+
+
+
+
+
+
+
+
+
+
+Parameter list :
+
+MR, 
+C10 C01 D1
+
+AB,
+mu, lambda_m, D
+
+Yeoh,
+C10 C20 C30 D1
+
+Ogden,
+mu alpha D1
+
+Prony,
+Prony Table
+
+Von Mises,
+Yield Table
+
+DP,
+Friction_angle 
+Flow_strees_ratio
+Dilation_angle
+Yield Table
+
+Briscoe,
+tau0 
+alpha 
+p_min 
+p_max 
+mu_cap 
+elstic_slip_fraction
+

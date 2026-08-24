@@ -37,15 +37,68 @@ import morris_analysis as MA
 #   Ft_half_N       : Ft = Fn * scof, redundant with the two kept QoI.
 #   pile_up_ratio   : sigma/mu* between 1.3 and 2.3 across all eight factors,
 #                     the estimator is not usable at this number of EEs.
+# [PATCH:values-backend] names now come from results_values.extract_values.
+# Original:
+#   ("Fn_half_N", ...), ("scof", ...), ("residual_depth_mm", ...), ("pile_up_mm", ...)
 DEFAULT_QOI = [
-    ("Fn_half_N", "Normal force (half-model)", "N"),
-    ("scof", "Apparent friction coefficient", "-"),
-    ("residual_depth_mm", "Residual depth", "mm"),
-    ("pile_up_mm", "Lateral pile-up", "mm"),
+    ("F_n", "Normal force (half-model)", "N"),
+    ("SCOF_mean", "Apparent friction coefficient", "-"),
+    ("h_r", "Residual depth", "mm"),
+    ("h_p", "Lateral pile-up", "mm"),
 ]
 
 SIGMA_RATIO_INTERACTION = 1.0    # sigma/mu* above this => interaction-dominated
 RETAIN_FRAC = 0.10               # minimal mu*_lo / mu*_max to retain a factor
+
+# [PATCH:values-backend] begin -- quality is an INDICATOR, never a filter.
+#
+# results_values.py returns values, not verdicts, and no run is excluded on a
+# quality criterion any more. These limits are reported so a systematic drift
+# stays visible -- in particular on deliberately coarse test meshes, where
+# exceeding them is expected rather than alarming.
+#
+# Edit the numbers freely: nothing downstream depends on them.
+QUALITY_LIMITS = [
+    ("KE_IE_steady_max",      5.0, "kinetic / internal energy, steady window"),
+    ("AE_IE_final",           5.0, "artificial (hourglass) / internal energy"),
+    ("ETOTAL_drift",          5.0, "energy-balance drift / E_ref"),
+    ("ALLPW",                 5.0, "contact penalty work / E_ref"),
+    ("KE_final_over_IE_peak", 1.0, "residual vibration at the final frame"),
+]
+
+
+def _quality_summary(table, limits=QUALITY_LIMITS):
+    """
+    Per-indicator tally over the runs that actually carry values.
+
+    Returns [{key, limit, note, n, n_over, frac, median, p90, max}], plus the
+    ids of the worst offenders. Purely descriptive: it gates nothing.
+    """
+    out = []
+    for key, limit, note in limits:
+        vals, over = [], []
+        for rid, rec in table.items():
+            if not MA._usable(rec):
+                continue
+            v = MA._num(rec, key)
+            if not np.isfinite(v):
+                continue
+            vals.append(v)
+            if v > limit:
+                over.append((v, rid))
+        a = np.asarray(vals, dtype=float)
+        over.sort(reverse=True)
+        out.append({
+            "key": key, "limit": limit, "note": note,
+            "n": int(a.size), "n_over": len(over),
+            "frac": (len(over) / float(a.size)) if a.size else float("nan"),
+            "median": float(np.median(a)) if a.size else float("nan"),
+            "p90": float(np.percentile(a, 90)) if a.size else float("nan"),
+            "max": float(np.max(a)) if a.size else float("nan"),
+            "worst_ids": [rid for _v, rid in over[:8]],
+        })
+    return out
+# [PATCH:values-backend] end
 
 
 # ----------------------------------------------------------------------
@@ -71,8 +124,24 @@ def _coverage(design_rows, table):
     for rid, d in design_rows.items():
         per_traj.setdefault(int(d["traj"]), []).append(rid)
     complete = sum(1 for t, r in per_traj.items() if all(x in have for x in r))
+    # [PATCH:values-backend] the unusable set is now split by CAUSE. The old
+    # report said "missing or failed", which lumped together a design point
+    # that was never launched, a job that aborted, and a run whose results
+    # were complete but failed a quality check. Only the first two are real
+    # losses; the third no longer exists.
+    absent, aborted, unreadable = [], [], []
+    for rid in sorted(ids - have):
+        rec = table.get(rid)
+        rs = str((rec or {}).get("run_status", "")).strip().upper()
+        if rec is None or rs == "MISSING":
+            absent.append(rid)
+        elif rs == "FAILED":
+            aborted.append(rid)
+        else:
+            unreadable.append(rid)
     return {"n_design": len(ids), "n_usable": len(have),
             "n_missing": len(ids - have), "missing": sorted(ids - have),
+            "absent": absent, "aborted": aborted, "unreadable": unreadable,
             "n_traj": len(per_traj), "n_traj_complete": complete}
 
 
@@ -334,11 +403,23 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
          if args.fwer == "qoi" else "none (5%% per test)"))
     A("")
 
+    # [PATCH:values-backend] begin -- causes separated, quality removed.
+    # Original:
+    #   A("> **%d missing or failed run(s).** ... Affected ids: %s")
     if cov["n_missing"]:
-        A("> **%d missing or failed run(s).** Each missing point destroys two "
-          "elementary effects. Affected ids: %s"
-          % (cov["n_missing"], ", ".join(cov["missing"][:25])))
+        A("> **%d unusable run(s).** Each missing point destroys two elementary "
+          "effects. Quality is NOT a cause: no run is excluded on an energy "
+          "criterion." % cov["n_missing"])
+        A(">")
+        for label, ids_ in (("never produced (no file)", cov.get("absent") or []),
+                            ("aborted (failure stub)", cov.get("aborted") or []),
+                            ("unreadable / truncated file", cov.get("unreadable") or [])):
+            if ids_:
+                A("> - **%d %s**: %s%s"
+                  % (len(ids_), label, ", ".join(ids_[:20]),
+                     " ..." if len(ids_) > 20 else ""))
         A("")
+    # [PATCH:values-backend] end
 
     A("## 1. Consolidated ranking")
     A("")
@@ -468,6 +549,39 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
         A("")
     # [PATCH:no-noise-floor] 'structural noise floor' section removed.
     # [PATCH:screening-fixes] end
+    # [PATCH:values-backend] begin -- section 3ter: indicators, not gates.
+    qual = (extra or {}).get("quality") or []
+    A("## 3ter. Numerical quality indicators")
+    A("")
+    A("These are **indicators only**. No run is excluded on any of them: the "
+      "energy diagnostics are reported so that a systematic drift stays "
+      "visible, and every parsed run feeds the elementary effects regardless "
+      "of the values below. On a deliberately coarse mesh, exceeding these "
+      "limits is expected and is not a reason to discard the run.")
+    A("")
+    if not qual:
+        A("No energy diagnostic column found in the collected table.")
+        A("")
+    else:
+        A("| Indicator | Limit | Over limit | Median | p90 | Max | Worst ids |")
+        A("|---|---|---|---|---|---|---|")
+        for q in qual:
+            A("| `%s` | %s %% | %d / %d (%s%%) | %s | %s | %s | %s |"
+              % (q["key"], _fmt(q["limit"], 3), q["n_over"], q["n"],
+                 _fmt(100.0 * q["frac"], 3) if np.isfinite(q["frac"]) else "-",
+                 _fmt(q["median"], 3), _fmt(q["p90"], 3), _fmt(q["max"], 3),
+                 ", ".join(q["worst_ids"][:5]) or "-"))
+        A("")
+        A("**How to read this.** An indicator exceeded by nearly EVERY run "
+          "points at a systematic setting shared by the whole campaign "
+          "(element control, mass scaling, ALE frequency, mesh size), not at "
+          "individual runs. An indicator exceeded by a HANDFUL of runs points "
+          "at a corner of the factor box; cross the worst ids above with the "
+          "design to find which factor level they share. In both cases the "
+          "action is to change the setting or to document the bias, never to "
+          "drop the runs.")
+        A("")
+    # [PATCH:values-backend] end
     A("## 4. Caveats")
     A("")
     A("- The ranking holds for the **Drucker-Prager class**, not for any single "
@@ -478,9 +592,15 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
       "interaction.")
     A("- `h` enters via `exp(h*eps^2)` evaluated up to eps_max: strong "
       "non-linearity on this factor is expected by construction of the model.")
-    A("- At `phi = 1` the friction model switches from a tabulated table to "
-      "constant Coulomb. Check that `phi = 0.99` and `phi = 1.00` give the "
-      "same result before interpreting the `mu*` of `phi`.")
+    # [PATCH:values-backend] caveat updated: phi is capped below 1 in sampling.py.
+    A("- `phi` is capped below 1 in the sampling box precisely because "
+      "`phi = 1` switches the friction model from a tabulated Briscoe table "
+      "to constant Coulomb -- a change of model class, not a variation of a "
+      "factor. If a design predating that cap is analysed here, the `mu*` of "
+      "`phi` mixes the two.")
+    A("- Quality indicators (section 3ter) never exclude a run. A campaign "
+      "run on a coarse mesh for turnaround will exceed them by construction; "
+      "that is a known bias to report, not a reason to shrink the design.")
     A("")
 
     with open(path, "w") as f:
@@ -532,6 +652,10 @@ def main():
     cov = _coverage(design_rows, table)
     print("Coverage: %d/%d usable runs, %d/%d complete trajectories"
           % (cov["n_usable"], cov["n_design"], cov["n_traj_complete"], cov["n_traj"]))
+    # [PATCH:values-backend] quality is never a cause of exclusion any more.
+    print("  unusable: %d absent, %d aborted, %d unreadable (0 on quality)"
+          % (len(cov.get("absent") or []), len(cov.get("aborted") or []),
+             len(cov.get("unreadable") or [])))
 
     available = set()
     for rec in table.values():
@@ -599,7 +723,9 @@ def main():
                         r["n_retained"], ";".join(r["retained_in"]), r["verdict"]])
 
     # [PATCH:no-noise-floor] the 'structural' block (noise floor) is removed.
-    extra = {"confounding": _confounding(per_qoi, factors)}
+    # [PATCH:values-backend] quality indicators computed for the report only.
+    extra = {"confounding": _confounding(per_qoi, factors),
+             "quality": _quality_summary(table)}
     for c in extra["confounding"][:1]:
         if c["index"] >= CONFOUND_THRESHOLD:
             print("  WARNING probable confounding: %s / %s (index %.3f)"

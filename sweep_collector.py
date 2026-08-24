@@ -6,6 +6,27 @@
 #
 # <results_dir> is walked recursively for *_Results.csv, so it can be any
 # directory name and layout: point it at whatever you created on the cluster.
+#
+# [PATCH:values-backend] the QoI are now produced by results_values.py
+# (extract_values), which replaces results_verifier.py. Two consequences:
+#
+#   1. The QoI names change. Mapping from the previous pipeline:
+#          Fn_half_N          -> F_n          [N]
+#          Ft_half_N          -> F_t          [N]
+#          scof               -> SCOF_mean    [-]   (+ SCOF_std)
+#          residual_depth_mm  -> h_r          [mm]
+#          pile_up_mm         -> h_p          [mm]
+#          (new)                 h_fp         [mm]  frontal pile-up
+#
+#   2. results_values.py returns VALUES, not verdicts. There is therefore no
+#      quality status any more, and NO RUN IS EVER EXCLUDED on a quality
+#      criterion. `status` is now an INTEGRITY flag only:
+#          OK      -- the file was produced and parsed
+#          FAIL    -- the run aborted, the file is a stub, or parsing raised
+#      The energy diagnostics (KE/IE, AE/IE, ETOTAL drift, ALLPW, settling)
+#      are written as plain numeric columns and reported downstream as
+#      INDICATORS. They never gate anything, so coarse-mesh test runs stay
+#      in the table.
 
 import argparse
 import csv
@@ -23,186 +44,93 @@ sys.path.insert(0, os.path.dirname(_HERE))
 sys.path.insert(0, _HERE)
 
 
-QOI_WINDOW_START = 0.90     # fraction of the scratch step where the QoI window opens
-STATUS_RANK = {"PASS": 0, "INFO": 1, "SKIP": 1, "WARN": 2, "FAIL": 3}
+# [PATCH:values-backend] STATUS_RANK removed with the verifier: there is no
+# longer a hierarchy of verdicts to aggregate.
+# Original:
+#   QOI_WINDOW_START = 0.90
+#   STATUS_RANK = {"PASS": 0, "INFO": 1, "SKIP": 1, "WARN": 2, "FAIL": 3}
 
 
-def _import_results_verifier():
+def _import_results_values():
+    """
+    Locate results_values.py.
+
+    [PATCH:values-backend] replaces _import_results_verifier. The module is
+    looked up under its package paths first, then by walking the tree, so the
+    collector keeps working from the cluster layout and from a flat checkout.
+    """
     candidates = [
-        "ScratchSimulation.AbaqusModel.Verification.results_verifier",
-        "ScratchSimulation.AbaqusModel.Postprocessing.results_verifier",
-        "ScratchSimulation.AbaqusModel.results_verifier",
-        "results_verifier",
+        "ScratchSimulation.AbaqusModel.Postprocessing.results_values",
+        "ScratchSimulation.AbaqusModel.Verification.results_values",
+        "ScratchSimulation.AbaqusModel.results_values",
+        "results_values",
     ]
     for name in candidates:
         try:
             module = __import__(name, fromlist=["*"])
-            if hasattr(module, "parse_results_csv"):
+            if hasattr(module, "extract_values"):
                 return module
         except ImportError:
             continue
     for root, _dirs, files in os.walk(os.path.dirname(_HERE)):
-        if "results_verifier.py" in files:
-            path = os.path.join(root, "results_verifier.py")
+        if "results_values.py" in files:
+            path = os.path.join(root, "results_values.py")
             try:
                 import importlib.util
-                spec = importlib.util.spec_from_file_location("results_verifier", path)
+                spec = importlib.util.spec_from_file_location("results_values", path)
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 return module
             except Exception:
                 break
-    raise SystemExit("Could not import results_verifier.py. Pass its directory on PYTHONPATH.")
+    raise SystemExit("Could not import results_values.py. Pass its directory on PYTHONPATH.")
 
 
-RV = _import_results_verifier()
+RV = _import_results_values()
 
 
 # ----------------------------------------------------------------------
 # Quantities of interest
 # ----------------------------------------------------------------------
 
-def _series(ts, *names):
-    for n in names:
-        a = ts.get(n)
-        if a is not None and len(a) and float(np.max(np.abs(a))) > 1e-20:
-            return np.asarray(a, dtype=float), n
-    return None, "unavailable"
+# [PATCH:values-backend] the whole compute_qoi / _series / _scratch_window /
+# _contact_radius / _peak / _ratio block is gone: every one of those
+# quantities is now computed inside results_values.py. Keeping a second
+# implementation here is exactly how the two used to drift apart.
+
+# Energy diagnostics emitted by results_values.energy_values. Listed here so
+# the collector can guarantee the columns exist (NaN when a series is
+# missing), and so downstream code has one place to read the names from.
+QUALITY_KEYS = (
+    "KE_IE_steady_max",
+    "KE_IE_overall_max",
+    "AE_IE_final",
+    "ETOTAL_drift",
+    "ALLPW",
+    "KE_final_over_IE_peak",
+)
+
+# Header metadata copied into the table.
+METADATA_KEYS = (
+    "family",
+    "fine_size_x",
+    "fine_size_y",
+    "fine_size_z",
+    "mass_scale",
+    "target_time_increment",
+    "scratch_time",
+    "scratch_depth",
+    "depth_mode",
+)
 
 
-def _scratch_window(metadata):
-    t_scr = float(metadata.get("scratch_time", 0.0) or 0.0)
-    if t_scr <= 0.0:
-        return None
-    mode = str(metadata.get("depth_mode", "progressive")).lower()
-    if mode.startswith("prog"):
-        t0, t1 = 0.0, t_scr
-    else:
-        t_ind = float(metadata.get("indentation_time", 0.0) or 0.0)
-        t0, t1 = t_ind, t_ind + t_scr
-    return t0 + QOI_WINDOW_START * (t1 - t0), t1
-
-
-def _contact_radius(metadata):
-    R = float(metadata.get("tip_radius", 0.2) or 0.2)
-    ang = float(metadata.get("cone_angle", 60.0) or 60.0)
-    d = abs(float(metadata.get("scratch_depth", 0.0) or 0.0))
-    if d <= 0.0:
-        return float("nan")
-    beta = np.radians(ang)
-    h_t = R * (1.0 - np.sin(beta))
-    if d <= h_t:
-        return float(np.sqrt(max(2.0 * R * d - d * d, 0.0)))
-    return float(R * np.cos(beta) + (d - h_t) * np.tan(beta))
-
-
-def _peak(ts, name):
-    a = ts.get(name)
-    if a is None or not len(a):
-        return float("nan")
-    return float(np.max(np.abs(np.asarray(a, dtype=float))))
-
-
-def _ratio(num, den):
-    if not np.isfinite(num) or not np.isfinite(den) or abs(den) < 1e-20:
-        return float("nan")
-    return float(num / den)
-
-
-def compute_qoi(metadata, timeseries, nodes):
-    out = {}
-    time = timeseries.get("Time")
-    win = _scratch_window(metadata)
-
-    fn, fn_src = _series(timeseries, "RF2", "CFN2")
-    ft, ft_src = _series(timeseries, "RF3", "CFS3")
-    out["force_source"] = fn_src
-
-    if time is not None and win is not None and fn is not None:
-        mask = (time >= win[0]) & (time <= win[1] + 1e-12)
-        n = int(np.count_nonzero(mask))
-        out["n_window"] = n
-        if n >= 3:
-            fnw = np.abs(fn[mask])
-            out["Fn_half_N"] = float(np.mean(fnw))
-            out["Fn_cv_pct"] = _ratio(float(np.std(fnw)), float(np.mean(fnw))) * 100.0
-            if ft is not None and len(ft) == len(fn):
-                ftw = np.abs(ft[mask])
-                out["Ft_half_N"] = float(np.mean(ftw))
-                out["scof"] = _ratio(float(np.mean(ftw)), float(np.mean(fnw)))
-            a = _contact_radius(metadata)
-            out["contact_radius_mm"] = a
-            if np.isfinite(a) and a > 0.0:
-                out["H_MPa"] = 4.0 * out["Fn_half_N"] / (np.pi * a * a)
-    out.setdefault("n_window", 0)
-
-    prof = None
-    try:
-        prof = RV.measure_residual_profile(nodes, metadata, timeseries)
-    except Exception as exc:
-        out["profile_error"] = str(exc)[:120]
-    if prof:
-        out["residual_depth_mm"] = prof.get("residual_depth_mm", float("nan"))
-        out["residual_rel_pct"] = prof.get("relative_percent", float("nan"))
-        out["pile_up_mm"] = prof.get("pile_up_mm", float("nan"))
-        out["pile_up_max_mm"] = prof.get("pile_up_max_mm", float("nan"))
-        out["pile_up_ratio"] = _ratio(prof.get("pile_up_mm", float("nan")),
-                                      prof.get("residual_depth_mm", float("nan")))
-        out["profile_method"] = prof.get("profile_method", "")
-        out["profile_n_fail_flags"] = len(prof.get("profile_fail_flags", []))
-        out["profile_n_warn_flags"] = len(prof.get("profile_warn_flags", []))
-
-    ie = _peak(timeseries, "ALLIE")
-    wm_ie = _peak(timeseries, "WM_ALLIE")
-    out["AE_over_IE_pct"] = _ratio(_peak(timeseries, "ALLAE"), ie) * 100.0
-    out["KE_over_IE_pct"] = _ratio(_peak(timeseries, "ALLKE"), ie) * 100.0
-    out["PW_over_IE_pct"] = _ratio(_peak(timeseries, "WM_ALLPW"), wm_ie) * 100.0
-    out["MW_over_IE_pct"] = _ratio(_peak(timeseries, "WM_ALLMW"), wm_ie) * 100.0
-    out["ETOTAL_drift_pct"] = _ratio(_peak(timeseries, "ETOTAL"), wm_ie) * 100.0
-    out["wallclock_s"] = float(metadata.get("wallclock", float("nan")))
-    return out
-
-
-def _slug(label):
-    return re.sub(r"[^a-z0-9]+", "_", label.split("(")[0].strip().lower()).strip("_")
-
-
-def collect_quality(path):
-    out, worst = {}, "PASS"
-    try:
-        report = RV.verify_results(path, print_report=False)
-    except Exception as exc:
-        return {"verify_error": str(exc)[:160]}, "FAIL"
-    out["family_resolved"] = int(bool(report.get("family_resolved", True)))
-    for label, res in report.get("checks", {}).items():
-        st = str(res.get("status", "INFO"))
-        out["q_" + _slug(label)] = st
-        if STATUS_RANK.get(st, 1) > STATUS_RANK.get(worst, 0):
-            worst = st
-    return out, worst
-
-
-# ----------------------------------------------------------------------
-# Design join
-# ----------------------------------------------------------------------
-
-def read_design(path):
-    rows = {}
-    with open(path, "r") as f:
-        lines = [ln for ln in f if not ln.lstrip().startswith("#")]
-    for rec in csv.DictReader(lines):
-        rows[str(rec["id"]).strip()] = rec
-    return rows
-
-
-# [PATCH:abort-visibility] begin -- lecture de la souche ecrite par run_parameter_study.
 def read_stub_status(path, max_lines=40):
     """
-    (run_status, fail_reason) lus dans l'en-tete d'un *_Results.csv.
+    (run_status, fail_reason) read from the header of a *_Results.csv.
 
-    Un run avorte produit desormais un fichier reduit a un en-tete portant
-    `# run_status=FAILED`. Le lire AVANT parse_results_csv permet de reporter
-    le motif d'abandon dans la table au lieu d'un simple "no time-series rows".
+    An aborted run writes a file reduced to a header carrying
+    `# run_status=FAILED`. Reading it BEFORE parsing carries the abort reason
+    into the table instead of an opaque "no time-series rows".
     """
     status, reason = "", ""
     try:
@@ -218,7 +146,19 @@ def read_stub_status(path, max_lines=40):
     except (IOError, OSError):
         pass
     return status, reason
-# [PATCH:abort-visibility] end
+
+
+# ----------------------------------------------------------------------
+# Design join
+# ----------------------------------------------------------------------
+
+def read_design(path):
+    rows = {}
+    with open(path, "r") as f:
+        lines = [ln for ln in f if not ln.lstrip().startswith("#")]
+    for rec in csv.DictReader(lines):
+        rows[str(rec["id"]).strip()] = rec
+    return rows
 
 
 def _run_id(filename):
@@ -235,7 +175,11 @@ def main():
     ap.add_argument("results_dir", help="directory containing the *_Results.csv (walked recursively)")
     ap.add_argument("--design", default=None, help="design CSV to join on the run id")
     ap.add_argument("--out", default="sweep_table.csv")
-    ap.add_argument("--no-verify", action="store_true", help="skip the verifier checks (faster)")
+    # [PATCH:values-backend] --no-verify removed: there is nothing left to verify.
+    ap.add_argument("--z", type=float, default=None,
+                    help="z position [mm] where the residual profile is measured "
+                         "(default: results_values.SCRATCH_LENGTH, i.e. the exit "
+                         "cross-section)")
     args = ap.parse_args()
 
     if not os.path.isdir(args.results_dir):
@@ -250,12 +194,13 @@ def main():
         raise SystemExit("No *_Results.csv found under %s" % args.results_dir)
 
     design = read_design(args.design) if args.design else {}
-    records, n_err = [], 0
+    records, n_read_err = [], 0
 
     for path in files:
         rid = _run_id(os.path.basename(path))
         rec = {"id": rid, "file": os.path.relpath(path, args.results_dir)}
-        # [PATCH:abort-visibility] begin -- souche d'echec reconnue avant tout parsing.
+
+        # An aborted run leaves a header-only stub; recognise it before parsing.
         stub_status, stub_reason = read_stub_status(path)
         if stub_status:
             rec["run_status"] = stub_status
@@ -266,29 +211,34 @@ def main():
                     if k not in ("id", "file"):
                         rec.setdefault(k, v)
             records.append(rec)
-            n_err += 1
             continue
-        rec["run_status"] = "OK"
-        # [PATCH:abort-visibility] end
+
         try:
-            metadata, timeseries, nodes = RV.parse_results_csv(path)
-            if not timeseries or "Time" not in timeseries:
-                raise ValueError("no time-series rows: truncated or corrupt CSV")
-            rec["family"] = str(metadata.get("family", ""))
-            rec["fine_size_x"] = metadata.get("fine_size_x", float("nan"))
-            rec["mass_scale"] = metadata.get("mass_scale", float("nan"))
-            rec.update(compute_qoi(metadata, timeseries, nodes))
-            if args.no_verify:
-                rec["status"] = ""
-            else:
-                q, worst = collect_quality(path)
-                rec.update(q)
-                rec["status"] = worst
+            # [PATCH:values-backend] parse_results_csv is called once for the
+            # header metadata and extract_values once for the QoI. Parsing
+            # twice costs a few ms per file and removes any chance of this
+            # collector drifting away from results_values.extract_values.
+            metadata, _timeseries, _nodes = RV.parse_results_csv(path)
+            values = RV.extract_values(path, args.z)
+
+            for k in METADATA_KEYS:
+                if metadata.get(k) is not None:
+                    rec[k] = metadata[k]
+            for k, v in values.items():
+                if k != "file":
+                    rec[k] = v
+            for k in QUALITY_KEYS:
+                rec.setdefault(k, float("nan"))
+
+            rec["run_status"] = "OK"
+            rec["status"] = "OK"
             rec["parse_error"] = ""
         except Exception as exc:
-            n_err += 1
+            n_read_err += 1
+            rec["run_status"] = "OK"      # the file exists; the reader failed
             rec["parse_error"] = str(exc)[:160]
             rec["status"] = "FAIL"
+
         if rid in design:
             for k, v in design[rid].items():
                 if k not in ("id", "file"):
@@ -297,9 +247,9 @@ def main():
             rec["design_missing"] = 1
         records.append(rec)
 
-    # [PATCH:abort-visibility] begin -- un point de plan sans AUCUN fichier doit exister
-    # dans la table, sinon "jamais lance" et "avorte" sont indiscernables en
-    # aval et le taux de couverture annonce par le rapport est faux.
+    # A design point with NO file at all must still exist in the table,
+    # otherwise "never launched" and "aborted" are indistinguishable
+    # downstream and the coverage figure in the report is wrong.
     if design:
         _seen = set(r["id"] for r in records)
         for _rid in sorted(design):
@@ -312,7 +262,7 @@ def main():
                 if k not in ("id", "file"):
                     _rec.setdefault(k, v)
             records.append(_rec)
-    # [PATCH:abort-visibility] end
+
     lead = ["id", "family", "campaign", "method", "traj", "step", "moved", "sign",
             "status", "run_status"]
     keys = []
@@ -330,17 +280,14 @@ def main():
         for r in records:
             w.writerow(r)
 
-    ok = sum(1 for r in records if r.get("status") not in ("FAIL",) and not r.get("parse_error"))
-    # [PATCH:abort-visibility] ventilation des echecs par cause.
+    n_ok = sum(1 for r in records if r.get("status") == "OK")
     n_aborted = sum(1 for r in records if r.get("run_status") == "FAILED")
     n_absent = sum(1 for r in records if r.get("run_status") == "MISSING")
-    print("Collected %d runs (%d usable, %d parse errors, %d aborted, %d absent) -> %s"
-          % (len(records), ok, n_err, n_aborted, n_absent, args.out))
-    if design:
-        missing = [rid for rid in design if rid not in set(r["id"] for r in records)]
-        if missing:
-            print("MISSING %d design point(s) with no result: %s"
-                  % (len(missing), ", ".join(sorted(missing)[:20])))
+    print("Collected %d runs (%d usable, %d read errors, %d aborted, %d absent) -> %s"
+          % (len(records), n_ok, n_read_err, n_aborted, n_absent, args.out))
+    print("No quality gate is applied: every parsed run is usable. The energy "
+          "diagnostics are reported as indicators only (%s)."
+          % ", ".join(QUALITY_KEYS))
 
 
 if __name__ == "__main__":

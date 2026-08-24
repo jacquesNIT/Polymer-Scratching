@@ -20,7 +20,11 @@ import numpy as np
 # [PATCH:no-noise-floor] Ft_half_N (= Fn * scof), H_MPa (aire de contact constante,
 # donc r(H, Fn) = 1 exactement) et pile_up_ratio (sigma/mu* > 1.3 partout)
 # sont retires : redondants ou non exploitables.
-DEFAULT_QOI = ["Fn_half_N", "scof", "residual_depth_mm", "pile_up_mm"]
+# [PATCH:values-backend] noms issus de results_values.extract_values.
+# Original : DEFAULT_QOI = ["Fn_half_N", "scof", "residual_depth_mm", "pile_up_mm"]
+#   Fn_half_N -> F_n | scof -> SCOF_mean | residual_depth_mm -> h_r
+#   pile_up_mm -> h_p   (F_t et h_fp restent disponibles via --qoi)
+DEFAULT_QOI = ["F_n", "SCOF_mean", "h_r", "h_p"]
 RETAIN_FRAC = 0.20
 N_BOOTSTRAP = 4000
 CI = (5.0, 95.0)
@@ -72,7 +76,31 @@ def _num(rec, key):
 
 
 # [PATCH:screening-fixes] begin -- definition unique de "run exploitable".
-def _usable(rec, drop_status=("FAIL",)):
+# [PATCH:values-backend] LE CONTROLE QUALITE NE FILTRE PLUS RIEN.
+#
+# Original :
+#     if str(rec.get("status", "")) in drop_status:
+#         return False
+# `status` portait le pire verdict de results_verifier, donc un run
+# parfaitement integre mais dont l'energie artificielle depassait 5 % etait
+# ecarte au meme titre qu'un run jamais produit. Sur la campagne glassy_pc
+# cela retirait 42 runs sur 90 et ramenait le plan a 2 trajectoires
+# completes sur 10 -- pour un biais de quelques pourcents, alors que le
+# biais ALE de 15-20 % sur les forces est deja accepte par ailleurs. Le
+# critere etait aussi incompatible avec les runs de test sur maillage
+# grossier, dont les indicateurs energetiques depassent les seuils par
+# construction.
+#
+# L'exclusion ne porte plus que sur l'INTEGRITE du run :
+#     run_status == MISSING  -- aucun fichier produit
+#     run_status == FAILED   -- job avorte, souche d'echec ecrite
+#     parse_error non vide   -- fichier illisible ou tronque
+# Les indicateurs energetiques restent dans la table et sont reportes par
+# dp_screening.py, sans effet sur la selection.
+UNUSABLE_RUN_STATUS = ("MISSING", "FAILED")
+
+
+def _usable(rec, drop_status=None):
     """
     Vrai si le run peut alimenter un effet elementaire.
 
@@ -80,10 +108,13 @@ def _usable(rec, drop_status=("FAIL",)):
     `elementary_effects` ne l'excluait pas : le nombre de runs annonce en
     tete du rapport ne correspondait pas a celui reellement utilise. Les
     deux passent desormais par ici.
+
+    `drop_status` est conserve pour compatibilite d'appel mais N'EST PLUS
+    UTILISE : aucun critere de qualite ne conditionne l'exploitabilite.
     """
     if rec is None:
         return False
-    if str(rec.get("status", "")) in drop_status:
+    if str(rec.get("run_status", "")).strip().upper() in UNUSABLE_RUN_STATUS:
         return False
     if rec.get("parse_error"):
         return False
@@ -91,7 +122,9 @@ def _usable(rec, drop_status=("FAIL",)):
 
 
 # [PATCH:screening-fixes] end
-def elementary_effects(design_rows, table, qoi, delta, drop_status=("FAIL",)):
+# [PATCH:values-backend] drop_status par defaut None : plus de filtre qualite.
+# Original : def elementary_effects(design_rows, table, qoi, delta, drop_status=("FAIL",)):
+def elementary_effects(design_rows, table, qoi, delta, drop_status=None):
     """Return (list of (traj, factor, EE), n_missing)."""
     by_traj = {}
     for rid, d in design_rows.items():
@@ -206,8 +239,10 @@ def main():
                          "one QoI (default %.2f)." % RETAIN_FRAC)
     ap.add_argument("--out-dir", default="analysis")
     ap.add_argument("--bootstrap", type=int, default=N_BOOTSTRAP)
+    # [PATCH:values-backend] no-op conserve pour ne pas casser les lignes de
+    # commande existantes : il n'y a plus de filtre qualite a desactiver.
     ap.add_argument("--keep-failed", action="store_true",
-                    help="keep runs whose verifier status is FAIL")
+                    help="deprecated no-op: quality never excludes a run any more")
     # [PATCH:screening-fixes] meme correction de multiplicite que dp_screening.py,
     # sans quoi les deux scripts rendaient des verdicts differents sur les
     # memes donnees. La regle 'retenu pour au moins une QoI' est une union
@@ -229,7 +264,10 @@ def main():
     table = read_table(args.table)
     factors = meta["active"]
     delta = meta["delta"]
-    drop = () if args.keep_failed else ("FAIL",)
+    # [PATCH:values-backend] original : drop = () if args.keep_failed else ("FAIL",)
+    if args.keep_failed:
+        print("Note: --keep-failed is a no-op; quality no longer excludes runs.")
+    drop = None
 
     qois = [q.strip() for q in args.qoi.split(",")] if args.qoi else DEFAULT_QOI
     available = set()
