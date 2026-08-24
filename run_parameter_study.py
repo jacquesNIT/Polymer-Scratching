@@ -165,6 +165,8 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
 
     n_total = len(cases)
     failed_cases = []
+    if output_subdir:
+        _makedirs_safe(os.path.join(output_subdir, "failed"))
     for i, case in enumerate(cases, start=1):
 
         study.apply_case(cfg, case)
@@ -193,6 +195,14 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
             failed_cases.append((stem, case_error))
             print(">>> [%d/%d] %s -> %s FAILED, continuing. %s"
                   % (i, n_total, study.name, stem, case_error))
+            # [PATCH:abort-visibility] begin -- un echec ne doit plus etre un silence.
+            # Original : tous les fichiers du job etaient effaces et AUCUN CSV
+            # n'etait ecrit, donc le point de plan disparaissait. Le collecteur
+            # ne pouvait plus distinguer "avorte" de "jamais lance", et le
+            # rapport Morris comptait un point manquant sans motif.
+            _write_failed_stub(output_subdir, stem, cfg, case_error)
+            _keep_failure_artifacts(output_subdir, cfg.job_name, stem)
+            # [PATCH:abort-visibility] end
             for ext in (move_exts + (".lck",)):
                 stale = cfg.job_name + ext
                 if os.path.exists(stale):
@@ -224,6 +234,66 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
 
     cleanup_abaqus_junk(base_dir=run_dir_abs)
 
+
+
+# [PATCH:abort-visibility] begin -- souche de resultat et conservation des artefacts.
+FAILED_STUB_EXTS = (".sta", ".msg", ".log", ".dat")
+
+
+def _write_failed_stub(output_subdir, stem, cfg, reason):
+    """
+    Ecrit `<output_subdir>/<stem>_Results.csv` reduit a un en-tete portant
+    `# run_status=FAILED` et le motif.
+
+    Objectif : que sweep_collector.py VOIE le point. Le fichier ne contient
+    aucune ligne de serie temporelle, donc parse_results_csv leve, le
+    collecteur classe le run en status=FAIL et morris_analysis.py l'exclut
+    proprement -- au lieu de le compter comme "jamais lance".
+    """
+    if not output_subdir:
+        return
+    path = os.path.join(output_subdir, stem + "_Results.csv")
+    try:
+        with open(path, "w") as f:
+            f.write("# RUN FAILED -- no analysis results in this file\n")
+            f.write("# run_status=FAILED\n")
+            f.write("# fail_reason=%s\n" % " ".join(str(reason).split())[:400])
+            f.write("# family = %s\n" % getattr(cfg.material, "family", "?"))
+            try:
+                f.write("# fine_size_x=%.6g\n" % cfg.mesh.fine_size_x)
+                f.write("# mass_scale=%.6g\n" % cfg.solver.mass_scale)
+            except Exception:
+                pass
+            f.write("Time\n")
+    except (IOError, OSError) as exc:
+        print("Warning: could not write the FAILED stub for %s (%s)." % (stem, exc))
+
+
+def _keep_failure_artifacts(output_subdir, job_name, stem):
+    """
+    Deplace .sta / .msg / .log / .dat du job avorte vers
+    `<output_subdir>/failed/<stem><ext>`. Le .odb reste supprime par
+    l'appelant (volume). Sans ces fichiers, le motif d'abandon est perdu :
+    le .out SLURM est mutualise sur tout le chunk et ne porte que le
+    message d'exception.
+    """
+    if not output_subdir:
+        return
+    dest_dir = os.path.join(output_subdir, "failed")
+    try:
+        if not os.path.isdir(dest_dir):
+            os.makedirs(dest_dir)
+    except OSError:
+        return
+    for ext in FAILED_STUB_EXTS:
+        src = job_name + ext
+        if not os.path.exists(src):
+            continue
+        try:
+            shutil.move(src, os.path.join(dest_dir, stem + ext))
+        except (IOError, OSError, shutil.Error):
+            pass
+# [PATCH:abort-visibility] end
 
 
 # Study definitions 

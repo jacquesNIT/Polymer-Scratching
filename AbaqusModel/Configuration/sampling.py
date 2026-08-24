@@ -475,7 +475,19 @@ CDP_FROZEN = {
 }
 
 CDP_FACTORS = [
-    Factor("X",        5.0, 60.0, "log", "-",   "Johnson parameter E* tan(theta) / sigma_y0"),
+    # [PATCH:cdp-admissible] begin -- bornes restreintes au domaine bien pose.
+    # Originaux :
+    # Factor("X",        5.0, 60.0, "log", "-",   "Johnson parameter ..."),
+    # Factor("eps_c", 0.02, 0.12, "lin", "-",  "strain scale ..."),
+    # Factor("phi",      0.0, 1.0, "lin", "-",    "alpha / mu_eff, ..."),
+    #
+    # X = 5 <=> sigma_y0 / E = 0.136, soit une deformation d'ecoulement de
+    # 13.6 % : un elastomere, pas un thermoplastique. Les familles visees se
+    # situent entre X ~ 18 (PC) et X ~ 31 (PP) ; la borne 12 laisse de la
+    # marge sous les polyolefines souples sans descendre dans un regime ou
+    # (a) le sillon ne se forme plus et (b) l'adoucissement rend le probleme
+    # mal pose. Voir _assert_post_yield_admissible plus bas.
+    Factor("X",       12.0, 60.0, "log", "-",   "Johnson parameter E* tan(theta) / sigma_y0"),
     Factor("h",        0.0, 0.45, "lin", "-",   "G'Sell orientation hardening exp(h eps^2)"),
     # [PATCH:exclusive-post-yield] q / s / eps_soft remplaces par (w, eps_c).
     # Originaux -- q et s sont antagonistes et confondus dans le crochet :
@@ -485,14 +497,81 @@ CDP_FACTORS = [
     Factor("w",     -0.35, 0.35, "lin", "-",  "signed post-yield amplitude / sigma_y0: "
                                              "w < 0 = intrinsic softening (glassy), "
                                              "w > 0 = Voce hardening (semicrystalline)"),
-    Factor("eps_c", 0.02, 0.12, "lin", "-",  "strain scale of whichever post-yield "
+    Factor("eps_c", 0.05, 0.20, "lin", "-",  "strain scale of whichever post-yield "
                                              "branch is active (eps_soft if w < 0, "
                                              "1/b if w > 0)"),
     Factor("beta",     1.0, 35.0, "lin", "deg", "Drucker-Prager friction angle (1 deg ~ J2)"),
     Factor("K",        0.778, 1.0, "lin", "-",  "flow stress ratio (Abaqus lower bound 0.778)"),
     Factor("mu_eff",   0.05, 0.45, "lin", "-",  "effective friction at scratch pressure"),
-    Factor("phi",      0.0, 1.0, "lin", "-",    "alpha / mu_eff, pressure-independent fraction"),
+    # phi = 1 exactement fait basculer _friction_from de la table de Briscoe
+    # vers un Friction_Config(mu=alpha) constant : ce n'est pas une variation
+    # continue du facteur mais un CHANGEMENT DE CLASSE DE MODELE au bord du
+    # domaine, que Morris lit comme un effet elementaire. Le plafond 0.95
+    # garde une composante tau0/p residuelle, donc une seule classe de modele
+    # sur tout le domaine.
+    Factor("phi",      0.0, 0.95, "lin", "-",   "alpha / mu_eff, pressure-independent fraction"),
+    # [PATCH:cdp-admissible] end
 ]
+
+
+# [PATCH:cdp-admissible] begin -- admissibilite de la branche post-seuil.
+#
+# Rapport de la pente post-seuil au module elastique :
+#
+#     |H| / E = |w| * sigma_y0 / (eps_c * E)
+#             = |w| * tan(theta) / (X * eps_c * (1 - nu^2))
+#
+# Sur la branche adoucie (w < 0), |H| / E >= 1 signifie que le module
+# tangent local est negatif ET plus raide que la reponse elastique : le
+# probleme aux limites perd son caractere bien pose (perte d'ellipticite du
+# probleme incremental). La deformation se localise sur la plus petite
+# longueur disponible -- ici la taille d'element, faute de longueur interne
+# de regularisation -- la solution devient purement dependante du maillage,
+# et Abaqus/Explicit avorte sur distorsion.
+#
+# Le seuil 0.5 n'est PAS une garantie de non-localisation : sans
+# regularisation, celle-ci existe des que H < 0. C'est un compromis
+# pragmatique qui garde l'adoucissement assez doux pour que la bande
+# s'etale sur plusieurs elements et que la reponse globale reste
+# exploitable. Documenter la valeur retenue dans PHYSICS_CHOICES.md.
+CDP_MAX_POST_YIELD_SLOPE = 0.5
+
+
+def post_yield_slope_ratio(w, eps_c, X, nu, tan_attack):
+    """|H_post-seuil| / E, sans dimension. Voir CDP_MAX_POST_YIELD_SLOPE."""
+    eps_c = float(eps_c)
+    X = float(X)
+    if eps_c <= 0.0 or X <= 0.0:
+        return float("inf")
+    return abs(float(w)) * float(tan_attack) / (X * eps_c * (1.0 - float(nu) ** 2))
+
+
+def _assert_post_yield_admissible(g, cfg, frozen, campaign):
+    """
+    Leve si le point echantillonne sort du domaine bien pose.
+
+    Le garde-fou est place sur le chemin de derivation, PAS seulement dans
+    les bornes des facteurs : `--only` gele les facteurs non listes au milieu
+    de plage et une edition manuelle des bornes contournerait un simple
+    controle de boite.
+    """
+    ratio = post_yield_slope_ratio(
+        g["w"], g["eps_c"], g["X"], float(frozen["nu"]),
+        float(np.tan(np.radians(attack_angle_deg(cfg)))))
+    if ratio > CDP_MAX_POST_YIELD_SLOPE:
+        raise ValueError(
+            "Campaign '%s': post-yield slope |H|/E = %.3f exceeds the "
+            "admissibility limit %.2f at (X=%.4g, w=%+.4g, eps_c=%.4g). "
+            "Below this limit the softening branch stays milder than the "
+            "elastic response; above it the local problem is ill-posed, the "
+            "strain localises on a single element and Abaqus aborts. Either "
+            "raise X, raise eps_c, reduce |w|, or add a regularisation "
+            "length (rate dependence / damage energy) before sampling this "
+            "corner."
+            % (campaign, ratio, CDP_MAX_POST_YIELD_SLOPE,
+               g["X"], g["w"], g["eps_c"]))
+    return ratio
+# [PATCH:cdp-admissible] end
 
 
 # [PATCH:exclusive-post-yield] begin -- aiguillage exclusif des deux branches post-seuil.
@@ -541,6 +620,9 @@ def _derive_cdp(g, cfg):
     out["w"] = float(g["w"])
     out["eps_c"] = float(g["eps_c"])
     out["branch"] = br["branch"]
+    # [PATCH:cdp-admissible] le point doit etre dans le domaine bien pose.
+    out["post_yield_slope_ratio"] = _assert_post_yield_admissible(
+        g, cfg, CDP_FROZEN, "CDP_drucker_prager_unified")
     return _assert_exclusive(out, "CDP_drucker_prager_unified")
 # [PATCH:exclusive-post-yield] end
 

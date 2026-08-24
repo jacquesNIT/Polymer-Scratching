@@ -421,8 +421,15 @@ def _dump_history_layout(odb):
                 peaks = []
                 for k in keys[:12]:
                     try:
-                        arr = np.array(hrs[rk].historyOutputs[k].data)
-                        peaks.append("%s(max|v|=%.3g)" % (k, float(np.max(np.abs(arr[:, 1]))) if arr.size else 0.0))
+                        # [PATCH:abort-visibility] original :
+                        # arr = np.array(hrs[rk].historyOutputs[k].data)
+                        # peaks.append("%s(max|v|=%.3g)" % (k, float(np.max(np.abs(arr[:, 1]))) if arr.size else 0.0))
+                        # np.array(None).size vaut 1 : l'ancien garde-fou
+                        # `if arr.size` ne protegeait donc PAS le cas None.
+                        _t, _v = _hist_pairs(hrs[rk].historyOutputs[k])
+                        peaks.append("%s(n=%d, max|v|=%.3g)"
+                                     % (k, _v.size,
+                                        float(np.max(np.abs(_v))) if _v.size else 0.0))
                     except Exception:
                         peaks.append("%s(?)" % k)
                 print("  [layout]   region '%s' -> %s%s"
@@ -481,6 +488,44 @@ def _align(arr, n):
     pad_value = arr[-1] if arr.size > 0 else 0.0
     return np.concatenate([arr, np.full(n - arr.size, pad_value)])
 
+# [PATCH:abort-visibility] begin -- lecture robuste d'un historyOutput.
+def _hist_pairs(hout, where=""):
+    """
+    (time, value) arrays of ONE historyOutput, robust to an ODB written by an
+    aborted or truncated analysis.
+
+    Abaqus returns ``.data = None`` for a history request that was declared
+    but never written -- typically a step that opened and then aborted before
+    the first output interval. ``np.array(None)`` is a 0-D object array, so
+    the historical expression
+
+        np.array(hout.data).T[0, :]
+
+    raised "too many indices for array: array is 0-dimensional, but 2 were
+    indexed". That IndexError short-circuited the ``if t.size == 0`` guard
+    placed right after it and masked the real cause: the job aborted.
+
+    Returns two EMPTY arrays instead, and names the offending
+    step / region / key in the job log so the .sta no longer has to be read
+    by hand.
+    """
+    raw = getattr(hout, "data", None)
+    if raw is None:
+        if where:
+            print("Warning: history output '%s' carries no data (data is None: "
+                  "the step opened but the analysis aborted before the first "
+                  "output interval). Skipped." % where)
+        return np.array([]), np.array([])
+    arr = np.asarray(raw, dtype=float)
+    if arr.ndim != 2 or arr.shape[0] == 0 or arr.shape[1] < 2:
+        if where:
+            print("Warning: history output '%s' has shape %s, expected (n, 2). "
+                  "Skipped." % (where, arr.shape))
+        return np.array([]), np.array([])
+    return arr[:, 0], arr[:, 1]
+# [PATCH:abort-visibility] end
+
+
 def _get_history(odb, step_name, region_name):
     """Extract time + history-output dict from a given history region.
     (Legacy single-step helper, kept for compatibility; post_process now
@@ -488,11 +533,18 @@ def _get_history(odb, step_name, region_name):
     hr = odb.steps[step_name].historyRegions[region_name]
     keys = list(hr.historyOutputs.keys())
     # Time is stored as the first column of every output — use the first key
-    time_arr = np.array(hr.historyOutputs[keys[0]].data).T[0, :]
+    # [PATCH:abort-visibility] original :
+    # time_arr = np.array(hr.historyOutputs[keys[0]].data).T[0, :]
+    time_arr, _ = _hist_pairs(hr.historyOutputs[keys[0]],
+                              "%s / %s / %s" % (step_name, region_name, keys[0]))
     data = {}
     for key in keys:
-        out = np.array(hr.historyOutputs[key].data).T
-        data[key] = out[1, :]
+        # [PATCH:abort-visibility] original :
+        # out = np.array(hr.historyOutputs[key].data).T
+        # data[key] = out[1, :]
+        _t, _v = _hist_pairs(hr.historyOutputs[key],
+                             "%s / %s / %s" % (step_name, region_name, key))
+        data[key] = _v
     return time_arr, data
 
 
@@ -532,7 +584,10 @@ def _get_history_multi(odb, region_name):
         keys = list(hr.historyOutputs.keys())
         if not keys:
             continue
-        t = np.array(hr.historyOutputs[keys[0]].data).T[0, :]
+        # [PATCH:abort-visibility] original :
+        # t = np.array(hr.historyOutputs[keys[0]].data).T[0, :]
+        t, _t_vals = _hist_pairs(hr.historyOutputs[keys[0]],
+                                 "%s / %s / %s" % (sname, region_name, keys[0]))
         if t.size == 0:
             continue
 
@@ -551,7 +606,14 @@ def _get_history_multi(odb, region_name):
         time_parts.append(t[start:])
         for key in all_keys:
             if key in keys:
-                col = np.array(hr.historyOutputs[key].data).T[1, :][start:]
+                # [PATCH:abort-visibility] original :
+                # col = np.array(hr.historyOutputs[key].data).T[1, :][start:]
+                # _align recadre en plus sur t.size : une cle dont la region a
+                # ete tronquee a un echantillon de moins que la cle de temps
+                # produisait un decalage silencieux de colonne.
+                _tk, _vk = _hist_pairs(hr.historyOutputs[key],
+                                       "%s / %s / %s" % (sname, region_name, key))
+                col = _align(_vk, t.size)[start:] if _vk.size else np.zeros(n)
             else:
                 col = np.zeros(n)
             data_parts.setdefault(key, []).append(col)

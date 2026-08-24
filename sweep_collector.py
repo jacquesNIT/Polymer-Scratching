@@ -195,6 +195,32 @@ def read_design(path):
     return rows
 
 
+# [PATCH:abort-visibility] begin -- lecture de la souche ecrite par run_parameter_study.
+def read_stub_status(path, max_lines=40):
+    """
+    (run_status, fail_reason) lus dans l'en-tete d'un *_Results.csv.
+
+    Un run avorte produit desormais un fichier reduit a un en-tete portant
+    `# run_status=FAILED`. Le lire AVANT parse_results_csv permet de reporter
+    le motif d'abandon dans la table au lieu d'un simple "no time-series rows".
+    """
+    status, reason = "", ""
+    try:
+        with open(path, "r") as f:
+            for i, line in enumerate(f):
+                if i >= max_lines or not line.startswith("#"):
+                    break
+                s = line[1:].strip()
+                if s.startswith("run_status="):
+                    status = s.split("=", 1)[1].strip()
+                elif s.startswith("fail_reason="):
+                    reason = s.split("=", 1)[1].strip()
+    except (IOError, OSError):
+        pass
+    return status, reason
+# [PATCH:abort-visibility] end
+
+
 def _run_id(filename):
     m = re.search(r"Design_(\w+?)_Results\.csv$", filename)
     if m:
@@ -229,6 +255,21 @@ def main():
     for path in files:
         rid = _run_id(os.path.basename(path))
         rec = {"id": rid, "file": os.path.relpath(path, args.results_dir)}
+        # [PATCH:abort-visibility] begin -- souche d'echec reconnue avant tout parsing.
+        stub_status, stub_reason = read_stub_status(path)
+        if stub_status:
+            rec["run_status"] = stub_status
+            rec["status"] = "FAIL"
+            rec["parse_error"] = stub_reason or "run aborted (no results)"
+            if rid in design:
+                for k, v in design[rid].items():
+                    if k not in ("id", "file"):
+                        rec.setdefault(k, v)
+            records.append(rec)
+            n_err += 1
+            continue
+        rec["run_status"] = "OK"
+        # [PATCH:abort-visibility] end
         try:
             metadata, timeseries, nodes = RV.parse_results_csv(path)
             if not timeseries or "Time" not in timeseries:
@@ -256,7 +297,24 @@ def main():
             rec["design_missing"] = 1
         records.append(rec)
 
-    lead = ["id", "family", "campaign", "method", "traj", "step", "moved", "sign", "status"]
+    # [PATCH:abort-visibility] begin -- un point de plan sans AUCUN fichier doit exister
+    # dans la table, sinon "jamais lance" et "avorte" sont indiscernables en
+    # aval et le taux de couverture annonce par le rapport est faux.
+    if design:
+        _seen = set(r["id"] for r in records)
+        for _rid in sorted(design):
+            if _rid in _seen:
+                continue
+            _rec = {"id": _rid, "file": "", "status": "FAIL",
+                    "run_status": "MISSING",
+                    "parse_error": "no result file produced for this design point"}
+            for k, v in design[_rid].items():
+                if k not in ("id", "file"):
+                    _rec.setdefault(k, v)
+            records.append(_rec)
+    # [PATCH:abort-visibility] end
+    lead = ["id", "family", "campaign", "method", "traj", "step", "moved", "sign",
+            "status", "run_status"]
     keys = []
     for name in lead:
         if any(name in r for r in records):
@@ -273,8 +331,11 @@ def main():
             w.writerow(r)
 
     ok = sum(1 for r in records if r.get("status") not in ("FAIL",) and not r.get("parse_error"))
-    print("Collected %d runs (%d usable, %d parse errors) -> %s"
-          % (len(records), ok, n_err, args.out))
+    # [PATCH:abort-visibility] ventilation des echecs par cause.
+    n_aborted = sum(1 for r in records if r.get("run_status") == "FAILED")
+    n_absent = sum(1 for r in records if r.get("run_status") == "MISSING")
+    print("Collected %d runs (%d usable, %d parse errors, %d aborted, %d absent) -> %s"
+          % (len(records), ok, n_err, n_aborted, n_absent, args.out))
     if design:
         missing = [rid for rid in design if rid not in set(r["id"] for r in records)]
         if missing:
