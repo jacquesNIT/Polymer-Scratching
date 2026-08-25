@@ -109,19 +109,19 @@ def _semicrystalline_dp_config():
     # Rigid semicrystalline (HDPE) with pressure-dependent Drucker-Prager.
     cfg = Simulation_Config.polymer_default()
     cfg.material = Material_Config(
-        rho=0.95e-9,                                                                                      # same as semicrystalline_j2 (rigid HDPE)
-        hyperelastic=LinearElastic_Config(E=1000.0, nu=0.42),
+        rho=0.9e-9,                                                                                      # same as semicrystalline_j2 (rigid HDPE)
+        hyperelastic=LinearElastic_Config(E=1500.0, nu=0.42),
         plasticity=DruckerPrager_Config(
-            friction_angle=12.0, flow_stress_ratio=1.0, dilation_angle=5.0,                              # PLACEHOLDERS, to be calibrated
-            yield_table=gsell_jonas_table(sigma_y0=28.0, h=0.22, Q=5.0, b=8.0, eps_max=3.0, n_points=60), # same table as semicrystalline_j2
+            friction_angle=21.0, flow_stress_ratio=1.0, dilation_angle=5.0,                              # PLACEHOLDERS, to be calibrated
+            yield_table=gsell_jonas_table(sigma_y0=42.0, h=0.22, Q=5.0, b=8.0, eps_max=3.0, n_points=60), # same table as semicrystalline_j2
             rate_dependent=None),
             # rate_dependent=RateDependent_Config.from_eyring(sigma_y0=28.0, S_per_decade=2.5)), # usual semicrystalline Eyring slope
         friction=Friction_Config.briscoe(tau0=1.5, alpha=0.15),                                           # Plausible value for tau0 and alpha, to be determined
         #friction=Friction_Config(mu=0.3),
         family="semicrystalline_dp",
     )
-    cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : same s as semicrystalline_j2 (same rho/E/mesh -> same natural dt)
-    cfg.solver.mass_scale = 20000
+    cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) 
+    #cfg.solver.mass_scale = 20000
     return cfg
 
 def _elastomer_ve_config():
@@ -164,18 +164,10 @@ def _glassy_config():
     return cfg
 
 def _glassy_pc_config():
-    # Polycarbonate: E = 2300 MPa, nu = 0.37, rho = 1200 kg/m3
-    # DP friction angle beta = 15 deg 
-    # K = 1.0  
-    # dilation psi = 8 deg (small plastic dilatancy).
-    # Usual true yield peak ~70 MPa (quasi-static)
-    # Softening ~12 MPa over eps_s ~ 0.05, orientation hardening h = 0.35 (cf Mulliken-Boyce 2006 / van Breemen EGP data trends )
-    # Rate: Eyring S ~ 4.5 MPa/decade below the beta-transition.
-    # NB: recalibrate before quantitative comparison.
     cfg = Simulation_Config.polymer_default()
     cfg.material = Material_Config(
         rho=1.20e-9,
-        hyperelastic=LinearElastic_Config(E=2300.0, nu=0.37),
+        hyperelastic=LinearElastic_Config(E=2350.0, nu=0.37),
         plasticity=DruckerPrager_Config(
             friction_angle=27.13, flow_stress_ratio=0.85, dilation_angle=0.0,
             yield_table=gsell_jonas_table(sigma_y0=70.0, h=0.35,
@@ -186,27 +178,18 @@ def _glassy_pc_config():
         #friction=Friction_Config(mu=0.3),
         family="glassy_pc",
     )
-    cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 15 : results from the target time study (-5 for safety)
+    cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) 
     #cfg.solver.mass_scale = 20000
     return cfg
 
-
 def _glassy_pmma_config():
-    # PMMA: E = 3100 MPa, nu = 0.35, rho = 1190 kg/m3
-    # DP beta = 20 deg 
-    # K = 1.0;
-    # psi = 10 deg. 
-    # Usual true yield peak ~105 MPa (quasi-static)
-    # Strong softening ~25 MPa over eps_s ~ 0.06, hardening h = 0.45.
-    # Rate: Eyring S ~ 9 MPa/decade (PMMA is very rate-sensitive, expect beta-transition active at scratch rates).
-    # NB: recalibrate before quantitative comparison.
     cfg = Simulation_Config.polymer_default()
     cfg.material = Material_Config(
         rho=1.19e-9,
-        hyperelastic=LinearElastic_Config(E=3100.0, nu=0.35),
+        hyperelastic=LinearElastic_Config(E=3300.0, nu=0.37),
         plasticity=DruckerPrager_Config(
-            friction_angle=20.0, flow_stress_ratio=1.0, dilation_angle=10.0,
-            yield_table=gsell_jonas_table(sigma_y0=105.0, h=0.45,
+            friction_angle=25.0, flow_stress_ratio=1.0, dilation_angle=10.0,
+            yield_table=gsell_jonas_table(sigma_y0=103.0, h=0.45,
                                           soft_drop=25.0, eps_soft=0.06,
                                           eps_max=2.0, n_points=60),
             rate_dependent=None),
@@ -215,8 +198,8 @@ def _glassy_pmma_config():
         #friction=Friction_Config(mu=0.3),
         family="glassy_pmma",
     )
-    #cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) # 30 : results from the target time study (-10 for safety)
-    cfg.solver.mass_scale = 20000
+    cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) 
+    #cfg.solver.mass_scale = 20000
     return cfg
 
 ELASTOMER_MR = PolymerFamily(

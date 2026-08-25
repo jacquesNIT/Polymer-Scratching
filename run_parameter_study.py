@@ -599,7 +599,7 @@ DEFAULT_MESH_SIZES = [
 DEFAULT_MASS_SCALES = [5000, 2000, 1000, 500]
 DEFAULT_DT_SCALES = [30, 40, 80] # NB : For base MS = 500, sqrt(500) = 22, need more than ~20 to make a difference
 DEFAULT_MU_VALUES = [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
-DEFAULT_DEPTHS = [-40e-3, -60e-3, -80e-3, -100e-3] 
+DEFAULT_DEPTHS = [-20e-3, -25e-3, -30e-3, -35e-3, -40e-3, -45e-3, -50e-3] 
 DEFAULT_GSELL_H = [0.0, 0.11, 0.22, 0.33, 0.45] # For running (4-5h)
 DEFAULT_STUDY = "single"
 
