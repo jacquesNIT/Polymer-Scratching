@@ -913,9 +913,9 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.005,
-                fine_size_y=0.005,
-                fine_size_z=0.005,
+                fine_size_x=0.01,
+                fine_size_y=0.01,
+                fine_size_z=0.01,
                 coarse_size_0=0.02,                # Unused
                 coarse_size_1=0.028,                # 0.07*4
                 coarse_size_2=0.056,                # 0.07*8
@@ -941,7 +941,7 @@ class Simulation_Config:
                 num_cpus=6,                         # submit.sh CPU value is prioritized
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
-                ale_frequency=20,                   # C_remesh ~ 0.1 (glassy) to ~0.6 (elastomer); see ale_remesh_courant()
+                ale_frequency=10,                   # C_remesh ~ 0.1 (glassy) to ~0.6 (elastomer); see ale_remesh_courant()
                 ale_mesh_sweeps=2,                  # absorbs the larger distortion between two (now rarer) remeshings
                 ale_smoothing_priority="GRADED",
                 ale_smoothing_algorithm="GEOMETRY_ENHANCED",

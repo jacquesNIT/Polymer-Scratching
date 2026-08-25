@@ -8,27 +8,15 @@ import time
 
 JOBS = [
 
-    #("single", "glassy_pmma", {"tag": "ALE20_1", "ALE": True, "freq": 20, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("single", "glassy_pmma", {"tag": "ALE50_1", "ALE": True, "freq": 50, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("single", "glassy_pmma", {"tag": "ALE100_1", "ALE": True, "freq": 100, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("single", "glassy_pmma", {"tag": "ALE200_1", "ALE": True, "freq": 200, "sweeps": 1, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("single", "glassy_pmma", {"tag": "ALE20_2", "ALE": True, "freq": 20, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("single", "glassy_pmma", {"tag": "ALE50_2", "ALE": True, "freq": 50, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("single", "glassy_pmma", {"tag": "ALE100_2", "ALE": True, "freq": 100, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("single", "glassy_pmma", {"tag": "ALE200_2", "ALE": True, "freq": 200, "sweeps": 2, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("single", "glassy_pmma", {"tag": "ALE20_3", "ALE": True, "freq": 20, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("single", "glassy_pmma", {"tag": "ALE50_3", "ALE": True, "freq": 50, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("single", "glassy_pmma", {"tag": "ALE100_3", "ALE": True, "freq": 100, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("single", "glassy_pmma", {"tag": "ALE200_3", "ALE": True, "freq": 200, "sweeps": 3, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
 
     # To launch on 0.01 mesh with freq=20 ALE (~2-4 days)
-    #("design", "glassy_pc", {"tag": "Morris5", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
+    ("design", "glassy_pc", {"tag": "Morris6", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
     #("design", "glassy_pc", {"tag": "Morris4_001", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
 
 
-    ("depth", "glassy_pmma", {"tag": "Calib_PMMA", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("depth", "glassy_pc", {"tag": "Calib_pc", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("depth", "semicrystalline_dp", {"tag": "Calib_pp", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("depth", "glassy_pmma", {"tag": "Calib_PMMA", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("depth", "glassy_pc", {"tag": "Calib_pc", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("depth", "semicrystalline_dp", {"tag": "Calib_pp", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
 
     #("single", "glassy_pmma", {"tag": "Test_C_R", "indenter": "rockwell", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
     #("single", "glassy_pmma", {"tag": "Verif25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
