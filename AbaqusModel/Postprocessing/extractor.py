@@ -320,7 +320,7 @@ def post_process(job_name, file_name, cfg):
         # written without them are not comparable. Written one per line as
         # "# key=value" so results_verifier.parse_results_csv picks them up.
         try:
-            from ScratchSimulation.AbaqusModel.Verification.analytic import (
+            from ScratchSimulation.analytic import (
                 mass_scaling_factor, amplitude_smoothing_window,
                 contact_radius_rockwell, elements_per_contact_radius)
             _ms = mass_scaling_factor(cfg)

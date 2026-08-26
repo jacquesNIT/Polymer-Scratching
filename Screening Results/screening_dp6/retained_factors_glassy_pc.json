@@ -1,0 +1,77 @@
+{
+  "family": "glassy_pc",
+  "campaign": "CDP_drucker_prager_unified",
+  "delta": 0.666667,
+  "factors": [
+    "X",
+    "h",
+    "w",
+    "eps_c",
+    "beta",
+    "K",
+    "mu_eff",
+    "phi"
+  ],
+  "qoi": [
+    "F_n",
+    "SCOF_mean",
+    "h_r",
+    "h_p"
+  ],
+  "retain_frac": 0.2,
+  "decision_rule": "relative",
+  "retained": [
+    "X",
+    "mu_eff",
+    "w",
+    "beta",
+    "h",
+    "K"
+  ],
+  "marginal": [],
+  "keep_for_sobol": [
+    "X",
+    "mu_eff",
+    "w",
+    "beta",
+    "h",
+    "K"
+  ],
+  "frozen_candidates": [
+    "eps_c",
+    "phi"
+  ],
+  "coverage": {
+    "n_design": 90,
+    "n_usable": 80,
+    "n_missing": 10,
+    "missing": [
+      "00013",
+      "00016",
+      "00017",
+      "00028",
+      "00029",
+      "00037",
+      "00065",
+      "00067",
+      "00068",
+      "00069"
+    ],
+    "absent": [
+      "00013",
+      "00016",
+      "00017",
+      "00028",
+      "00029",
+      "00037",
+      "00065",
+      "00067",
+      "00068",
+      "00069"
+    ],
+    "aborted": [],
+    "unreadable": [],
+    "n_traj": 10,
+    "n_traj_complete": 6
+  }
+}

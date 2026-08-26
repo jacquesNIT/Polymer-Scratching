@@ -21,7 +21,7 @@ class Indenter_Config:
         self.rigid = rigid
 
         # Pyramid-only parameters
-        self.n_faces = int(n_faces)                 # 3 (Berkovich-like) or 4 (Vickers-like)
+        self.n_faces = int(n_faces)                 # 3 (Berkovich) or 4 (Vickers)
         self.face_angle = cone_angle if face_angle is None else face_angle
                                                     # HALF-apex angle, axis -> FACE plane [deg]
         self.base_apothem = base_apothem            # axis -> face distance at the base [mm]
@@ -60,10 +60,7 @@ class Indenter_Config:
 
     def Pyramid_coords(self):
         """
-        Returns a dict with the pyramidal indenter sketch coordinates. The pyramid
-        is built as a frustum: the virtual apex is cut h_tip above the flat tip,
-        since a sharp apex (tip_flat=0) has no defined contact normal and traps
-        slave nodes inside the body.
+        Returns a dict with the pyramidal indenter sketch coordinates. 
         """
         n = int(self.n_faces)
         if n < 3:
@@ -452,7 +449,7 @@ class Scratch_Config:
                  n_field_frames=20,                    # number of field-output frames during scratch
                  n_field_frames_recovery=50,           # number of field-output frames during recovery
                  n_history_points=100,                 # number of history-output points
-                 amplitude_smoothing=0.25,             # [-] SMOOTH fraction of the tabular amplitudes (0-0.5, None = solver default); rounds the velocity discontinuities at the amplitude kinks (t1/t2/t3)
+                 amplitude_smoothing=0.0,             # [-] SMOOTH fraction of the tabular amplitudes (0-0.5, None = solver default); rounds the velocity discontinuities at the amplitude kinks (t1/t2/t3)
                  depth_hold_frac=0.05):                # [-] PROGRESSIVE: flat plateau at the peak, as a fraction of scratch_time (ensures the nominal depth is reached despite amplitude smoothing; see depth_amplitude())
 
         if depth_mode not in (self.PROGRESSIVE, self.CONSTANT):
@@ -584,6 +581,11 @@ class Scratch_Config:
             lift_value = self.recovery_lift / self.scratch_depth  # negative number
 
         if self.depth_mode == self.PROGRESSIVE:
+            if self.depth_hold <= 0.0:
+                if not self.has_recovery_step:
+                    return ((0.0, 0.0), (t2, 1.0), (t3, 0.0))
+                else:
+                    return ((0.0, 0.0), (t2, 1.0), (t3, lift_value), (t4, lift_value))
             t2h = t2 - self.depth_hold
             if not self.has_recovery_step:
                 return ((0.0, 0.0), (t2h, 1.0), (t2, 1.0), (t3, 0.0))
@@ -916,16 +918,15 @@ class Simulation_Config:
                 fine_size_x=0.01,
                 fine_size_y=0.01,
                 fine_size_z=0.01,
-                coarse_size_0=0.02,                # Unused
-                coarse_size_1=0.028,                # 0.07*4
-                coarse_size_2=0.056,                # 0.07*8
-                hourglass_control="ENHANCED",       
-                distortion_control="DEFAULT",
-                max_degradation=0.9,
-                element_deletion=False,
+                coarse_size_1=0.028,                        # Set to 0.028 to be *4 the finest mesh size
+                coarse_size_2=0.056,                        # Set to 0.028 to be *8 the finest mesh size
+                hourglass_control="ENHANCED",               # "ENHANCED" is appropriate for plastic families     
+                distortion_control="OFF",                   # Decision: Turned OFF 
+                max_degradation=0.9,                
+                element_deletion=False,                     # No degradation in the model
                 second_order_accuracy=False,
             ),
-            material=Material_Config(
+            material=Material_Config(                       # Mostly defined in the "families.py" file
                 rho=1.2e-9,
                 hyperelastic=AB_Model_Config(mu=2.0, lambda_m=2.5, D=1.8e-2),
                 viscoelastic=None,
@@ -935,34 +936,36 @@ class Simulation_Config:
                 family="elastomer_mr",
             ),
             solver=Solver_Config(
-                mass_scale=5000,
-                target_time_increment=0.0,
+                mass_scale=5000,                            # If fixed mass scaling is used, values between 2000 and 20000 are usually fine
+                target_time_increment=0.0,                  # Defined in the "families.py" file
                 use_ALE=False,
-                num_cpus=6,                         # submit.sh CPU value is prioritized
+                num_cpus=6,                                 # See "submit.sh" CPU value which is prioritized instead
                 linear_bulk_viscosity=0.06,
                 quad_bulk_viscosity=1.2,
-                ale_frequency=10,                   # C_remesh ~ 0.1 (glassy) to ~0.6 (elastomer); see ale_remesh_courant()
-                ale_mesh_sweeps=2,                  # absorbs the larger distortion between two (now rarer) remeshings
+                ale_frequency=10,                           # Values of 20 and below are needed for sweep corners with high distortion
+                ale_mesh_sweeps=2,                          # Decision: Set to 2
                 ale_smoothing_priority="GRADED",
                 ale_smoothing_algorithm="GEOMETRY_ENHANCED",
-                ale_curvature_refinement=1,         # try 2-3 to sharpen the groove shoulder (pile-up resolution)
-                ale_domain="refined",               # ALE restricted to the refined contact cell
-                ale_in_passive_steps=False,         # no advection during unload / recovery
+                ale_curvature_refinement=1,         
+                ale_domain="refined",                       # ALE restricted to the refined contact cell
+                ale_in_passive_steps=False,                 # no advection during unload / recovery
             ),
             scratch=Scratch_Config(
-                depth_mode=Scratch_Config.PROGRESSIVE,
-                control_mode=Scratch_Config.DISPLACEMENT,
+                depth_mode=Scratch_Config.PROGRESSIVE,      # "CONSTANT" is working but has not been verified in any way
+                control_mode=Scratch_Config.DISPLACEMENT,   # "FORCE"  has shown weird results, more work is needed if used
                 scratch_length=2.0,
                 scratch_force=40e-3,
-                scratch_depth=-40e-3,
-                scratch_time=0.05,
-                indentation_time=0.01,
-                unload_time=0.01,
-                recovery_time=0.01,
+                scratch_depth=-40e-3,                       # Decision: Set to 40 microns
+                scratch_time=0.01,                          # Biases in results are acceptable down to a scratch time of 0.01s
+                indentation_time=0.005,
+                unload_time=0.005,                          # Decision: For plastic families, unload time does not have to be important
+                recovery_time=0.005,                        # Decision: For plastic families, recovery time does not have to be important
                 recovery_lift=0.05,
                 n_field_frames=20,
                 n_field_frames_recovery=5,
                 n_history_points=100,
+                amplitude_smoothing=0.0,                    # Decision: No smoothing in end of scratch
+                depth_hold_frac=0.0,
             ),
             output=Output_Config(),
             naming=Naming_Config(),
