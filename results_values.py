@@ -24,16 +24,56 @@ from scipy.signal import find_peaks
 #                         est un demi-modele : x_undeformed va de 0 a 0.3, donc
 #                         0.6 une fois la symetrie appliquee.
 # SCRATCH_DOMAIN_LENGTH : longueur totale du domaine maille (mm).
-TARGET_SHAPE = (80, 420)
-SCRATCH_LENGTH = 2.0
+TARGET_SHAPE = (80, 588)
+SCRATCH_LENGTH = 3.0
 SCRATCH_DOMAIN_WIDTH = 0.6
-SCRATCH_DOMAIN_LENGTH = 2.5
+SCRATCH_DOMAIN_LENGTH = 3.5
 
 # Tolerance relative des fenetres temporelles. Les horodatages Abaqus sont
 # ecrits en float32 : le dernier echantillon de la phase active vaut
 # 0.100000003 pour scratch_time = 0.1. La tolerance 1e-9 de results_verifier
 # est plus serree que cette erreur d'arrondi et exclut donc ce dernier point.
 TIME_TOL = 1e-6
+
+# --- Localisation de la section de mesure de la topographie ---------------
+# Z_SEARCH_LO_FRAC   : borne basse de la recherche, en fraction de
+#                      SCRATCH_LENGTH. Ecarte l'amorce ou le sillon est encore
+#                      trop peu marque pour que son minimum ait un sens.
+# Z_LOCATE_SMOOTH_MM : longueur de lissage gaussien (mm) appliquee au profil
+#                      longitudinal pour LOCALISER le minimum. Reprend la
+#                      convention du pipeline experimental (exp_depth_smooth_mm)
+#                      pour que simulation et mesure situent le point de mesure
+#                      de la meme facon.
+# Z_REFINE_HALF_MM   : demi-largeur (mm) de la fenetre dans laquelle le minimum
+#                      est ensuite relu sur le profil BRUT. Detection lissee,
+#                      mesure brute : le lissage sert a exclure un decrochage
+#                      ponctuel, pas a raboter la profondeur.
+Z_SEARCH_LO_FRAC = 0.25
+Z_LOCATE_SMOOTH_MM = 0.06
+Z_REFINE_HALF_MM = 0.06
+
+# --- Bande lineaire retenue pour le SCOF ---------------------------------
+# En depth_mode=progressive la force normale monte en rampe sur toute la
+# course : moyenner le SCOF sur tout ce qui depasse 10 % du pic revient a
+# moyenner sur toutes les profondeurs, transitoire d'amorce compris. La borne
+# haute ecarte en plus le sommet de la rampe, ou l'inversion de vitesse fait
+# sonner la reponse.
+SCOF_LO_FRAC = 0.10
+SCOF_HI_FRAC = 0.90
+
+# --- Estimation des forces en fin de course ------------------------------
+# FORCE_FIT_Z_FRAC   : longueur de la fenetre d'ajustement, en fraction de
+#                      SCRATCH_LENGTH, comptee depuis la fin de course.
+# FORCE_FIT_MIN_PTS  : en dessous de ce nombre de points la regression n'est
+#                      pas fiable ; on retombe sur la mediane de la fenetre.
+FORCE_FIT_Z_FRAC = 0.20
+FORCE_FIT_MIN_PTS = 5
+
+# Tolerance relative servant a reconnaitre les trames "a consigne pleine".
+# Sur une rampe lineaire echantillonnee a 1 % par trame, seule la derniere
+# trame passe ; avec un lissage d'amplitude, le palier arrondi passe mais la
+# premiere trame de decharge est exclue.
+LOAD_PEAK_TOL = 5e-3
 
 
 # =====================================================================
@@ -204,6 +244,106 @@ def _normal_force_series(timeseries, metadata):
     return None, "unavailable"
 
 
+def _active_mask(timeseries, metadata):
+    """Masque de la phase active, convention commune forces / SCOF.
+
+    En depth_mode=constant l'indentation precede le scratch : on restreint a
+    [t_act - scratch_time, t_act]. En progressive, indentation et scratch sont
+    concurrents : la fenetre active complete est conservee.
+    """
+    time = timeseries.get("Time")
+    ref, _ = _normal_force_series(timeseries, metadata)
+    if time is None or ref is None or len(time) != len(ref):
+        n = 0 if ref is None else len(ref)
+        return np.ones(n, dtype=bool)
+
+    t_act = _active_end(metadata, float(time[-1]))
+    keep = time <= t_act * (1.0 + TIME_TOL)
+
+    st = metadata.get("scratch_time")
+    constant = not str(metadata.get("depth_mode", "")).lower().startswith("prog")
+    if constant and st and float(st) > 0.0:
+        keep = keep & (time >= t_act - float(st) - abs(t_act) * TIME_TOL)
+    return keep
+
+
+def _loading_mask(timeseries, metadata):
+    """Fenetre active tronquee au maximum de la consigne.
+
+    Toute trame posterieure a ce maximum appartient a la decharge, meme si elle
+    reste dans la fenetre active : c'est le cas de la derniere trame ecrite par
+    l'extracteur des lors qu'un lissage d'amplitude arrondit le coude de fin de
+    course. On coupe donc au sommet inclus.
+    """
+    active = _active_mask(timeseries, metadata)
+    if not len(active) or not active.any():
+        return active
+
+    u2 = timeseries.get("IndenterU2")
+    control_mode = str(metadata.get("control_mode", "displacement"))
+    anchor = None
+    if control_mode != "force" and u2 is not None and len(u2) == len(active):
+        if float(np.max(np.abs(u2))) > 1e-20:
+            anchor = np.abs(np.asarray(u2, dtype=float))
+    if anchor is None:
+        fn, _ = _normal_force_series(timeseries, metadata)
+        if fn is None or len(fn) != len(active):
+            return active
+        anchor = np.abs(np.asarray(fn, dtype=float))
+
+    idx = np.flatnonzero(active)
+    a = anchor[idx]
+    peak = float(np.nanmax(a))
+    if not np.isfinite(peak) or peak <= 0.0:
+        return active
+    # DERNIERE trame a consigne pleine, pas la premiere : en depth_mode=constant
+    # le sommet est un palier entier et un simple argmax le tronquerait des son
+    # premier point.
+    at_peak = np.flatnonzero(a >= (1.0 - LOAD_PEAK_TOL) * peak)
+    if not at_peak.size:
+        return active
+    k = int(at_peak[-1])
+    mask = np.zeros(len(active), dtype=bool)
+    mask[idx[:k + 1]] = True
+    return mask
+
+
+def locate_max_depth_z(yz_profile, scratch_length=None):
+    """Position z (mm) de la section la plus profonde du sillon etabli.
+
+    En depth_mode=progressive la consigne croit avec z, donc le fond du sillon
+    se situe pres de la fin de course -- mais PAS a z = scratch_length, ou le
+    profil a deja remonte vers le bourrelet frontal. Le minimum est localise
+    sur le profil longitudinal lisse, puis relu sur le profil brut dans un
+    voisinage de Z_REFINE_HALF_MM.
+
+    Retourne None si le profil ne permet aucune localisation.
+    """
+    y, z = yz_profile
+    y = np.asarray(y, dtype=float)
+    z = np.asarray(z, dtype=float)
+    if y.size != z.size or y.size < 3:
+        return None
+
+    L = float(scratch_length) if scratch_length else SCRATCH_LENGTH
+    window = (z >= Z_SEARCH_LO_FRAC * L) & (z <= L)
+    if not window.any() or not np.isfinite(y[window]).any():
+        return None
+
+    dz = float(np.median(np.diff(z)))
+    if not np.isfinite(dz) or dz <= 0.0:
+        return None
+
+    sigma = max(Z_LOCATE_SMOOTH_MM / dz, 1e-6)
+    y_macro = gaussian_filter1d(np.nan_to_num(y, nan=0.0), sigma=sigma)
+    z_coarse = float(z[window][int(np.nanargmin(y_macro[window]))])
+
+    near = window & (np.abs(z - z_coarse) <= Z_REFINE_HALF_MM)
+    if not near.any() or not np.isfinite(y[near]).any():
+        return z_coarse
+    return float(z[near][int(np.nanargmin(y[near]))])
+
+
 # =====================================================================
 #  Grille et profils — recopies de ScratchFeatures
 # =====================================================================
@@ -356,7 +496,7 @@ def get_frontal_pile_up_height(yz_profile):
     dur dans la source d'origine, il n'est pas indexe sur SCRATCH_LENGTH.
     """
     y, z = yz_profile
-    mask = z >= 2.0
+    mask = z >= 3.0
     y = y[mask]
     z = z[mask]
     return get_pile_up_height(z, y)
@@ -479,23 +619,46 @@ def scof_values(timeseries, metadata):
     if rf2 is None or rf3 is None:
         return out
 
-    rf2_abs = np.abs(rf2)
-    mask = rf2_abs > np.max(rf2_abs) * 0.10
+    active = _loading_mask(timeseries, metadata)
+    if len(active) != len(rf2) or not active.any():
+        active = np.ones(len(rf2), dtype=bool)
 
-    time = timeseries.get("Time")
-    st = metadata.get("scratch_time")
-    constant_mode = not str(metadata.get("depth_mode", "")).lower().startswith("prog")
-    if constant_mode and time is not None and st and float(st) > 0.0:
-        t_act = _active_end(metadata, float(time[-1]))
-        mask = mask & (time >= t_act - float(st)) & (time <= t_act * (1.0 + 1e-9))
+    rf2_abs = np.abs(np.asarray(rf2, dtype=float))
+    peak = float(np.nanmax(rf2_abs[active]))
+    if not np.isfinite(peak) or peak <= 0.0:
+        return out
 
+    mask = active & (rf2_abs >= SCOF_LO_FRAC * peak) & (rf2_abs <= SCOF_HI_FRAC * peak)
     if not mask.any():
         return out
 
-    scof = np.abs(rf3[mask]) / rf2_abs[mask]
+    scof = np.abs(np.asarray(rf3, dtype=float)[mask]) / rf2_abs[mask]
+    scof = scof[np.isfinite(scof)]
+    if not scof.size:
+        return out
+
     out["SCOF_mean"] = float(np.mean(scof))
     out["SCOF_std"] = float(np.std(scof))
+    out["SCOF_n"] = int(scof.size)
     return out
+
+    # --- Version d'origine, conservee pour reference ----------------------
+    # rf2_abs = np.abs(rf2)
+    # mask = rf2_abs > np.max(rf2_abs) * 0.10
+    # time = timeseries.get("Time")
+    # st = metadata.get("scratch_time")
+    # constant_mode = not str(
+    #     metadata.get("depth_mode", "")
+    # ).lower().startswith("prog")
+    # if constant_mode and time is not None and st and float(st) > 0.0:
+    #     t_act = _active_end(metadata, float(time[-1]))
+    #     mask = mask & (time >= t_act - float(st)) & (time <= t_act * (1.0 + 1e-9))
+    # if not mask.any():
+    #     return out
+    # scof = np.abs(rf3[mask]) / rf2_abs[mask]
+    # out["SCOF_mean"] = float(np.mean(scof))
+    # out["SCOF_std"] = float(np.std(scof))
+    # return out
 
 
 def force_values(timeseries, metadata, z_value):
@@ -509,40 +672,77 @@ def force_values(timeseries, metadata, z_value):
     out = {}
     rf3 = timeseries.get("RF3")
     rf2, _ = _normal_force_series(timeseries, metadata)
-    time = timeseries.get("Time")
     if rf2 is None or rf3 is None:
         return out
 
-    if time is not None and len(time) == len(rf2):
-        t_act = _active_end(metadata, float(time[-1]))
-        keep = time <= t_act * (1.0 + TIME_TOL)
-        # En depth_mode=constant l'indentation precede le scratch : z reste
-        # nul pendant indentation_time. Le mapping lineaire temps -> z de
-        # extract_forces suppose que z avance de 0 a SCRATCH_LENGTH sur TOUS
-        # les echantillons fournis ; garder la phase d'indentation decalerait
-        # donc tout z intermediaire. On restreint a [t_act - scratch_time,
-        # t_act], comme le fait deja scof_values. En progressive, indentation
-        # et scratch sont concurrents : pas de restriction supplementaire.
-        st = metadata.get("scratch_time")
-        constant_mode = not str(
-            metadata.get("depth_mode", "")
-        ).lower().startswith("prog")
-        if constant_mode and st and float(st) > 0.0:
-            t_scratch_start = t_act - float(st)
-            keep = keep & (time >= t_scratch_start - abs(t_act) * TIME_TOL)
-    else:
-        keep = np.ones(len(rf2), dtype=bool)
-    if not keep.any():
+    active = _active_mask(timeseries, metadata)
+    if len(active) != len(rf2) or not active.any():
         return out
 
-    rfs = np.column_stack(
-        [np.zeros(int(keep.sum())), np.asarray(rf2)[keep], np.asarray(rf3)[keep]]
-    )
-    F_n, F_t = extract_forces(rfs, [z_value])
+    # Mapping temps -> z inchange : z avance lineairement de 0 a SCRATCH_LENGTH
+    # sur la fenetre active, exactement comme dans extract_forces.
+    idx = np.flatnonzero(active)
+    z = np.linspace(0.0, SCRATCH_LENGTH, len(idx))
 
-    out["F_n"] = abs(float(np.asarray(F_n).ravel()[-1]))
-    out["F_t"] = abs(float(np.asarray(F_t).ravel()[-1]))
+    # Les trames posterieures au sommet de la consigne sont de la decharge.
+    load = _loading_mask(timeseries, metadata)
+    on = load[idx] if len(load) == len(active) else np.ones(len(idx), dtype=bool)
+    if not on.any():
+        on = np.ones(len(idx), dtype=bool)
+
+    z_lo = SCRATCH_LENGTH * (1.0 - FORCE_FIT_Z_FRAC)
+    sel = on & (z >= z_lo)
+    if not sel.any():
+        sel = on
+
+    zf = z[sel]
+    fn = 2.0 * np.abs(np.asarray(rf2, dtype=float)[idx][sel])
+    ft = 2.0 * np.abs(np.asarray(rf3, dtype=float)[idx][sel])
+    ok = np.isfinite(zf) & np.isfinite(fn) & np.isfinite(ft)
+    zf, fn, ft = zf[ok], fn[ok], ft[ok]
+    if not zf.size:
+        return out
+
+    # La droite est evaluee a la DERNIERE abscisse de chargement, jamais
+    # au-dela : sans lissage d'amplitude elle vaut exactement SCRATCH_LENGTH,
+    # et avec lissage elle s'arrete au sommet de la consigne. On n'extrapole
+    # donc jamais par-dessus le coude arrondi.
+    z_eval = float(np.max(zf))
+    if zf.size >= FORCE_FIT_MIN_PTS and float(np.ptp(zf)) > 0.0:
+        out["F_n"] = float(np.polyval(np.polyfit(zf, fn, 1), z_eval))
+        out["F_t"] = float(np.polyval(np.polyfit(zf, ft, 1), z_eval))
+        out["F_fit_mode"] = "ramp_fit"
+    else:
+        out["F_n"] = float(np.median(fn))
+        out["F_t"] = float(np.median(ft))
+        out["F_fit_mode"] = "median"
+    out["F_fit_n"] = int(zf.size)
+    out["F_fit_z"] = z_eval
     return out
+
+    # --- Version d'origine, conservee pour reference ----------------------
+    # time = timeseries.get("Time")
+    # if time is not None and len(time) == len(rf2):
+    #     t_act = _active_end(metadata, float(time[-1]))
+    #     keep = time <= t_act * (1.0 + TIME_TOL)
+    #     st = metadata.get("scratch_time")
+    #     constant_mode = not str(
+    #         metadata.get("depth_mode", "")
+    #     ).lower().startswith("prog")
+    #     if constant_mode and st and float(st) > 0.0:
+    #         t_scratch_start = t_act - float(st)
+    #         keep = keep & (time >= t_scratch_start - abs(t_act) * TIME_TOL)
+    # else:
+    #     keep = np.ones(len(rf2), dtype=bool)
+    # if not keep.any():
+    #     return out
+    # rfs = np.column_stack(
+    #     [np.zeros(int(keep.sum())), np.asarray(rf2)[keep], np.asarray(rf3)[keep]]
+    # )
+    # F_n, F_t = extract_forces(rfs, [z_value])
+    # out["F_n"] = abs(float(np.asarray(F_n).ravel()[-1]))
+    # out["F_t"] = abs(float(np.asarray(F_t).ravel()[-1]))
+    # return out
 
 
 def profile_values(nodes, z_value):
@@ -557,8 +757,16 @@ def profile_values(nodes, z_value):
     coords = np.hstack([undef, deform])
 
     X, Y, Z = map_coords_to_new_grid(coords)
+    # Le profil longitudinal ne depend pas de z_value : on l'obtient d'abord
+    # pour localiser la section la plus profonde, puis on relit la coupe
+    # transverse a cette position. z_value ne sert plus que de repli.
+    _, yz_profile = get_profiles_from_coords(X, Y, Z, z_value=z_value)
+    z_star = locate_max_depth_z(yz_profile)
+    if z_star is not None:
+        z_value = z_star
     xy_profile, yz_profile = get_profiles_from_coords(X, Y, Z, z_value=z_value)
     x, y = xy_profile
+    out["z_extraction"] = float(z_value)
 
     # --- h_r : |min| de la coupe transverse complete a z_value.
     out["h_r"] = float(get_residual_depth(x, y))
@@ -601,6 +809,10 @@ UNITS = {
     "F_t": "N",
     "SCOF_mean": "-",
     "SCOF_std": "-",
+    "SCOF_n": "samples",
+    "F_fit_n": "samples",
+    "F_fit_z": "mm",
+    "F_fit_mode": "-",
     "h_r": "mm",
     "h_p": "mm",
     "h_fp": "mm",
@@ -612,6 +824,8 @@ def extract_values(filepath, z_value=None):
 
     metadata, timeseries, nodes = parse_results_csv(filepath)
 
+    # z_extraction est renseigne par profile_values, qui localise lui-meme la
+    # section la plus profonde ; z_value n'est plus qu'un repli.
     values = {"file": Path(filepath).name, "z_extraction": z_value}
     # Temps de calcul du run, lu dans la ligne "# WallclockTime=" de l'entete.
     if metadata.get("wallclock") is not None:

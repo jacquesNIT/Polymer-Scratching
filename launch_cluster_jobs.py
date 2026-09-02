@@ -10,14 +10,18 @@ JOBS = [
 
 
     # To launch on 0.01 mesh with freq=20 ALE (~2-4 days)
-    ("design", "glassy_pc", {"tag": "Morris7", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
+    #("design", "glassy_pc", {"tag": "Morris7", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
     
     #("design", "glassy_pc", {"tag": "Morris4_001", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
 
 
-    #("depth", "glassy_pmma", {"tag": "Calib_PMMA", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("depth", "glassy_pc", {"tag": "Calib_pc", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    #("depth", "semicrystalline_dp", {"tag": "Calib_pp", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("depth", "glassy_pmma", {"tag": "PMMA_3mm_st", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("depth", "glassy_pc", {"tag": "PC_3mm_st", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("depth", "semicrystalline_dp", {"tag": "PP_3mm_st", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+
+    ("depth", "glassy_pmma", {"tag": "PMMA_3mm_dt", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.015, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("depth", "glassy_pc", {"tag": "PC_3mm_dt", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.015, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("depth", "semicrystalline_dp", {"tag": "PP_3mm_dt", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.015, "unload_time": 0.005,"recovery_time": 0.005}),
 
     #("single", "glassy_pmma", {"tag": "Test_C_R", "indenter": "rockwell", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
     #("single", "glassy_pmma", {"tag": "Verif25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
@@ -79,7 +83,7 @@ _OVERRIDE_ALIASES = {
     "ALE":            "solver.use_ALE",
     "scratch_time":   "scratch.scratch_time",
     "scratch_depth":  "scratch.scratch_depth",
-    "scratch_length": "scratch.scratch_length",
+    # "scratch_length": "scratch.scratch_length",   # deplace dans la categorie 3mm Scratch
     "mass_scale":     "solver.mass_scale",
     "target_dt":      "solver.target_time_increment",
     "hourglass":      "mesh.hourglass_control",
@@ -99,6 +103,12 @@ _OVERRIDE_ALIASES = {
     "unload_time":    "scratch.unload_time",
     "recovery_time":  "scratch.recovery_time",
     "indent_time":    "scratch.indentation_time",
+
+    # 3mm Scratch 
+    "scratch_length": "scratch.scratch_length",
+    "zs2":            "substrate.zs2",
+    "zs1":            "substrate.zs1",
+    "dpo_z":          "substrate.dpo_z",
 }
 
 _HOURGLASS_VALUES = ("DEFAULT", "ENHANCED", "RELAX STIFFNESS")

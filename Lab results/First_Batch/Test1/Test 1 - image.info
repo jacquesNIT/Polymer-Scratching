@@ -1,0 +1,20 @@
+<?xml version="1.0" standalone="yes"?>
+<NewDataSet>
+  <CRunDetail>
+    <StepSize>0.075000002980232239</StepSize>
+    <Filter>3</Filter>
+    <GFilterSD>0.60000002384185791</GFilterSD>
+    <Lambda>230</Lambda>
+    <XPos>3205.25</XPos>
+    <YPos>197695</YPos>
+    <PixelSizeuM>1.2581250667572021</PixelSizeuM>
+    <FrameRate>8.822741805038584</FrameRate>
+    <Height>480</Height>
+    <Width>2473</Width>
+    <Lens>I-20x</Lens>
+    <Mode>WLI</Mode>
+    <IsColorCam>false</IsColorCam>
+    <Binning>true</Binning>
+    <BinningFactor>2</BinningFactor>
+  </CRunDetail>
+</NewDataSet>
