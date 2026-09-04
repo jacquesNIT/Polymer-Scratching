@@ -147,7 +147,7 @@ class Substrate_Config:
 
     def __init__(self,
                  xs1=0.0, ys1=0.0, zs1=0.0,             # Substrate box origin
-                 xs2=0.6, ys2=0.5, zs2=4.0,              # Width, height and depth of the box [mm] (z is the scratch direction)
+                 xs2=0.6, ys2=0.5, zs2=3.0,              # Width, height and depth of the box [mm] (z is the scratch direction)
                  dpo_x=0.25, dpo_y=0.15, dpo_z=0.25):    # Partition offsets (from edges of refined zone)
 
         self.xs1 = xs1
@@ -438,7 +438,7 @@ class Scratch_Config:
     def __init__(self,
                  depth_mode="constant",
                  control_mode="displacement",
-                 scratch_length=3.0,
+                 scratch_length=2.0,
                  scratch_force=20e-3,                # [N] for force-driven scratch (>0)
                  scratch_depth=-40e-3,                # [mm] for displacement-driven scratch (<0)
                  scratch_time=0.01,                   # [s]
@@ -953,7 +953,7 @@ class Simulation_Config:
             scratch=Scratch_Config(
                 depth_mode=Scratch_Config.PROGRESSIVE,      # "CONSTANT" is working but has not been verified in any way
                 control_mode=Scratch_Config.DISPLACEMENT,   # "FORCE"  has shown weird results, more work is needed if used
-                scratch_length=3.0,
+                scratch_length=2.0,
                 scratch_force=40e-3,
                 scratch_depth=-40e-3,                       # Decision: Set to 40 microns
                 scratch_time=0.01,                          # Biases in results are acceptable down to a scratch time of 0.01s

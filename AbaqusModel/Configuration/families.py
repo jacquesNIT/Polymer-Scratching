@@ -189,8 +189,8 @@ def _glassy_pmma_config():
         hyperelastic=LinearElastic_Config(E=3300.0, nu=0.37),
         plasticity=DruckerPrager_Config(
             friction_angle=25.0, flow_stress_ratio=1.0, dilation_angle=10.0,
-            yield_table=gsell_jonas_table(sigma_y0=103.0, h=0.45,
-                                          soft_drop=25.0, eps_soft=0.06,
+            yield_table=gsell_jonas_table(sigma_y0=160.0, h=0.45,                # sigma_y0 = 103 originally, 160 for calibration tests
+                                          soft_drop=39.0, eps_soft=0.06,         # soft_drop = 25 orginally, 39 for calibration tests
                                           eps_max=2.0, n_points=60),
             rate_dependent=None),
             #rate_dependent=RateDependent_Config.from_eyring(sigma_y0=105.0, S_per_decade=9.0)),

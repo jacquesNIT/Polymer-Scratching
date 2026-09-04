@@ -340,17 +340,6 @@ def _derive_dp(g, cfg, frozen, with_softening):
            "p_ref_MPa": p_ref, "attack_angle_deg": attack_angle_deg(cfg)}
     return out
 
-
-# [PATCH:exclusive-post-yield] begin -- exclusivite structurelle des termes post-seuil.
-#
-# Deux mecanismes post-seuil additifs et antagonistes ne sont pas
-# separement identifiables : avec b_voce = 8 (echelle 0.125) et eps_soft
-# jusqu'a 0.12, deux couples (q, s) de meme difference q - s donnent des
-# tables d'ecrouissage separees par moins de 0.5 % de sigma_y0. Aucune des
-# deux campagnes historiques ne les autorise ensemble (C3 gele
-# soft_drop_MPa = 0, C4 gele b_voce = 0) et aucune famille calibree ne les
-# porte simultanement. La regle est donc une INVARIANTE du modele, pas une
-# preference de campagne, et elle est verifiee au point de passage commun.
 EXCLUSIVE_PARAM_PAIRS = (
     ("Q", "soft_drop"),
 )
@@ -372,7 +361,6 @@ def _assert_exclusive(p, campaign="?"):
     return p
 
 
-# [PATCH:exclusive-post-yield] end
 def _apply_dp(cfg, p):
     _assert_exclusive(p)
     cfg.material.rho = p["rho"]

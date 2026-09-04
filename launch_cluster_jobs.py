@@ -15,13 +15,15 @@ JOBS = [
     #("design", "glassy_pc", {"tag": "Morris4_001", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
 
 
-    ("depth", "glassy_pmma", {"tag": "PMMA_3mm_st2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("depth", "glassy_pc", {"tag": "PC_3mm_st2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("depth", "semicrystalline_dp", {"tag": "PP_3mm_st2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
 
-    ("depth", "glassy_pmma", {"tag": "PMMA_3mm_dt2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.015, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("depth", "glassy_pc", {"tag": "PC_3mm_dt2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.015, "unload_time": 0.005,"recovery_time": 0.005}),
-    ("depth", "semicrystalline_dp", {"tag": "PP_3mm_dt2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.015, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("depth", "glassy_pmma", {"tag": "Calib_pmma_sd_sigma", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+
+    #("depth", "glassy_pc", {"tag": "PC_3mm_st2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("depth", "semicrystalline_dp", {"tag": "PP_3mm_st2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+
+    #("depth", "glassy_pmma", {"tag": "PMMA_3mm_dt2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.015, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("depth", "glassy_pc", {"tag": "PC_3mm_dt2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.015, "unload_time": 0.005,"recovery_time": 0.005}),
+    #("depth", "semicrystalline_dp", {"tag": "PP_3mm_dt2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.015, "unload_time": 0.005,"recovery_time": 0.005}),
 
     #("single", "glassy_pmma", {"tag": "Test_C_R", "indenter": "rockwell", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
     #("single", "glassy_pmma", {"tag": "Verif25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
@@ -109,6 +111,7 @@ _OVERRIDE_ALIASES = {
     "zs2":            "substrate.zs2",
     "zs1":            "substrate.zs1",
     "dpo_z":          "substrate.dpo_z",
+
 }
 
 _HOURGLASS_VALUES = ("DEFAULT", "ENHANCED", "RELAX STIFFNESS")

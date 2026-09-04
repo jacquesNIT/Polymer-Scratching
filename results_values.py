@@ -24,10 +24,10 @@ from scipy.signal import find_peaks
 #                         est un demi-modele : x_undeformed va de 0 a 0.3, donc
 #                         0.6 une fois la symetrie appliquee.
 # SCRATCH_DOMAIN_LENGTH : longueur totale du domaine maille (mm).
-TARGET_SHAPE = (80, 588)
-SCRATCH_LENGTH = 3.0
+TARGET_SHAPE = (80, 420)
+SCRATCH_LENGTH = 2.0
 SCRATCH_DOMAIN_WIDTH = 0.6
-SCRATCH_DOMAIN_LENGTH = 3.5
+SCRATCH_DOMAIN_LENGTH = 2.5
 
 # Tolerance relative des fenetres temporelles. Les horodatages Abaqus sont
 # ecrits en float32 : le dernier echantillon de la phase active vaut
@@ -496,7 +496,7 @@ def get_frontal_pile_up_height(yz_profile):
     dur dans la source d'origine, il n'est pas indexe sur SCRATCH_LENGTH.
     """
     y, z = yz_profile
-    mask = z >= 3.0
+    mask = z >= 2.0
     y = y[mask]
     z = z[mask]
     return get_pile_up_height(z, y)
