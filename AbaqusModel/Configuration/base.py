@@ -915,9 +915,9 @@ class Simulation_Config:
             indenter=Indenter_Config(),
             substrate=Substrate_Config(),
             mesh=Mesh_Config(
-                fine_size_x=0.01,
-                fine_size_y=0.01,
-                fine_size_z=0.01,
+                fine_size_x=0.005,
+                fine_size_y=0.005,
+                fine_size_z=0.005,
                 coarse_size_1=0.028,                        # Set to 0.028 to be *4 the finest mesh size
                 coarse_size_2=0.056,                        # Set to 0.028 to be *8 the finest mesh size
                 hourglass_control="ENHANCED",               # "ENHANCED" is appropriate for plastic families     
