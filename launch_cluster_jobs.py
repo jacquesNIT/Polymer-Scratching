@@ -16,7 +16,7 @@ JOBS = [
 
 
 
-    ("depth", "glassy_pmma", {"tag": "Calib_pmma_dil0", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("depth", "glassy_pmma", {"tag": "Calib_pmma_tau_alp1", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
 
     #("depth", "glassy_pc", {"tag": "PC_3mm_st2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
     #("depth", "semicrystalline_dp", {"tag": "PP_3mm_st2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
