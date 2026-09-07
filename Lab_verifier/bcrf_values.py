@@ -461,7 +461,146 @@ def ridge_band_px(half, outer):                     # [consistency-patch]
     return int(max(2 * half, min(outer, 3 * half)))
 
 
-def section_values(prof_y, y_um, row_c, half, outer):
+# [penetration-patch] begin -- contact penetration from the residual groove width.
+#
+# The residual groove is the footprint of the indenter at the level of the
+# original surface, so its width carries the penetration -- provided the
+# lateral elastic closure of the flanks is corrected for. Chain:
+#
+#   w0  ->  a_res = w0/2  ->  a_geom = a_res / k(d)  ->  d  (sphere-cone)
+#
+# k(d) is the only modelled link. It is read off the simulations, where the
+# commanded depth and the residual width are both known. Nothing here uses
+# the capacitive depth channel, which is inflated by machine compliance.
+
+TIP_RADIUS_UM = 200.0        # Rockwell C sphere radius [um]
+TIP_HALF_ANGLE_DEG = 60.0    # cone half-angle from the axis [deg]
+
+# k(d) = K_SLOPE * d + K_INTERCEPT, clipped to [K_MIN, K_MAX].
+# Fit on glassy_pmma progressive-depth runs (d = 20 / 30 / 40 um, mesh 0.005,
+# scratch_length 2 mm, after unload + recovery):
+#     d = 9.5 um -> 0.71 | 19.0 -> 0.83 | 28.4 -> 0.92 | 37.9 -> 0.95
+K_SLOPE = 0.00933
+K_INTERCEPT = 0.6470
+K_MIN, K_MAX = 0.55, 0.95
+K_VALID_UM = (8.0, 38.0)     # calibration window; outside -> extrapolation
+
+
+def tip_tangency(radius=TIP_RADIUS_UM, half_angle_deg=TIP_HALF_ANGLE_DEG):
+    """(d_t, a_t) where the sphere meets the cone, in um."""
+    s = np.sin(np.radians(half_angle_deg))
+    return radius * (1.0 - s), radius * np.cos(np.radians(half_angle_deg))
+
+
+def contact_radius(d, radius=TIP_RADIUS_UM, half_angle_deg=TIP_HALF_ANGLE_DEG):
+    """Contact radius a of the sphere-cone tip at penetration d (both um)."""
+    d = np.asarray(d, dtype=float)
+    d_t, a_t = tip_tangency(radius, half_angle_deg)
+    sph = np.sqrt(np.maximum(2.0 * radius * d - d * d, 0.0))
+    con = a_t + np.tan(np.radians(half_angle_deg)) * (d - d_t)
+    return np.where(d <= d_t, sph, con)
+
+
+def depth_from_radius(a, radius=TIP_RADIUS_UM, half_angle_deg=TIP_HALF_ANGLE_DEG):
+    """Inverse of contact_radius(): penetration d for a contact radius a."""
+    a = np.asarray(a, dtype=float)
+    d_t, a_t = tip_tangency(radius, half_angle_deg)
+    sph = radius - np.sqrt(np.maximum(radius * radius - a * a, 0.0))
+    con = d_t + (a - a_t) / np.tan(np.radians(half_angle_deg))
+    return np.where(a <= a_t, sph, con)
+
+
+def recovery_factor(d, slope=K_SLOPE, intercept=K_INTERCEPT,
+                    k_min=K_MIN, k_max=K_MAX):
+    """k(d) = a_res / a_geom. Rises with depth: the deeper the groove, the
+    larger the plastic share and the less the flanks close back."""
+    return np.clip(slope * np.asarray(d, dtype=float) + intercept, k_min, k_max)
+
+
+def penetration_from_width(w0, radius=TIP_RADIUS_UM,
+                           half_angle_deg=TIP_HALF_ANGLE_DEG,
+                           slope=K_SLOPE, intercept=K_INTERCEPT,
+                           k_min=K_MIN, k_max=K_MAX, n_iter=40, tol=1e-4):
+    """Solve a_res = k(d) * a_geom(d) for d. Damped fixed point; the map is
+    monotone and mildly contracting, so 5-10 iterations are enough. Returns
+    d in um, NaN where w0 is not finite or not positive."""
+    w = np.atleast_1d(np.asarray(w0, dtype=float))
+    a_res = 0.5 * w
+    out = np.full(w.shape, np.nan)
+    ok = np.isfinite(a_res) & (a_res > 0)
+    if not ok.any():
+        return out if np.ndim(w0) else float(out[0])
+    d = depth_from_radius(a_res[ok], radius, half_angle_deg)
+    for _ in range(n_iter):
+        k = recovery_factor(d, slope, intercept, k_min, k_max)
+        d_new = depth_from_radius(a_res[ok] / k, radius, half_angle_deg)
+        step = np.nanmax(np.abs(d_new - d))
+        d = 0.5 * d + 0.5 * d_new
+        if step < tol:
+            break
+    out[ok] = d
+    return out if np.ndim(w0) else float(out[0])
+
+
+def _zero_crossing(prof, i_min, step, i_stop, dy):
+    """Distance from pixel i_min to the first z >= 0 in direction step,
+    linearly interpolated on the crossing pixel. NaN if none before i_stop."""
+    i = i_min
+    while (i + step) != i_stop:
+        j = i + step
+        zj, zi = prof[j], prof[i]
+        if not np.isfinite(zj):
+            return np.nan
+        if zj >= 0.0:
+            if np.isfinite(zi) and zj != zi:
+                frac = (0.0 - zi) / (zj - zi)
+            else:
+                frac = 0.0
+            return (abs(j - i_min) - (1.0 - frac)) * dy
+        i = j
+    return np.nan
+
+
+def groove_width(prof_y, i_min, row_c, outer, dy):
+    """w0: transverse distance between the two zero crossings flanking the
+    groove floor, searched no further than the reference band. NaN when
+    either side fails to cross back -- a wide sink-in or a contaminated
+    reference plane, and the value would be meaningless anyway."""
+    ny = prof_y.size
+    lo = max(-1, row_c - outer - 1)
+    hi = min(ny, row_c + outer + 1)
+    if not np.isfinite(prof_y[i_min]) or prof_y[i_min] >= 0.0:
+        return np.nan
+    left = _zero_crossing(prof_y, i_min, -1, lo, dy)
+    right = _zero_crossing(prof_y, i_min, +1, hi, dy)
+    if not (np.isfinite(left) and np.isfinite(right)):
+        return np.nan
+    return float(left + right)
+
+
+def groove_width_profile(Z, row_c, half, outer, dy):
+    """w0 for every column of a levelled field. Same search bands as
+    build_profiles(): floor in the track core, crossings out to `outer`."""
+    ny, nx = Z.shape
+    g_lo, g_hi = max(0, row_c - half), min(ny, row_c + half + 1)
+    w = np.full(nx, np.nan)
+    for j in range(nx):
+        col = Z[:, j]
+        core = col[g_lo:g_hi]
+        if not np.isfinite(core).any():
+            continue
+        with np.errstate(invalid="ignore"):
+            i_min = g_lo + int(np.nanargmin(core))
+        w[j] = groove_width(col, i_min, row_c, outer, dy)
+    return w
+
+
+# [penetration-patch] end
+def section_values(prof_y, y_um, row_c, half, outer,
+                   tip_radius=TIP_RADIUS_UM,             # [penetration-patch]
+                   tip_angle=TIP_HALF_ANGLE_DEG,
+                   k_slope=K_SLOPE, k_intercept=K_INTERCEPT,
+                   penetration=True):
     """Depth, pile-up heights and areas of one transverse section.
 
     prof_y is a transverse profile already referenced to zero far from the
@@ -504,13 +643,25 @@ def section_values(prof_y, y_um, row_c, half, outer):
     a_groove = float(-below.sum() * dy)
     a_pileup = float(above.sum() * dy)
 
-    return {
+    # [penetration-patch] w0 and the penetration it implies. Sign of h_pen follows h_r:
+    # negative = into the material, so |h_pen| >= |h_r| by construction.
+    extra = {}
+    if penetration:
+        w0 = groove_width(prof_y, i_min, row_c, outer, dy)
+        if np.isfinite(w0):
+            h_pen = -float(penetration_from_width(
+                w0, tip_radius, tip_angle, k_slope, k_intercept))
+        else:
+            h_pen = np.nan
+        extra = {"w0": w0, "h_pen": h_pen}
+
+    return dict(extra, **{
         "y_min": y_um[i_min], "h_r": h_r,
         "h_p_left": h_l, "h_p_right": h_rt,
         "y_p_left": y_l, "y_p_right": y_r,
         "area_groove": a_groove, "area_pileup": a_pileup,
         "area_ratio": a_pileup / a_groove if a_groove > 0 else np.nan,
-    }
+    })
 
 
 def build_profiles(Zf, x_um, y_um, row_c, half, outer, sigma,
@@ -602,8 +753,16 @@ def build_profiles(Zf, x_um, y_um, row_c, half, outer, sigma,
     present = longest_run(present, close=max(5, nx // 100),
                           min_len=max(5, nx // 50))
 
+    # [penetration-patch] w0 along the whole track. Same levelled field, same bands.
+    w0 = groove_width_profile(Zq, row_c, half, outer,
+                              (y_um[1] - y_um[0]) if y_um.size > 1 else 1.0)
+    if hampel_win_px and hampel_win_px > 2:
+        w0 = hampel(w0, hampel_win_px, hampel_k)
+    w0 = np.where(present, w0, np.nan)
+
     return {"bias_r": bias_r, "scatter_r": scat_r,      # [rough-patch]
             "h_r": h_r, "h_p_left": h_l, "h_p_right": h_rt,
+            "w0": w0,                                   # [penetration-patch]
             "present": present, "threshold": thr}
 
 
@@ -888,7 +1047,16 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
             centre_guard=0.25, track_y=None,                   # [anchor-patch]
             deep_margin=0.05, deep_win=100.0,                  # [anchor-patch]
             upstream=None,                                  # [upstream-patch]
-            section_rezero=True):                       # [consistency-patch]
+            section_rezero=True,                       # [consistency-patch]
+            tip_radius=None, tip_angle=None,                 # [penetration-patch]
+            k_slope=None, k_intercept=None, k_clip=None,
+            penetration=True):
+    # [penetration-patch] resolve the tip / recovery defaults once, then thread them down.
+    tip_radius = TIP_RADIUS_UM if tip_radius is None else float(tip_radius)
+    tip_angle = TIP_HALF_ANGLE_DEG if tip_angle is None else float(tip_angle)
+    k_slope = K_SLOPE if k_slope is None else float(k_slope)
+    k_intercept = K_INTERCEPT if k_intercept is None else float(k_intercept)
+    k_clip = (K_MIN, K_MAX) if k_clip is None else tuple(k_clip)
     Z, hdr = read_bcrf(path)
     dx, dy = pixel_size(hdr)
     ny, nx = Z.shape
@@ -986,7 +1154,16 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
         prof["h_axis"] = np.nanmean(               # [rough-patch] Zm_raw
             Zm_raw[row_c - w_ax:row_c + w_ax + 1, :], axis=0)
 
-    for key in ("h_r", "h_p_left", "h_p_right", "h_axis"):
+    # [penetration-patch] along-track penetration, from the along-track w0.
+    if penetration:
+        prof["h_pen"] = -penetration_from_width(
+            prof["w0"], tip_radius, tip_angle, k_slope, k_intercept,
+            k_clip[0], k_clip[1])
+    else:
+        prof["w0"] = np.full(nx, np.nan)
+        prof["h_pen"] = np.full(nx, np.nan)
+
+    for key in ("h_r", "h_p_left", "h_p_right", "h_axis", "w0", "h_pen"):
         prof[key + "_s"] = moving_average(prof[key], win_x)
 
     # [measure-field-patch] original: terminal_mound(Zs, ...)
@@ -1013,7 +1190,12 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
                 sel = ref[:, i]
             p = p - np.nanmedian(p[sel])
         sec_profiles.append(p)
-        sections.append(section_values(p, y_um, row_c, half, outer))
+        sections.append(section_values(p, y_um, row_c, half, outer,
+                                       tip_radius=tip_radius,   # [penetration-patch]
+                                       tip_angle=tip_angle,
+                                       k_slope=k_slope,
+                                       k_intercept=k_intercept,
+                                       penetration=penetration))
 
     return {
         "path": path, "hdr": hdr, "Z": Z, "Zf": Zs, "ref": ref,
@@ -1107,16 +1289,45 @@ def describe(res):
                        "Try --rough."
                        % res["profiles"]["scatter_r"])
         out.append("")
-    out.append("  %-10s %10s %10s %10s %10s %10s"
-               % ("x [um]", "h_r", "h_p left", "h_p right", "A_groove", "A_pile/A_gr"))
+    # [penetration-patch] the two extra columns only exist when the estimator ran.
+    _pen = any(s is not None and "h_pen" in s for s in res["sections"])
+    if _pen:
+        out.append("  %-9s %9s %9s %9s %9s %9s %9s %11s"
+                   % ("x [um]", "h_r", "~h_pen", "w0", "h_p left",
+                      "h_p right", "A_groove", "A_pile/A_gr"))
+    else:
+        out.append("  %-10s %10s %10s %10s %10s %10s"
+                   % ("x [um]", "h_r", "h_p left", "h_p right",
+                      "A_groove", "A_pile/A_gr"))
     for i, s in zip(res["sec_idx"], res["sections"]):
         if s is None:
             continue
         tag = " *" if i == res["i_deep"] else "  "
-        out.append("%s%-10.0f %10.2f %10.2f %10.2f %10.1f %10.2f"
-                   % (tag, x[i], s["h_r"], s["h_p_left"], s["h_p_right"],
-                      s["area_groove"], s["area_ratio"]))
+        # [penetration-patch] original row kept for the --no-penetration path.
+        if _pen:
+            out.append("%s%-9.0f %9.2f %9.2f %9.1f %9.2f %9.2f %9.1f %11.2f"
+                       % (tag, x[i], s["h_r"], s["h_pen"], s["w0"],
+                          s["h_p_left"], s["h_p_right"],
+                          s["area_groove"], s["area_ratio"]))
+        else:
+            out.append("%s%-10.0f %10.2f %10.2f %10.2f %10.1f %10.2f"
+                       % (tag, x[i], s["h_r"], s["h_p_left"],
+                          s["h_p_right"], s["area_groove"], s["area_ratio"]))
     out.append("  (* = deepest section; h in um, areas in um^2)")
+    # [penetration-patch] provenance and validity of the ~h_pen column.
+    _d = [-s["h_pen"] for s in res["sections"]
+          if s is not None and np.isfinite(s.get("h_pen", np.nan))]
+    if _d:
+        out.append("  ~h_pen          : contact penetration inverted from w0 via a"
+                   " sphere-cone tip")
+        out.append("                    R = %.0f um, half-angle %.0f deg, k(d) = %.5f d + %.4f"
+                   % (TIP_RADIUS_UM, TIP_HALF_ANGLE_DEG, K_SLOPE, K_INTERCEPT))
+        if min(_d) < K_VALID_UM[0] or max(_d) > K_VALID_UM[1]:
+            out.append("  WARNING         : %.0f-%.0f um is outside the %.0f-%.0f um window"
+                       " where k(d) was calibrated; ~h_pen is extrapolated"
+                       % (min(_d), max(_d), K_VALID_UM[0], K_VALID_UM[1]))
+            out.append("                    there. k(d) also comes from a glassy_pmma"
+                       " simulation: on PC or PP it is a transfer, not a calibration.")
     return "\n".join(out)
 
 
@@ -1131,11 +1342,14 @@ def export(res, stem_dir):
         w = csv.writer(fh)
         w.writerow(["x_um", "h_r_um", "h_p_left_um", "h_p_right_um",
                     "h_axis_um",                     # [frontal-curve-patch]
+                    "w0_um", "h_pen_um",             # [penetration-patch]
                     "groove_present"])
         for i in range(x.size):
             w.writerow(["%.4f" % x[i], "%.5g" % p["h_r_s"][i],
                         "%.5g" % p["h_p_left_s"][i], "%.5g" % p["h_p_right_s"][i],
                         "%.5g" % p["h_axis_s"][i],   # [frontal-curve-patch]
+                        "%.5g" % p["w0_s"][i],       # [penetration-patch]
+                        "%.5g" % p["h_pen_s"][i],
                         int(p["present"][i])])
 
     f2 = os.path.join(stem_dir, stem + "_sections.csv")
@@ -1143,7 +1357,8 @@ def export(res, stem_dir):
         w = csv.writer(fh)
         w.writerow(["x_um", "is_deepest", "h_r_um", "h_p_left_um",
                     "h_p_right_um", "y_p_left_um", "y_p_right_um",
-                    "area_groove_um2", "area_pileup_um2", "area_ratio"])
+                    "area_groove_um2", "area_pileup_um2", "area_ratio",
+                    "w0_um", "h_pen_um"])            # [penetration-patch]
         for i, s in zip(res["sec_idx"], res["sections"]):
             if s is None:
                 continue
@@ -1151,7 +1366,9 @@ def export(res, stem_dir):
                         "%.4f" % s["h_r"], "%.4f" % s["h_p_left"],
                         "%.4f" % s["h_p_right"], "%.2f" % s["y_p_left"],
                         "%.2f" % s["y_p_right"], "%.3f" % s["area_groove"],
-                        "%.3f" % s["area_pileup"], "%.4f" % s["area_ratio"]])
+                        "%.3f" % s["area_pileup"], "%.4f" % s["area_ratio"],
+                        "%.3f" % s.get("w0", float("nan")),   # [penetration-patch]
+                        "%.3f" % s.get("h_pen", float("nan"))])
     return f1, f2
 
 
@@ -1260,6 +1477,24 @@ def main(argv=None):
     p.add_argument("--locate-win", type=float, default=4.0,
                    help="transverse smoothing used to locate the track, in um "
                         "(default 4)")
+    # [penetration-patch] penetration estimator
+    p.add_argument("--tip-radius", type=float, default=None,
+                   help="indenter sphere radius, in um (default 200, "
+                        "Rockwell C)")
+    p.add_argument("--tip-angle", type=float, default=None,
+                   help="cone half-angle from the axis, in deg (default 60)")
+    p.add_argument("--k-slope", type=float, default=None,
+                   help="slope of the lateral recovery factor "
+                        "k(d) = slope*d + intercept (default 0.00933)")
+    p.add_argument("--k-intercept", type=float, default=None,
+                   help="intercept of k(d) (default 0.6470)")
+    p.add_argument("--k-clip", type=float, nargs=2, default=None,
+                   metavar=("KMIN", "KMAX"),
+                   help="bounds applied to k(d) (default 0.55 0.95)")
+    p.add_argument("--no-penetration", dest="penetration",
+                   action="store_false",
+                   help="skip the ~h_pen / w0 estimator")
+    p.set_defaults(penetration=True)
     p.add_argument("--axial-band", type=float, default=0.0,
                    help="half-width of the axial profile, in um either side "
                         "of the track axis (default 0: one row of the "
@@ -1313,7 +1548,13 @@ def main(argv=None):
                     median_y=args.median_y,
                     hampel_len=args.hampel_len,
                     hampel_k=args.hampel_k,
-                    axial_band=args.axial_band)  # [frontal-curve-patch]
+                    axial_band=args.axial_band,  # [frontal-curve-patch]
+                    tip_radius=args.tip_radius,          # [penetration-patch]
+                    tip_angle=args.tip_angle,
+                    k_slope=args.k_slope,
+                    k_intercept=args.k_intercept,
+                    k_clip=args.k_clip,
+                    penetration=args.penetration)
         except Exception as exc:
             failed += 1
             print("FAILED %s: %s: %s"
