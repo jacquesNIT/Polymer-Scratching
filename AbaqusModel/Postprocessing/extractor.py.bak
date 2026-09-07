@@ -33,26 +33,9 @@ def post_process(job_name, file_name, cfg):
     output_path = os.path.join(output_folder, file_name + "_Results.csv")
 
     #  Surface node coordinates (undeformed)
-    # [PATCH:io-robustness] begin -- diagnostic au lieu d'un KeyError nu.
-    # Une surface absente signifie presque toujours un ODB tronque ou
-    # vide (analyse morte avant l'ecriture des donnees de modele), pas
-    # une faute de nommage. Le message doit le dire.
-    _surf_key = names.slave_surface.upper()
-    _surfaces = odb.rootAssembly.surfaces
-    if _surf_key not in _surfaces.keys():
-        try:
-            _size_mb = os.path.getsize(odb_path) / (1024.0 * 1024.0)
-        except OSError:
-            _size_mb = float("nan")
-        _present = sorted(_surfaces.keys())
-        _steps = sorted(odb.steps.keys())
-        odb.close()
-        raise KeyError(
-            "Surface %r absent from %s (%.1f MB). Surfaces present: %s. Steps: %s. An ODB of a few MB or less means the analysis died before writing model data -- read the .dat file, not this message."
-            % (_surf_key, odb_path, _size_mb,
-               _present or "<none>", _steps or "<none>"))
-    all_contact_nodes = _surfaces[_surf_key].nodes[0]
-    # [PATCH:io-robustness] end
+    all_contact_nodes = odb.rootAssembly.surfaces[
+        names.slave_surface.upper()
+    ].nodes[0]
     unique_nodes = {node.label: node for node in all_contact_nodes}.values()
 
     undeformed = [    # Get the coordinates in the local substrate base

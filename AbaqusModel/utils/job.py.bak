@@ -43,23 +43,6 @@ def run_job_and_wait(job_name, cfg):
         waitMinutes=0,
     )
 
-    # [PATCH:io-robustness] garde d'espace : un job qui ne peut pas ecrire son
-    # .stt brule des heures de wallclock avant d'echouer.
-    try:
-        _st = os.statvfs(os.getcwd())
-        _free_gb = (_st.f_bavail * _st.f_frsize) / float(1024 ** 3)
-    except (AttributeError, OSError):
-        _free_gb = None
-    if _free_gb is not None:
-        print(">>> Free space in run dir: %.1f GB." % _free_gb)
-        _min_gb = float(os.environ.get("SCRATCHSIM_MIN_FREE_GB", "20"))
-        if _free_gb < _min_gb:
-            raise JobAbortedError(
-                "Refusing to submit '%s': only %.1f GB free in %s "
-                "(threshold %.1f GB). Abaqus would fail writing its "
-                ".stt after hours of wallclock."
-                % (job_name, _free_gb, os.getcwd(), _min_gb))
-
     print(">>> Submitting job '%s' ..." % job_name)
     j.submit(consistencyChecking=OFF)
     j.waitForCompletion()
@@ -90,12 +73,6 @@ _ABORT_HINTS = (
     "quota",
     "error",
     "aborted",
-    # [PATCH:io-robustness] signatures d'echec d'ecriture.
-    "check the disk space",
-    "no space left",
-    "unable to open the file",
-    "write access",
-    "fatal errors",
 )
 
 
@@ -149,30 +126,15 @@ def _check_job_status(j, job_name):
     ok_sta = _sta_says_success(job_name)
 
     if ok_status is False or (ok_status is None and ok_sta is False):
-        # [PATCH:io-robustness] le .dat porte les erreurs de preprocesseur.
         reasons = [r for r in (_tail_reason(job_name, ".msg"),
                                _tail_reason(job_name, ".sta"),
-                               _tail_reason(job_name, ".dat"),
                                _tail_reason(job_name, ".log")) if r]
         raise JobAbortedError(
             "Abaqus job '%s' did NOT complete (status=%s, .sta success=%s). %s"
             % (job_name, status or "unknown", ok_sta,
                " | ".join(reasons) or "No abort reason found in .msg/.sta/.log."))
 
-    # [PATCH:io-robustness] begin -- un .sta absent n'est pas une incertitude.
-    # Abaqus/Explicit cree le .sta des que l'analyse demarre. S'il
-    # manque, le job est mort dans le preprocesseur (erreur de deck ou
-    # d'ecriture) et le motif est dans le .dat, jamais consulte jusqu'ici.
-    # L'ancien 'Continuing' laissait post_process ouvrir un ODB fantome,
-    # qui remontait un KeyError: 'S_SURF-1' sans rapport avec la cause.
     if ok_status is None and ok_sta is None:
-        reasons = [r for r in (_tail_reason(job_name, ".dat"),
-                               _tail_reason(job_name, ".log"),
-                               _tail_reason(job_name, ".msg")) if r]
-        raise JobAbortedError(
-            "Abaqus job '%s' produced no .sta: the analysis never "
-            "started (input-file processor or I/O failure). %s"
-            % (job_name, " | ".join(reasons)
-               or "No reason found in .dat/.log/.msg."))
-    # [PATCH:io-robustness] end
+        print("Warning: could not determine the status of job '%s' "
+              "(j.status empty and no readable .sta). Continuing." % job_name)
 # [PATCH:abort-visibility] end

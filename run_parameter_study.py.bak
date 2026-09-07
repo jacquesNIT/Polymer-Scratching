@@ -47,102 +47,6 @@ from ScratchSimulation.AbaqusModel.Material import SubstrateMaterialAssignment
 from ScratchSimulation.AbaqusModel.Postprocessing import post_process
 from ScratchSimulation.AbaqusModel.utils import run_job_and_wait, cleanup_abaqus_junk
 
-
-# [PATCH:io-robustness] begin -- isolation par cas et discipline d'espace disque.
-#
-# Racine des runs. Un $HOME partage n'est pas un espace de calcul : poser
-# SCRATCHSIM_RUNS_ROOT=/scratch/$USER (ou l'espace projet du cluster) sort
-# toute la campagne du home sans toucher au code.
-RUNS_ROOT = os.environ.get("SCRATCHSIM_RUNS_ROOT", "runs")
-
-
-def _env_flag(name, default):
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return str(value).strip().lower() in ("1", "true", "on", "yes")
-
-
-# Les QoI sont deja dans le CSV ; l'ODB ne sert qu'a une reouverture
-# manuelle. SCRATCHSIM_KEEP_ODB=0 divise l'empreinte d'une campagne par ~10.
-KEEP_ODB = _env_flag("SCRATCHSIM_KEEP_ODB", True)
-
-# Refus de soumettre sous ce seuil d'espace libre (Go) dans le run dir.
-MIN_FREE_GB = float(os.environ.get("SCRATCHSIM_MIN_FREE_GB", "20"))
-
-# Tout ce qu'Abaqus/Explicit depose a cote du job. L'ancienne purge ne
-# couvrait que .sta/.odb/.lck : le .stt, le .mdl, le .prt, le .abq et le
-# .pac d'un cas avorte survivaient et le cas suivant, portant le MEME
-# job_name, tombait sur un .stt orphelin ("Unable to open the file").
-ABAQUS_ARTIFACT_EXTS = (
-    ".abq", ".com", ".dat", ".exx", ".fil", ".inp", ".ipm", ".lck", ".log",
-    ".mdl", ".msg", ".odb", ".pac", ".par", ".pes", ".pmg", ".prt", ".res",
-    ".sel", ".sim", ".sta", ".stt", ".simdir", ".023", ".rec",
-)
-
-_JOB_NAME_OK = ("abcdefghijklmnopqrstuvwxyz"
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
-
-
-def _sanitize_job_name(name):
-    """
-    Abaqus construit ses noms de fichiers a partir du nom de job : tout
-    caractere autre que [A-Za-z0-9_-] y est interdit. 'Depth_-0.02' donne
-    'Depth_-0_02', 'mesh1.2' donne 'mesh1_2'. Le repertoire de run et le
-    'stem' des CSV ne sont PAS touches : la tracabilite est preservee.
-    """
-    return "".join((c if c in _JOB_NAME_OK else "_") for c in str(name))
-
-
-def _purge_job_artifacts(job_name, keep=()):
-    """Supprime tous les artefacts Abaqus portant ce nom de job."""
-    removed = 0
-    for ext in ABAQUS_ARTIFACT_EXTS:
-        if ext in keep:
-            continue
-        path = job_name + ext
-        if not os.path.exists(path):
-            continue
-        try:
-            if os.path.isdir(path):
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
-            removed += 1
-        except OSError:
-            pass
-    return removed
-
-
-def _free_gb(path="."):
-    """Espace libre en Go, ou None si indisponible."""
-    try:
-        st = os.statvfs(path)
-    except (AttributeError, OSError):
-        return None
-    return (st.f_bavail * st.f_frsize) / float(1024 ** 3)
-
-
-def _assert_disk_ok(stem):
-    """
-    Un job qui ne peut pas ecrire son .stt consomme 5 h de wallclock pour
-    61 s de CPU avant d'echouer. Ce controle coute 3 ms et rend la main
-    immediatement, avec le vrai motif.
-    """
-    free = _free_gb(".")
-    if free is None:
-        return
-    if free < MIN_FREE_GB:
-        raise SystemExit(
-            "ABORT avant soumission de '%s' : %.1f Go libres dans %s, "
-            "seuil = %.1f Go. Abaqus echouerait a l'ecriture du .stt apres "
-            "plusieurs heures. Liberer de l'espace, ou pointer "
-            "SCRATCHSIM_RUNS_ROOT vers un espace de travail, ou abaisser "
-            "SCRATCHSIM_MIN_FREE_GB en connaissance de cause."
-            % (stem, free, os.getcwd(), MIN_FREE_GB))
-# [PATCH:io-robustness] end
-
-
 class ParameterStudy(object):
     def __init__(self, name, cases, apply_case, label, configure=None):
         self.name = name
@@ -241,8 +145,6 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
     # other's CSVs in a shared runs/<study>/ folder.
     fam_tag = ("_" + str(family)) if family else ""
     cfg.job_name = (job_name or study.name) + fam_tag + suffix
-    # [PATCH:io-robustness] nom de base : chaque cas en derivera le sien.
-    _base_job_name = cfg.job_name
     if study.configure:
         study.configure(cfg)
 
@@ -253,8 +155,7 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
         cfg.solver.num_domains = int(cpus)
         print(">>> solver.num_cpus overridden to %d." % int(cpus))
 
-    # [PATCH:io-robustness] racine pilotable (voir RUNS_ROOT).
-    run_dir = os.path.join(RUNS_ROOT, study.name + fam_tag + suffix)
+    run_dir = os.path.join("runs", study.name + fam_tag + suffix)
     _makedirs_safe(run_dir)
     os.chdir(run_dir)
     run_dir_abs = os.path.abspath(os.getcwd())
@@ -270,18 +171,6 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
 
         study.apply_case(cfg, case)
         stem = study.label(case)
-
-        # [PATCH:io-robustness] begin -- isolation par cas.
-        # Avant : cfg.job_name etait fixe UNE FOIS pour tout le chunk,
-        # donc les N cas ecrivaient le meme .stt / .mdl / .prt / .abq /
-        # .pac dans le meme repertoire. Un cas avorte laissait ces
-        # fichiers derriere lui et le cas suivant heritait d'un .stt
-        # orphelin. Chaque cas a desormais son propre nom de job.
-        cfg.job_name = _sanitize_job_name(
-            "%s_%s" % (_base_job_name, stem))
-        _purge_job_artifacts(cfg.job_name)
-        _assert_disk_ok(stem)
-        # [PATCH:io-robustness] end
 
         # A parameter sweep explores corners where Abaqus can legitimately
         # abort (element distortion, contact instability). Without this
@@ -314,24 +203,20 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
             _write_failed_stub(output_subdir, stem, cfg, case_error)
             _keep_failure_artifacts(output_subdir, cfg.job_name, stem)
             # [PATCH:abort-visibility] end
-            # [PATCH:io-robustness] purge complete : l'ancienne boucle
-            # ne couvrait que .sta/.odb/.lck et laissait le
-            # .stt/.mdl/.prt/.abq/.pac polluer le cas suivant.
-            _purge_job_artifacts(cfg.job_name)
+            for ext in (move_exts + (".lck",)):
+                stale = cfg.job_name + ext
+                if os.path.exists(stale):
+                    try:
+                        os.remove(stale)
+                    except OSError:
+                        pass
             continue
 
-        if output_subdir:
+        if output_subdir and stem != cfg.job_name:
             for ext in move_exts:
-                # [PATCH:io-robustness] KEEP_ODB=0 -> l'ODB n'est pas conserve.
-                if ext == ".odb" and not KEEP_ODB:
-                    continue
                 src = cfg.job_name + ext
                 if os.path.exists(src):
                     shutil.move(src, os.path.join(output_subdir, stem + ext))
-
-        # [PATCH:io-robustness] tout artefact restant de ce cas est du poids mort
-        # et une source de collision pour le cas suivant.
-        _purge_job_artifacts(cfg.job_name)
 
         print(">>> [%d/%d] %s -> %s done." % (i, n_total, study.name, stem))
 

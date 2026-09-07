@@ -16,7 +16,7 @@ JOBS = [
 
 
 
-    ("depth", "glassy_pmma", {"tag": "Calib_sisd", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
+    ("depth", "glassy_pmma", {"tag": "Calib_ta2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
 
     #("depth", "glassy_pc", {"tag": "PC_3mm_st2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
     #("depth", "semicrystalline_dp", {"tag": "PP_3mm_st2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
@@ -40,13 +40,6 @@ JOBS = [
 
 SWEEP_JOBS = 8                  # number of jobs for the "material" sweep 
 DESIGN_JOBS = 6                  # number of jobs for the "design" sweep
-
-# [PATCH:io-robustness] decoupage par defaut de TOUTE etude non listee ci-dessus.
-# Une etude 'depth' a 3 cas tournait jusqu'ici dans un seul job SLURM,
-# les 3 cas en serie dans le meme repertoire. Poser 'chunks' dans les
-# opts d'une entree JOBS (ex. {"tag": "X", "chunks": 3}) donne un job
-# SLURM et un repertoire par tranche.
-_DEFAULT_CHUNKS = {"material": SWEEP_JOBS, "design": DESIGN_JOBS}
 SUBMIT_TEMPLATE = "submit.sh"
 RELAY_PARTITION = "q36"
 DRY_RUN = False                 # True for testing only
@@ -193,23 +186,6 @@ def _opt_tokens(opts, entry):
     return tag, tokens
 
 
-# [PATCH:io-robustness] begin
-def _resolve_chunks(study, chunks_opt, entry):
-    """Nombre de tranches SLURM : 'chunks' explicite, sinon defaut."""
-    if chunks_opt is None:
-        return _DEFAULT_CHUNKS.get(study, 1)
-    try:
-        n = int(chunks_opt)
-    except (TypeError, ValueError):
-        raise SystemExit("Bad 'chunks' value %r in JOBS entry %r: "
-                         "expected a positive integer." % (chunks_opt, entry))
-    if n < 1:
-        raise SystemExit("Bad 'chunks' value %r in JOBS entry %r: "
-                         "need chunks >= 1." % (chunks_opt, entry))
-    return n
-# [PATCH:io-robustness] end
-
-
 def expand_jobs():
     """JOBS entries -> list of (label, tokens). 'material' is split. Expands
     per-job opts (tag + overrides), validates tokens, rejects duplicate labels."""
@@ -219,9 +195,7 @@ def expand_jobs():
             raise SystemExit("Bad JOBS entry %r: expected (study, family) or "
                              "(study, family, opts)." % (entry,))
         study, family = entry[0], entry[1]
-        # [PATCH:io-robustness] 'chunks' est consomme ici, pas un override cfg.
-        opts = dict(entry[2]) if len(entry) == 3 else {}
-        _chunks_opt = opts.pop("chunks", None)
+        opts = entry[2] if len(entry) == 3 else {}
         if study not in _VALID_STUDIES:
             raise SystemExit("Unknown study '%s' in JOBS. Valid: %s"
                              % (study, ", ".join(_VALID_STUDIES)))
@@ -231,7 +205,7 @@ def expand_jobs():
         tag, over = _opt_tokens(opts, entry)
         base_label = "%s_%s" % (study, family) + (("_%s" % tag) if tag else "")
         tag_tok = (["tag=%s" % tag] if tag else [])
-        n_chunks = _resolve_chunks(study, _chunks_opt, entry)
+        n_chunks = {"material": SWEEP_JOBS, "design": DESIGN_JOBS}.get(study, 1)
         if n_chunks > 1:
             for i in range(n_chunks):
                 label = "%s_c%03dof%03d" % (base_label, i, n_chunks)
