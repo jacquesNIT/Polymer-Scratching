@@ -12,7 +12,7 @@ JOBS = [
     # To launch on 0.01 mesh with freq=20 ALE (~2-4 days)
     #("design", "glassy_pc", {"tag": "Morris7", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
     
-    ("design", "glassy_pc", {"tag": "Morris_test", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
+    #("design", "glassy_pc", {"tag": "Morris_test", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
 
 
 
@@ -25,7 +25,7 @@ JOBS = [
     #("depth", "glassy_pc", {"tag": "PC_3mm_dt2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.015, "unload_time": 0.005,"recovery_time": 0.005}),
     #("depth", "semicrystalline_dp", {"tag": "PP_3mm_dt2", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.015, "unload_time": 0.005,"recovery_time": 0.005}),
 
-    #("single", "glassy_pmma", {"tag": "Test_C_R", "indenter": "rockwell", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
+    ("single", "glassy_pmma", {"tag": "Test_C_R", "indenter": "rockwell", "ALE": True, "scratch_time": 0.01, "unload_time": 0.01,"recovery_time": 0.01}),
     #("single", "glassy_pmma", {"tag": "Verif25", "ALE": False, "scratch_time": 0.025, "distortion": True, "length": 0.1}),
     #("single", "glassy_pmma", {"tag": "Verif50", "ALE": False, "scratch_time": 0.05, "distortion": True, "length": 0.1}),
 
