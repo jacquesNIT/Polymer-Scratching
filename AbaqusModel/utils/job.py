@@ -3,6 +3,46 @@
 from ScratchSimulation.AbaqusModel.abaqus_env import *
 import os
 
+
+# [PATCH:prime-scratch] begin -- resolution du scratch local au noeud.
+def _abaqus_scratch():
+    """
+    Repertoire de travail temporaire passe a mdb.Job(scratch=...).
+
+    Ordre de resolution :
+      1. /scratch/$SLURM_JOB_ID   -- convention de PRIME (cf. subabqpy2025)
+      2. $SLURM_TMPDIR            -- convention Slurm generique
+      3. $TMPDIR                  -- dernier recours local
+      4. os.getcwd()              -- AVEC AVERTISSEMENT : c'est le home
+                                     partage, les gros jobs y echoueront
+
+    Chaque candidat est verifie en existence ET en ecriture : un chemin
+    inscriptible mais inexistant renverrait exactement l'echec qu'on
+    cherche a eviter.
+    """
+    candidates = []
+    job_id = os.environ.get("SLURM_JOB_ID") or os.environ.get("SLURM_JOBID")
+    if job_id:
+        candidates.append(os.path.join("/scratch", str(job_id)))
+    for var in ("SLURM_TMPDIR", "TMPDIR"):
+        value = os.environ.get(var)
+        if value:
+            candidates.append(value)
+
+    for path in candidates:
+        if os.path.isdir(path) and os.access(path, os.W_OK):
+            print(">>> Abaqus scratch: %s" % path)
+            return path
+
+    fallback = os.getcwd()
+    print("WARNING: no node-local scratch directory found (tried: %s). "
+          "Falling back to %s. On a shared home this is where the .stt "
+          "write failures come from."
+          % (", ".join(candidates) or "<none>", fallback))
+    return fallback
+# [PATCH:prime-scratch] end
+
+
 def run_job_and_wait(job_name, cfg):
 
     solver = cfg.solver
@@ -36,7 +76,10 @@ def run_job_and_wait(job_name, cfg):
         parallelizationMethodExplicit=DOMAIN,
         queue=None,
         resultsFormat=ODB,
-        scratch=os.environ.get("SLURM_TMPDIR", os.getcwd()),
+        # [PATCH:prime-scratch] PRIME expose /scratch/$SLURM_JOB_ID, pas
+        # SLURM_TMPDIR. L'ancien repli os.getcwd() envoyait tout le
+        # scratch Abaqus dans le home partage.
+        scratch=_abaqus_scratch(),
         type=ANALYSIS,
         userSubroutine="",
         waitHours=0,

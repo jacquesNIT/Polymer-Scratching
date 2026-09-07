@@ -2,3 +2,4 @@ PP:
 
 Very high residual depth.
 Lateral and Frontal Pile-up does not increase a lot with force, rather Pile-up width.
+SCOF quickly reaches a maximum of about 0.35

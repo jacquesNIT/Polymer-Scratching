@@ -2,6 +2,6 @@
 
 echo "======= Started at  `date` ======="
 echo
-subabqpy2025-old -p q36 -c 6 -m 100 -t 4-00:00:00 run_parameter_study 
+HOME/bin/subabqpy_mine -p q36 -c 6 -m 100 -t 4-00:00:00 run_parameter_study
 echo
 echo "======= Finished at `date` ======="
