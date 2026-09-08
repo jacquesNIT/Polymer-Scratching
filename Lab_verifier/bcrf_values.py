@@ -476,14 +476,65 @@ def ridge_band_px(half, outer):                     # [consistency-patch]
 TIP_RADIUS_UM = 200.0        # Rockwell C sphere radius [um]
 TIP_HALF_ANGLE_DEG = 60.0    # cone half-angle from the axis [deg]
 
-# k(d) = K_SLOPE * d + K_INTERCEPT, clipped to [K_MIN, K_MAX].
-# Fit on glassy_pmma progressive-depth runs (d = 20 / 30 / 40 um, mesh 0.005,
-# scratch_length 2 mm, after unload + recovery):
-#     d = 9.5 um -> 0.71 | 19.0 -> 0.83 | 28.4 -> 0.92 | 37.9 -> 0.95
-K_SLOPE = 0.00933
-K_INTERCEPT = 0.6470
-K_MIN, K_MAX = 0.55, 0.95
-K_VALID_UM = (8.0, 38.0)     # calibration window; outside -> extrapolation
+# [material-k-patch] k(d) = quad*d^2 + slope*d + intercept, evaluated on d clipped to the
+# calibration window [d_lo, d_hi] then clipped to [k_min, k_max]. Clipping the
+# ARGUMENT rather than extrapolating means k saturates outside the window
+# instead of following a parabola back down, which has no physical meaning.
+#
+# "pmma": glassy_pmma sweep (d = 20/30/40 um). Linear, quad = 0 -- identical to
+#         the previous single-material behaviour. Independently confirmed
+#         against the lab: k measured 0.836 vs 0.834 predicted at d = 20 um
+#         (PMMA XT 10 N) and 0.921 vs 0.888 at d = 25.9 um (PMMA XT 15 N).
+# "pc"  : glassy_pc sweep (d = 20/25/30/35/40/45/50 um, 98 z-slices,
+#         5.3 <= d <= 47.4 um). Quadratic: the linear residuals were
+#         structured (-0.024 / +0.012 / -0.029 across the range), the
+#         quadratic leaves |bias| < 0.006 everywhere. Peak k = 0.983 at
+#         d = 40.6 um.
+#
+# PC closes its flanks LESS than PMMA at every depth (0.91 vs 0.83 at 20 um),
+# which is why the PMMA law applied to PC used to hit its 0.95 ceiling and
+# under-report the penetration.
+#
+# format: (quad, slope, intercept, d_lo, d_hi, k_min, k_max)
+K_PRESETS = {
+    "pmma": (0.0,          0.00933,  0.6470,  8.0, 38.0, 0.55, 0.95),
+    "pc":   (-0.00016825,  0.013648, 0.70669, 5.0, 47.0, 0.60, 1.00),
+}
+DEFAULT_MATERIAL = "pmma"
+
+TIP_RADIUS_UM_ = TIP_RADIUS_UM        # kept for symmetry with the presets
+
+# Backwards-compatible module-level defaults: they are the "pmma" preset.
+K_QUAD, K_SLOPE, K_INTERCEPT, _KD_LO, _KD_HI, K_MIN, K_MAX = \
+    K_PRESETS[DEFAULT_MATERIAL]
+K_VALID_UM = (_KD_LO, _KD_HI)
+
+
+def k_model(material=DEFAULT_MATERIAL, quad=None, slope=None, intercept=None,
+            clip=None, window=None):
+    """Resolve a recovery-factor model. Explicit arguments override the preset;
+    passing slope or intercept without quad forces a linear law, so the old
+    --k-slope / --k-intercept overrides keep behaving as they did."""
+    key = str(material).lower()
+    if key not in K_PRESETS:
+        raise SystemExit("Unknown material %r for k(d). Known: %s"
+                         % (material, ", ".join(sorted(K_PRESETS))))
+    q, s, c, lo, hi, kmin, kmax = K_PRESETS[key]
+    if quad is None and (slope is not None or intercept is not None):
+        q = 0.0
+    if quad is not None:
+        q = float(quad)
+    if slope is not None:
+        s = float(slope)
+    if intercept is not None:
+        c = float(intercept)
+    if clip is not None:
+        kmin, kmax = float(clip[0]), float(clip[1])
+    if window is not None:
+        lo, hi = float(window[0]), float(window[1])
+    return {"material": key, "quad": q, "slope": s, "intercept": c,
+            "d_lo": lo, "d_hi": hi, "k_min": kmin, "k_max": kmax}
+# [material-k-patch] end
 
 
 def tip_tangency(radius=TIP_RADIUS_UM, half_angle_deg=TIP_HALF_ANGLE_DEG):
@@ -511,16 +562,25 @@ def depth_from_radius(a, radius=TIP_RADIUS_UM, half_angle_deg=TIP_HALF_ANGLE_DEG
 
 
 def recovery_factor(d, slope=K_SLOPE, intercept=K_INTERCEPT,
-                    k_min=K_MIN, k_max=K_MAX):
+                    k_min=K_MIN, k_max=K_MAX,
+                    quad=K_QUAD, d_lo=None, d_hi=None):   # [material-k-patch]
     """k(d) = a_res / a_geom. Rises with depth: the deeper the groove, the
-    larger the plastic share and the less the flanks close back."""
-    return np.clip(slope * np.asarray(d, dtype=float) + intercept, k_min, k_max)
+    larger the plastic share and the less the flanks close back.
+
+    [material-k-patch] the polynomial is evaluated on d clipped to the calibration
+    window, so k saturates outside it rather than extrapolating."""
+    d = np.asarray(d, dtype=float)
+    lo = -np.inf if d_lo is None else d_lo
+    hi = np.inf if d_hi is None else d_hi
+    dc = np.clip(d, lo, hi)
+    return np.clip(quad * dc * dc + slope * dc + intercept, k_min, k_max)
 
 
 def penetration_from_width(w0, radius=TIP_RADIUS_UM,
                            half_angle_deg=TIP_HALF_ANGLE_DEG,
                            slope=K_SLOPE, intercept=K_INTERCEPT,
-                           k_min=K_MIN, k_max=K_MAX, n_iter=40, tol=1e-4):
+                           k_min=K_MIN, k_max=K_MAX, n_iter=40, tol=1e-4,
+                           quad=K_QUAD, d_lo=None, d_hi=None):   # [material-k-patch]
     """Solve a_res = k(d) * a_geom(d) for d. Damped fixed point; the map is
     monotone and mildly contracting, so 5-10 iterations are enough. Returns
     d in um, NaN where w0 is not finite or not positive."""
@@ -532,7 +592,8 @@ def penetration_from_width(w0, radius=TIP_RADIUS_UM,
         return out if np.ndim(w0) else float(out[0])
     d = depth_from_radius(a_res[ok], radius, half_angle_deg)
     for _ in range(n_iter):
-        k = recovery_factor(d, slope, intercept, k_min, k_max)
+        k = recovery_factor(d, slope, intercept, k_min, k_max,
+                            quad, d_lo, d_hi)          # [material-k-patch]
         d_new = depth_from_radius(a_res[ok] / k, radius, half_angle_deg)
         step = np.nanmax(np.abs(d_new - d))
         d = 0.5 * d + 0.5 * d_new
@@ -600,6 +661,8 @@ def section_values(prof_y, y_um, row_c, half, outer,
                    tip_radius=TIP_RADIUS_UM,             # [penetration-patch]
                    tip_angle=TIP_HALF_ANGLE_DEG,
                    k_slope=K_SLOPE, k_intercept=K_INTERCEPT,
+                   k_quad=K_QUAD, k_clip=(K_MIN, K_MAX),      # [material-k-patch]
+                   k_window=K_VALID_UM,
                    penetration=True):
     """Depth, pile-up heights and areas of one transverse section.
 
@@ -649,8 +712,10 @@ def section_values(prof_y, y_um, row_c, half, outer,
     if penetration:
         w0 = groove_width(prof_y, i_min, row_c, outer, dy)
         if np.isfinite(w0):
-            h_pen = -float(penetration_from_width(
-                w0, tip_radius, tip_angle, k_slope, k_intercept))
+            h_pen = -float(penetration_from_width(       # [material-k-patch]
+                w0, tip_radius, tip_angle, k_slope, k_intercept,
+                k_clip[0], k_clip[1], quad=k_quad,
+                d_lo=k_window[0], d_hi=k_window[1]))
         else:
             h_pen = np.nan
         extra = {"w0": w0, "h_pen": h_pen}
@@ -1050,13 +1115,18 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
             section_rezero=True,                       # [consistency-patch]
             tip_radius=None, tip_angle=None,                 # [penetration-patch]
             k_slope=None, k_intercept=None, k_clip=None,
+            material=DEFAULT_MATERIAL, k_quad=None,          # [material-k-patch]
+            k_window=None,
             penetration=True):
     # [penetration-patch] resolve the tip / recovery defaults once, then thread them down.
     tip_radius = TIP_RADIUS_UM if tip_radius is None else float(tip_radius)
     tip_angle = TIP_HALF_ANGLE_DEG if tip_angle is None else float(tip_angle)
-    k_slope = K_SLOPE if k_slope is None else float(k_slope)
-    k_intercept = K_INTERCEPT if k_intercept is None else float(k_intercept)
-    k_clip = (K_MIN, K_MAX) if k_clip is None else tuple(k_clip)
+    # [material-k-patch] the recovery law now comes from a named material preset.
+    _km = k_model(material, quad=k_quad, slope=k_slope,
+                  intercept=k_intercept, clip=k_clip, window=k_window)
+    k_slope, k_intercept, k_quad = _km["slope"], _km["intercept"], _km["quad"]
+    k_clip = (_km["k_min"], _km["k_max"])
+    k_window = (_km["d_lo"], _km["d_hi"])
     Z, hdr = read_bcrf(path)
     dx, dy = pixel_size(hdr)
     ny, nx = Z.shape
@@ -1158,7 +1228,8 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
     if penetration:
         prof["h_pen"] = -penetration_from_width(
             prof["w0"], tip_radius, tip_angle, k_slope, k_intercept,
-            k_clip[0], k_clip[1])
+            k_clip[0], k_clip[1], quad=k_quad,             # [material-k-patch]
+            d_lo=k_window[0], d_hi=k_window[1])
     else:
         prof["w0"] = np.full(nx, np.nan)
         prof["h_pen"] = np.full(nx, np.nan)
@@ -1195,6 +1266,9 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
                                        tip_angle=tip_angle,
                                        k_slope=k_slope,
                                        k_intercept=k_intercept,
+                                       k_quad=k_quad,           # [material-k-patch]
+                                       k_clip=k_clip,
+                                       k_window=k_window,
                                        penetration=penetration))
 
     return {
@@ -1206,6 +1280,7 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
         "up_cols": up_cols,                          # [upstream-patch]
         "win_x": win_x, "win_y": win_y,
         "profiles": prof, "mound": mound,
+        "k_model": _km,                              # [material-k-patch]
         "sec_idx": sec_idx, "sections": sections,
         "sec_profiles": sec_profiles, "i_deep": i_deep,
     }
@@ -1320,14 +1395,22 @@ def describe(res):
     if _d:
         out.append("  ~h_pen          : contact penetration inverted from w0 via a"
                    " sphere-cone tip")
-        out.append("                    R = %.0f um, half-angle %.0f deg, k(d) = %.5f d + %.4f"
-                   % (TIP_RADIUS_UM, TIP_HALF_ANGLE_DEG, K_SLOPE, K_INTERCEPT))
-        if min(_d) < K_VALID_UM[0] or max(_d) > K_VALID_UM[1]:
-            out.append("  WARNING         : %.0f-%.0f um is outside the %.0f-%.0f um window"
-                       " where k(d) was calibrated; ~h_pen is extrapolated"
-                       % (min(_d), max(_d), K_VALID_UM[0], K_VALID_UM[1]))
-            out.append("                    there. k(d) also comes from a glassy_pmma"
-                       " simulation: on PC or PP it is a transfer, not a calibration.")
+        # [material-k-patch] report the preset actually used, not the module default.
+        _km = res.get("k_model", {})
+        out.append("                    R = %.0f um, half-angle %.0f deg, k(d) = %.6g d^2 + %.5f d + %.4f"
+                   % (TIP_RADIUS_UM, TIP_HALF_ANGLE_DEG,
+                      _km.get("quad", K_QUAD), _km.get("slope", K_SLOPE),
+                      _km.get("intercept", K_INTERCEPT)))
+        _lo = _km.get("d_lo", K_VALID_UM[0])
+        _hi = _km.get("d_hi", K_VALID_UM[1])
+        _fam = {"pmma": "glassy_pmma", "pc": "glassy_pc"}.get(
+            _km.get("material"), "?")
+        out.append("                    preset %r, calibrated on the %s depth sweep over %.0f-%.0f um"
+                   % (_km.get("material", "?"), _fam, _lo, _hi))
+        if min(_d) < _lo or max(_d) > _hi:
+            out.append("  WARNING         : %.0f-%.0f um falls outside that window. k(d) saturates"
+                       % (min(_d), max(_d)))
+            out.append("                    there rather than extrapolating, so ~h_pen is indicative only.")
     return "\n".join(out)
 
 
@@ -1490,7 +1573,18 @@ def main(argv=None):
                    help="intercept of k(d) (default 0.6470)")
     p.add_argument("--k-clip", type=float, nargs=2, default=None,
                    metavar=("KMIN", "KMAX"),
-                   help="bounds applied to k(d) (default 0.55 0.95)")
+                   help="bounds applied to k(d) (default from the preset)")
+    p.add_argument("--material", default=DEFAULT_MATERIAL,      # [material-k-patch]
+                   choices=sorted(K_PRESETS),
+                   help="recovery-factor preset k(d) (default pmma). Use "
+                        "pc for polycarbonate: it closes its flanks less, "
+                        "and the pmma law under-reports its penetration")
+    p.add_argument("--k-quad", type=float, default=None,
+                   help="d^2 coefficient of k(d); overrides the preset")
+    p.add_argument("--k-window", type=float, nargs=2, default=None,
+                   metavar=("DLO", "DHI"),
+                   help="depth range over which k(d) was calibrated; "
+                        "k saturates outside it")
     p.add_argument("--no-penetration", dest="penetration",
                    action="store_false",
                    help="skip the ~h_pen / w0 estimator")
@@ -1554,6 +1648,9 @@ def main(argv=None):
                     k_slope=args.k_slope,
                     k_intercept=args.k_intercept,
                     k_clip=args.k_clip,
+                    material=args.material,              # [material-k-patch]
+                    k_quad=args.k_quad,
+                    k_window=args.k_window,
                     penetration=args.penetration)
         except Exception as exc:
             failed += 1

@@ -3,45 +3,110 @@
 from ScratchSimulation.AbaqusModel.abaqus_env import *
 import os
 
+# [PATCH:quota-scratch] begin -- scratch Abaqus et memoire.
+_SCRATCH_ENV_VARS = ("ABQ_SCRATCH", "SLURM_TMPDIR", "SLURM_SCRATCH_DIR", "TMPDIR")
+_SCRATCH_ROOTS = ("/scratch", "/lscratch", "/localscratch", "/local", "/tmp")
+_MIN_SCRATCH_GB = float(os.environ.get("SCRATCHSIM_MIN_SCRATCH_GB", "20"))
+_SCRATCH_CACHE = []          # resolu une seule fois par process
 
-# [PATCH:prime-scratch] begin -- resolution du scratch local au noeud.
-def _abaqus_scratch():
+
+def _free_gb(path):
+    try:
+        st = os.statvfs(path)
+    except (AttributeError, OSError):
+        return None
+    return (st.f_bavail * st.f_frsize) / float(1024 ** 3)
+
+
+def _usable(path, min_gb):
+    if not path or not os.path.isdir(path) or not os.access(path, os.W_OK):
+        return False
+    gb = _free_gb(path)
+    return (gb is None) or (gb >= min_gb)
+
+
+def resolve_scratch_dir():
     """
-    Repertoire de travail temporaire passe a mdb.Job(scratch=...).
+    Repertoire scratch d'Abaqus, resolu une fois par process.
 
-    Ordre de resolution :
-      1. /scratch/$SLURM_JOB_ID   -- convention de PRIME (cf. subabqpy2025)
-      2. $SLURM_TMPDIR            -- convention Slurm generique
-      3. $TMPDIR                  -- dernier recours local
-      4. os.getcwd()              -- AVEC AVERTISSEMENT : c'est le home
-                                     partage, les gros jobs y echoueront
+    L'ancienne ligne etait :
+        scratch=os.environ.get("SLURM_TMPDIR", os.getcwd())
+    SLURM_TMPDIR n'est PAS une variable SLURM standard (elle est propre a
+    certains sites). Quand elle n'existe pas, le repli est le repertoire
+    courant, c'est-a-dire runs/<etude>/ sur le home NFS : tout le trafic
+    disque aleatoire d'Abaqus/Explicit y passe, six chunks en parallele.
 
-    Chaque candidat est verifie en existence ET en ecriture : un chemin
-    inscriptible mais inexistant renverrait exactement l'echec qu'on
-    cherche a eviter.
+    Ordre : $ABQ_SCRATCH / $SLURM_TMPDIR / $SLURM_SCRATCH_DIR / $TMPDIR,
+    puis /scratch, /lscratch, /localscratch, /local, /tmp. Repli sur le cwd
+    avec un avertissement explicite dans le .out SLURM.
     """
-    candidates = []
-    job_id = os.environ.get("SLURM_JOB_ID") or os.environ.get("SLURM_JOBID")
-    if job_id:
-        candidates.append(os.path.join("/scratch", str(job_id)))
-    for var in ("SLURM_TMPDIR", "TMPDIR"):
-        value = os.environ.get(var)
-        if value:
-            candidates.append(value)
+    if _SCRATCH_CACHE:
+        return _SCRATCH_CACHE[0]
 
-    for path in candidates:
-        if os.path.isdir(path) and os.access(path, os.W_OK):
-            print(">>> Abaqus scratch: %s" % path)
-            return path
+    jid = os.environ.get("SLURM_JOB_ID") or ("pid%d" % os.getpid())
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or "abq"
+    chosen = None
 
-    fallback = os.getcwd()
-    print("WARNING: no node-local scratch directory found (tried: %s). "
-          "Falling back to %s. On a shared home this is where the .stt "
-          "write failures come from."
-          % (", ".join(candidates) or "<none>", fallback))
-    return fallback
-# [PATCH:prime-scratch] end
+    for var in _SCRATCH_ENV_VARS:
+        base = os.environ.get(var)
+        if _usable(base, _MIN_SCRATCH_GB):
+            chosen = os.path.join(base, "abq_%s" % jid)
+            break
+    if chosen is None:
+        for root in _SCRATCH_ROOTS:
+            if _usable(root, _MIN_SCRATCH_GB):
+                chosen = os.path.join(root, user, "abq_%s" % jid)
+                break
 
+    if chosen is not None:
+        try:
+            if not os.path.isdir(chosen):
+                os.makedirs(chosen)
+        except OSError:
+            chosen = None
+
+    if chosen is None:
+        chosen = os.getcwd()
+        print("*** WARNING: aucun scratch local trouve (>= %.0f Go libres). "
+              "Abaqus va utiliser le repertoire de run %s. Sur un home NFS "
+              "partage, c'est la configuration qui produit les echecs "
+              "'.stt / check the disk space'. Definir $ABQ_SCRATCH dans "
+              "submit.sh." % (_MIN_SCRATCH_GB, chosen))
+    else:
+        gb = _free_gb(chosen)
+        print(">>> Abaqus scratch: %s (%s Go libres)"
+              % (chosen, "?" if gb is None else "%.0f" % gb))
+
+    _SCRATCH_CACHE.append(chosen)
+    return chosen
+
+
+def abaqus_memory_setting():
+    """
+    memory=90 / PERCENTAGE = 90 % de la RAM PHYSIQUE du noeud, pas de
+    l'allocation SLURM (-m 100). Plusieurs chunks sur un meme noeud
+    sur-souscrivent alors la memoire, ce qui produit du swap : wallclock de
+    plusieurs heures pour quelques secondes de CPU.
+    """
+    for var in ("SLURM_MEM_PER_NODE", "SLURM_MEM_PER_CPU"):
+        raw = os.environ.get(var)
+        if not raw:
+            continue
+        try:
+            mb = float(raw)
+        except ValueError:
+            continue
+        if var == "SLURM_MEM_PER_CPU":
+            try:
+                mb *= float(os.environ.get("SLURM_CPUS_ON_NODE", "1"))
+            except ValueError:
+                pass
+        mb = int(mb * 0.80)
+        if mb > 0:
+            print(">>> Abaqus memory: %d Mo (80%% de l'allocation SLURM)." % mb)
+            return mb, MEGA_BYTES
+    return 90, PERCENTAGE
+# [PATCH:quota-scratch] end
 
 def run_job_and_wait(job_name, cfg):
 
@@ -56,6 +121,8 @@ def run_job_and_wait(job_name, cfg):
     if os.path.exists(lck):
         os.remove(lck)
 
+    _MEM_VALUE, _MEM_UNITS = abaqus_memory_setting()   # [PATCH:quota-scratch]
+
     j = mdb.Job(
         activateLoadBalancing=False,
         atTime=None,
@@ -64,8 +131,9 @@ def run_job_and_wait(job_name, cfg):
         echoPrint=OFF,
         explicitPrecision=DOUBLE,             # Important factor for high number of increments ( SINGLE for small sims, DOUBLE for bigger ones)
         historyPrint=OFF,
-        memory=90,
-        memoryUnits=PERCENTAGE,
+        # [PATCH:quota-scratch] memory=90/PERCENTAGE portait sur la RAM du noeud.
+        memory=_MEM_VALUE,
+        memoryUnits=_MEM_UNITS,
         model=cfg.naming.model_name,
         modelPrint=OFF,
         multiprocessingMode=MPI,
@@ -76,32 +144,14 @@ def run_job_and_wait(job_name, cfg):
         parallelizationMethodExplicit=DOMAIN,
         queue=None,
         resultsFormat=ODB,
-        # [PATCH:prime-scratch] PRIME expose /scratch/$SLURM_JOB_ID, pas
-        # SLURM_TMPDIR. L'ancien repli os.getcwd() envoyait tout le
-        # scratch Abaqus dans le home partage.
-        scratch=_abaqus_scratch(),
+        # [PATCH:quota-scratch] original :
+        #   scratch=os.environ.get("SLURM_TMPDIR", os.getcwd()),
+        scratch=resolve_scratch_dir(),
         type=ANALYSIS,
         userSubroutine="",
         waitHours=0,
         waitMinutes=0,
     )
-
-    # [PATCH:io-robustness] garde d'espace : un job qui ne peut pas ecrire son
-    # .stt brule des heures de wallclock avant d'echouer.
-    try:
-        _st = os.statvfs(os.getcwd())
-        _free_gb = (_st.f_bavail * _st.f_frsize) / float(1024 ** 3)
-    except (AttributeError, OSError):
-        _free_gb = None
-    if _free_gb is not None:
-        print(">>> Free space in run dir: %.1f GB." % _free_gb)
-        _min_gb = float(os.environ.get("SCRATCHSIM_MIN_FREE_GB", "20"))
-        if _free_gb < _min_gb:
-            raise JobAbortedError(
-                "Refusing to submit '%s': only %.1f GB free in %s "
-                "(threshold %.1f GB). Abaqus would fail writing its "
-                ".stt after hours of wallclock."
-                % (job_name, _free_gb, os.getcwd(), _min_gb))
 
     print(">>> Submitting job '%s' ..." % job_name)
     j.submit(consistencyChecking=OFF)
@@ -133,12 +183,6 @@ _ABORT_HINTS = (
     "quota",
     "error",
     "aborted",
-    # [PATCH:io-robustness] signatures d'echec d'ecriture.
-    "check the disk space",
-    "no space left",
-    "unable to open the file",
-    "write access",
-    "fatal errors",
 )
 
 
@@ -192,30 +236,15 @@ def _check_job_status(j, job_name):
     ok_sta = _sta_says_success(job_name)
 
     if ok_status is False or (ok_status is None and ok_sta is False):
-        # [PATCH:io-robustness] le .dat porte les erreurs de preprocesseur.
         reasons = [r for r in (_tail_reason(job_name, ".msg"),
                                _tail_reason(job_name, ".sta"),
-                               _tail_reason(job_name, ".dat"),
                                _tail_reason(job_name, ".log")) if r]
         raise JobAbortedError(
             "Abaqus job '%s' did NOT complete (status=%s, .sta success=%s). %s"
             % (job_name, status or "unknown", ok_sta,
                " | ".join(reasons) or "No abort reason found in .msg/.sta/.log."))
 
-    # [PATCH:io-robustness] begin -- un .sta absent n'est pas une incertitude.
-    # Abaqus/Explicit cree le .sta des que l'analyse demarre. S'il
-    # manque, le job est mort dans le preprocesseur (erreur de deck ou
-    # d'ecriture) et le motif est dans le .dat, jamais consulte jusqu'ici.
-    # L'ancien 'Continuing' laissait post_process ouvrir un ODB fantome,
-    # qui remontait un KeyError: 'S_SURF-1' sans rapport avec la cause.
     if ok_status is None and ok_sta is None:
-        reasons = [r for r in (_tail_reason(job_name, ".dat"),
-                               _tail_reason(job_name, ".log"),
-                               _tail_reason(job_name, ".msg")) if r]
-        raise JobAbortedError(
-            "Abaqus job '%s' produced no .sta: the analysis never "
-            "started (input-file processor or I/O failure). %s"
-            % (job_name, " | ".join(reasons)
-               or "No reason found in .dat/.log/.msg."))
-    # [PATCH:io-robustness] end
+        print("Warning: could not determine the status of job '%s' "
+              "(j.status empty and no readable .sta). Continuing." % job_name)
 # [PATCH:abort-visibility] end

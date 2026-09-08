@@ -123,16 +123,60 @@ def _free_gb(path="."):
     return (st.f_bavail * st.f_frsize) / float(1024 ** 3)
 
 
+# [PATCH:quota-scratch] begin -- le test statvfs seul ne voit pas un quota.
+# Le 08/09, _assert_disk_ok() s'est execute avant Design_00013 sans rien
+# signaler (statvfs voyait >= 20 Go libres) et Abaqus a quand meme echoue a
+# ecrire son .stt apres 2 h 02 de wallclock pour 16 s de CPU. Sur un montage
+# NFS, statvfs rapporte l'espace du systeme de fichiers, pas le quota du
+# compte ni le nombre d'inodes disponibles. Seule une ecriture reelle tranche.
+PROBE_MB = int(os.environ.get("SCRATCHSIM_PROBE_MB", "64"))   # 0 = desactive
+
+
+def _write_probe(path=".", mb=None):
+    """Ecrit puis efface `mb` Mo. None si OK, sinon le message d'erreur."""
+    mb = PROBE_MB if mb is None else mb
+    if mb <= 0:
+        return None
+    probe = os.path.join(path, ".disk_probe_%d.tmp" % os.getpid())
+    block = b"\0" * (1024 * 1024)
+    try:
+        f = open(probe, "wb")
+        try:
+            for _ in range(mb):
+                f.write(block)
+            f.flush()
+            os.fsync(f.fileno())
+        finally:
+            f.close()
+        return None
+    except (IOError, OSError) as exc:
+        return "%s: %s" % (type(exc).__name__, exc)
+    finally:
+        try:
+            if os.path.exists(probe):
+                os.remove(probe)
+        except OSError:
+            pass
+
+
+# Original (conserve) :
+#   def _assert_disk_ok(stem):
+#       free = _free_gb(".")
+#       if free is None:
+#           return
+#       if free < MIN_FREE_GB:
+#           raise SystemExit(...)
 def _assert_disk_ok(stem):
     """
-    Un job qui ne peut pas ecrire son .stt consomme 5 h de wallclock pour
-    61 s de CPU avant d'echouer. Ce controle coute 3 ms et rend la main
-    immediatement, avec le vrai motif.
+    Un job qui ne peut pas ecrire son .stt consomme des heures de wallclock
+    pour quelques secondes de CPU avant d'echouer. Deux tests :
+      1. statvfs   -> voit un systeme de fichiers plein ;
+      2. ecriture  -> voit EN PLUS un quota, une limite d'inodes, un
+                      montage read-only. C'est le seul qui aurait attrape
+                      l'echec du 08/09.
     """
     free = _free_gb(".")
-    if free is None:
-        return
-    if free < MIN_FREE_GB:
+    if free is not None and free < MIN_FREE_GB:
         raise SystemExit(
             "ABORT avant soumission de '%s' : %.1f Go libres dans %s, "
             "seuil = %.1f Go. Abaqus echouerait a l'ecriture du .stt apres "
@@ -140,6 +184,19 @@ def _assert_disk_ok(stem):
             "SCRATCHSIM_RUNS_ROOT vers un espace de travail, ou abaisser "
             "SCRATCHSIM_MIN_FREE_GB en connaissance de cause."
             % (stem, free, os.getcwd(), MIN_FREE_GB))
+
+    err = _write_probe(".")
+    if err is not None:
+        raise SystemExit(
+            "ABORT avant soumission de '%s' : impossible d'ecrire %d Mo dans "
+            "%s alors que statvfs annonce %s Go libres. Quota utilisateur "
+            "atteint, limite d'inodes, ou montage en lecture seule -- c'est "
+            "exactement le cas qui a fait echouer Design_00013 (.stt "
+            "illisible apres 2 h). Verifier 'quota -s' et 'df -i'. "
+            "Detail : %s"
+            % (stem, PROBE_MB, os.getcwd(),
+               "?" if free is None else "%.1f" % free, err))
+# [PATCH:quota-scratch] end
 # [PATCH:io-robustness] end
 
 
