@@ -175,11 +175,9 @@ def _glassy_pc_config():
                                           eps_max=2.5, n_points=60),
             rate_dependent=None),
         friction=Friction_Config.briscoe(tau0=38.32, alpha=0.06),                                           # Hossain Values
-        #friction=Friction_Config(mu=0.3),
         family="glassy_pc",
     )
     cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) 
-    #cfg.solver.mass_scale = 20000
     return cfg
 
 def _glassy_pmma_config():
@@ -188,18 +186,15 @@ def _glassy_pmma_config():
         rho=1.19e-9,
         hyperelastic=LinearElastic_Config(E=3300.0, nu=0.37),
         plasticity=DruckerPrager_Config(
-            friction_angle=25.0, flow_stress_ratio=1.0, dilation_angle=0.0,      # dilation_angle = 10 originally, 5 or 0 for calibration tests
-            yield_table=gsell_jonas_table(sigma_y0=103.0, h=0.45,                # sigma_y0 = 103 originally, 160 for calibration tests
-                                          soft_drop=25.0, eps_soft=0.06,         # soft_drop = 25 orginally, 39 for calibration tests
+            friction_angle=25.0, flow_stress_ratio=1.0, dilation_angle=10.0,      # Originally dilation_angle = 10, tests: 5, 0
+            yield_table=gsell_jonas_table(sigma_y0=103.0, h=0.45,                
+                                          soft_drop=25.0, eps_soft=0.06,         # Originally soft_drop = 25, tests : 20, 15, 10
                                           eps_max=2.0, n_points=60),
             rate_dependent=None),
-            #rate_dependent=RateDependent_Config.from_eyring(sigma_y0=105.0, S_per_decade=9.0)),
-        friction=Friction_Config.briscoe(tau0=4.0, alpha=0.2),                   # Originally (4,0.2), tested (25,0.1) and (40,0.05) for calibration                                         # Plausible value for tau0 and alpha, to be determined
-        #friction=Friction_Config(mu=0.3),
+        friction=Friction_Config.briscoe(tau0=4.0, alpha=0.2),                   # Originally (4,0.2), tests : (20,0.17), (40,0.12), (60,0.07)                                    
         family="glassy_pmma",
     )
     cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) 
-    #cfg.solver.mass_scale = 20000
     return cfg
 
 ELASTOMER_MR = PolymerFamily(
@@ -256,24 +251,22 @@ ELASTOMER_VE = PolymerFamily(
 
 GLASSY_PC = PolymerFamily(
     key="glassy_pc",
-    label="Polycarbonate (elastic + Drucker-Prager, softening + G'Sell hardening, rate-dependent)",
+    label="Polycarbonate (elastic + Drucker-Prager, softening + G'Sell hardening)",
     config_factory=_glassy_pc_config,
     checks=_GLASSY_CHECKS,
     sampling=SAMPLING_DP_UNIFIED,
     description=("Literature based PC: beta=15 deg, intrinsic softening, "
-                 "exponential orientation hardening, Cowper-Symonds rate "
-                 "dependence fitted on an Eyring slope of 4.5 MPa/decade."),
+                 "exponential orientation hardening"),
 )
 
 GLASSY_PMMA = PolymerFamily(
     key="glassy_pmma",
-    label="PMMA (elastic + Drucker-Prager, softening + G'Sell hardening, rate-dependent)",
+    label="PMMA (elastic + Drucker-Prager, softening + G'Sell hardening)",
     config_factory=_glassy_pmma_config,
     checks=_GLASSY_CHECKS,
     sampling=SAMPLING_DP_UNIFIED,
     description=("Literature based PMMA: beta=20 deg, strong intrinsic "
-                 "softening, h=0.45 orientation hardening, Cowper-Symonds "
-                 "rate dependence fitted on 9 MPa/decade."),
+                 "softening, h=0.45 orientation hardening"),
 )
 
 

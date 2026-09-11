@@ -47,159 +47,6 @@ from ScratchSimulation.AbaqusModel.Material import SubstrateMaterialAssignment
 from ScratchSimulation.AbaqusModel.Postprocessing import post_process
 from ScratchSimulation.AbaqusModel.utils import run_job_and_wait, cleanup_abaqus_junk
 
-
-# [PATCH:io-robustness] begin -- isolation par cas et discipline d'espace disque.
-#
-# Racine des runs. Un $HOME partage n'est pas un espace de calcul : poser
-# SCRATCHSIM_RUNS_ROOT=/scratch/$USER (ou l'espace projet du cluster) sort
-# toute la campagne du home sans toucher au code.
-RUNS_ROOT = os.environ.get("SCRATCHSIM_RUNS_ROOT", "runs")
-
-
-def _env_flag(name, default):
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return str(value).strip().lower() in ("1", "true", "on", "yes")
-
-
-# Les QoI sont deja dans le CSV ; l'ODB ne sert qu'a une reouverture
-# manuelle. SCRATCHSIM_KEEP_ODB=0 divise l'empreinte d'une campagne par ~10.
-KEEP_ODB = _env_flag("SCRATCHSIM_KEEP_ODB", True)
-
-# Refus de soumettre sous ce seuil d'espace libre (Go) dans le run dir.
-MIN_FREE_GB = float(os.environ.get("SCRATCHSIM_MIN_FREE_GB", "20"))
-
-# Tout ce qu'Abaqus/Explicit depose a cote du job. L'ancienne purge ne
-# couvrait que .sta/.odb/.lck : le .stt, le .mdl, le .prt, le .abq et le
-# .pac d'un cas avorte survivaient et le cas suivant, portant le MEME
-# job_name, tombait sur un .stt orphelin ("Unable to open the file").
-ABAQUS_ARTIFACT_EXTS = (
-    ".abq", ".com", ".dat", ".exx", ".fil", ".inp", ".ipm", ".lck", ".log",
-    ".mdl", ".msg", ".odb", ".pac", ".par", ".pes", ".pmg", ".prt", ".res",
-    ".sel", ".sim", ".sta", ".stt", ".simdir", ".023", ".rec",
-)
-
-_JOB_NAME_OK = ("abcdefghijklmnopqrstuvwxyz"
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
-
-
-def _sanitize_job_name(name):
-    """
-    Abaqus construit ses noms de fichiers a partir du nom de job : tout
-    caractere autre que [A-Za-z0-9_-] y est interdit. 'Depth_-0.02' donne
-    'Depth_-0_02', 'mesh1.2' donne 'mesh1_2'. Le repertoire de run et le
-    'stem' des CSV ne sont PAS touches : la tracabilite est preservee.
-    """
-    return "".join((c if c in _JOB_NAME_OK else "_") for c in str(name))
-
-
-def _purge_job_artifacts(job_name, keep=()):
-    """Supprime tous les artefacts Abaqus portant ce nom de job."""
-    removed = 0
-    for ext in ABAQUS_ARTIFACT_EXTS:
-        if ext in keep:
-            continue
-        path = job_name + ext
-        if not os.path.exists(path):
-            continue
-        try:
-            if os.path.isdir(path):
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
-            removed += 1
-        except OSError:
-            pass
-    return removed
-
-
-def _free_gb(path="."):
-    """Espace libre en Go, ou None si indisponible."""
-    try:
-        st = os.statvfs(path)
-    except (AttributeError, OSError):
-        return None
-    return (st.f_bavail * st.f_frsize) / float(1024 ** 3)
-
-
-# [PATCH:quota-scratch] begin -- le test statvfs seul ne voit pas un quota.
-# Le 08/09, _assert_disk_ok() s'est execute avant Design_00013 sans rien
-# signaler (statvfs voyait >= 20 Go libres) et Abaqus a quand meme echoue a
-# ecrire son .stt apres 2 h 02 de wallclock pour 16 s de CPU. Sur un montage
-# NFS, statvfs rapporte l'espace du systeme de fichiers, pas le quota du
-# compte ni le nombre d'inodes disponibles. Seule une ecriture reelle tranche.
-PROBE_MB = int(os.environ.get("SCRATCHSIM_PROBE_MB", "64"))   # 0 = desactive
-
-
-def _write_probe(path=".", mb=None):
-    """Ecrit puis efface `mb` Mo. None si OK, sinon le message d'erreur."""
-    mb = PROBE_MB if mb is None else mb
-    if mb <= 0:
-        return None
-    probe = os.path.join(path, ".disk_probe_%d.tmp" % os.getpid())
-    block = b"\0" * (1024 * 1024)
-    try:
-        f = open(probe, "wb")
-        try:
-            for _ in range(mb):
-                f.write(block)
-            f.flush()
-            os.fsync(f.fileno())
-        finally:
-            f.close()
-        return None
-    except (IOError, OSError) as exc:
-        return "%s: %s" % (type(exc).__name__, exc)
-    finally:
-        try:
-            if os.path.exists(probe):
-                os.remove(probe)
-        except OSError:
-            pass
-
-
-# Original (conserve) :
-#   def _assert_disk_ok(stem):
-#       free = _free_gb(".")
-#       if free is None:
-#           return
-#       if free < MIN_FREE_GB:
-#           raise SystemExit(...)
-def _assert_disk_ok(stem):
-    """
-    Un job qui ne peut pas ecrire son .stt consomme des heures de wallclock
-    pour quelques secondes de CPU avant d'echouer. Deux tests :
-      1. statvfs   -> voit un systeme de fichiers plein ;
-      2. ecriture  -> voit EN PLUS un quota, une limite d'inodes, un
-                      montage read-only. C'est le seul qui aurait attrape
-                      l'echec du 08/09.
-    """
-    free = _free_gb(".")
-    if free is not None and free < MIN_FREE_GB:
-        raise SystemExit(
-            "ABORT avant soumission de '%s' : %.1f Go libres dans %s, "
-            "seuil = %.1f Go. Abaqus echouerait a l'ecriture du .stt apres "
-            "plusieurs heures. Liberer de l'espace, ou pointer "
-            "SCRATCHSIM_RUNS_ROOT vers un espace de travail, ou abaisser "
-            "SCRATCHSIM_MIN_FREE_GB en connaissance de cause."
-            % (stem, free, os.getcwd(), MIN_FREE_GB))
-
-    err = _write_probe(".")
-    if err is not None:
-        raise SystemExit(
-            "ABORT avant soumission de '%s' : impossible d'ecrire %d Mo dans "
-            "%s alors que statvfs annonce %s Go libres. Quota utilisateur "
-            "atteint, limite d'inodes, ou montage en lecture seule -- c'est "
-            "exactement le cas qui a fait echouer Design_00013 (.stt "
-            "illisible apres 2 h). Verifier 'quota -s' et 'df -i'. "
-            "Detail : %s"
-            % (stem, PROBE_MB, os.getcwd(),
-               "?" if free is None else "%.1f" % free, err))
-# [PATCH:quota-scratch] end
-# [PATCH:io-robustness] end
-
-
 class ParameterStudy(object):
     def __init__(self, name, cases, apply_case, label, configure=None):
         self.name = name
@@ -239,12 +86,129 @@ def _parse_override_value(text):
         return text
 
 
+# [calib-knobs-patch] begin -- material knobs that setattr cannot reach.
+#
+# sigma_y0 / soft_drop / eps_soft / h are arguments of gsell_jonas_table(),
+# consumed into yield_table; tau0 / alpha / mu_cap are arguments of
+# Friction_Config.briscoe(), consumed into mu_table. None of them survives as
+# an attribute, so the dotted-path walk in _apply_overrides() cannot see them.
+#
+# They are intercepted here and applied ONCE, after every ordinary override,
+# by rebuilding the two tables from merged parameters. Applying them one by
+# one would make sigma_scale + soft_drop order-dependent, which is exactly
+# the kind of silent coupling a calibration must not have.
+
+_MATERIAL_KNOBS = (
+    "sigma_scale",   # [-]   multiplies sigma_y0 AND soft_drop (pure stress scale)
+    "sigma_y0",      # [MPa] absolute yield stress
+    "soft_drop",     # [MPa] intrinsic softening depth
+    "eps_soft",      # [-]   softening strain scale
+    "h_gsell",       # [-]   G'Sell orientation hardening exponent
+    "tau0",          # [MPa] Briscoe adhesive shear stress
+    "alpha",         # [-]   Briscoe high-pressure asymptote
+    "mu_cap",        # [-]   Briscoe table ceiling
+)
+
+
+def _briscoe_params(fric):
+    """Recover (tau0, alpha, mu_cap) from an existing Briscoe table.
+
+    briscoe() sets mu = alpha, so alpha is read directly. tau0 comes from any
+    uncapped row: mu(p) = tau0/p + alpha. mu_cap is the plateau if one row is
+    capped, otherwise the base.py default.
+    """
+    alpha = float(getattr(fric, "mu", 0.0))
+    rows = list(getattr(fric, "mu_table", ()) or ())
+    if not rows:
+        return None
+    mus = [float(m) for m, _ in rows]
+    cap = max(mus)
+    tau0 = 0.0
+    for mu, p in reversed(rows):          # highest pressure = least likely capped
+        if float(mu) < cap - 1e-9:
+            tau0 = (float(mu) - alpha) * float(p)
+            break
+    return tau0, alpha, (cap if mus.count(cap) > 1 else 0.6)
+
+
+def _apply_material_knobs(cfg, knobs):
+    if not knobs:
+        return
+    mat = cfg.material
+
+    wants_table = any(k in knobs for k in
+                      ("sigma_scale", "sigma_y0", "soft_drop", "eps_soft", "h_gsell"))
+    if wants_table:
+        pl = getattr(mat, "plasticity", None)
+        table = getattr(pl, "yield_table", None) if pl is not None else None
+        kw = getattr(table, "gsell", None)
+        if kw is None:
+            raise SystemExit(
+                "Material override %s: the yield table of family '%s' was not "
+                "produced by gsell_jonas_table() (hand-written table, or base.py "
+                "not patched), so it carries no generating parameters and cannot "
+                "be rebuilt. Set the table in families.py instead."
+                % (sorted(k for k in knobs if k != "tau0"), mat.family))
+        kw = dict(kw)
+        scale = float(knobs.get("sigma_scale", 1.0))
+        if "sigma_y0" in knobs:
+            kw["sigma_y0"] = float(knobs["sigma_y0"])
+        if "soft_drop" in knobs:
+            kw["soft_drop"] = float(knobs["soft_drop"])
+        if "eps_soft" in knobs:
+            kw["eps_soft"] = float(knobs["eps_soft"])
+        if "h_gsell" in knobs:
+            kw["h"] = float(knobs["h_gsell"])
+        # pure stress scale: sigma_y0 and soft_drop together, so the SHAPE of
+        # the post-yield branch is untouched and sigma_scale stays orthogonal
+        # to soft_drop.
+        kw["sigma_y0"] *= scale
+        kw["soft_drop"] *= scale
+        kw["Q"] *= scale
+        if kw["soft_drop"] >= kw["sigma_y0"]:
+            raise SystemExit(
+                "Material override: soft_drop %.4g MPa >= sigma_y0 %.4g MPa; "
+                "the yield stress would reach zero."
+                % (kw["soft_drop"], kw["sigma_y0"]))
+        pl.yield_table = gsell_jonas_table(**kw)
+        print(">>> Override: yield table rebuilt %s"
+              % ", ".join("%s=%.4g" % (k, v) for k, v in sorted(kw.items())))
+
+    wants_fric = any(k in knobs for k in ("tau0", "alpha", "mu_cap"))
+    if wants_fric:
+        cur = _briscoe_params(getattr(mat, "friction", None))
+        if cur is None:
+            raise SystemExit(
+                "Material override %s: family '%s' has no Briscoe friction "
+                "table to rebuild (constant-mu friction?)."
+                % (sorted(k for k in knobs if k in ("tau0", "alpha", "mu_cap")),
+                   mat.family))
+        tau0, alpha, cap = cur
+        tau0 = float(knobs.get("tau0", tau0))
+        alpha = float(knobs.get("alpha", alpha))
+        cap = float(knobs.get("mu_cap", cap))
+        mat.friction = Friction_Config.briscoe(
+            tau0=tau0, alpha=alpha, mu_cap=cap, n_points=48,
+            p_min=1.0, p_max=600.0)
+        print(">>> Override: Briscoe rebuilt tau0=%.4g alpha=%.4g mu_cap=%.4g"
+              % (tau0, alpha, cap))
+# [calib-knobs-patch] end
+
+
 def _apply_overrides(cfg, overrides):
     # Per-job config overrides from set:PATH=VALUE tokens. Applied AFTER
     # study.configure() so the per-job choice wins over the study default
     # (e.g. ALE forced off by mesh_study can be re-enabled for one job).
     # Fails loudly on a typo instead of silently creating a dead attribute.
+    _knobs = {}                                  # [calib-knobs-patch]
     for path, raw in (overrides or []):
+        # [calib-knobs-patch] material.<knob> pseudo-paths are collected,
+        # not setattr'd, and applied together once the loop is done.
+        if path.startswith("material.") and path[9:] in _MATERIAL_KNOBS:
+            _knobs[path[9:]] = _parse_override_value(raw)
+            print(">>> Override (material knob): %s = %r"
+                  % (path[9:], _knobs[path[9:]]))
+            continue
         obj = cfg
         parts = path.split(".")
         for name in parts[:-1]:
@@ -261,6 +225,7 @@ def _apply_overrides(cfg, overrides):
         if path == "solver.num_cpus":     # keep MPI domains consistent
             cfg.solver.num_domains = int(value)
         print(">>> Override: cfg.%s = %r" % (path, value))
+    _apply_material_knobs(cfg, _knobs)           # [calib-knobs-patch]
 
 
 def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
@@ -298,8 +263,6 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
     # other's CSVs in a shared runs/<study>/ folder.
     fam_tag = ("_" + str(family)) if family else ""
     cfg.job_name = (job_name or study.name) + fam_tag + suffix
-    # [PATCH:io-robustness] nom de base : chaque cas en derivera le sien.
-    _base_job_name = cfg.job_name
     if study.configure:
         study.configure(cfg)
 
@@ -310,8 +273,7 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
         cfg.solver.num_domains = int(cpus)
         print(">>> solver.num_cpus overridden to %d." % int(cpus))
 
-    # [PATCH:io-robustness] racine pilotable (voir RUNS_ROOT).
-    run_dir = os.path.join(RUNS_ROOT, study.name + fam_tag + suffix)
+    run_dir = os.path.join("runs", study.name + fam_tag + suffix)
     _makedirs_safe(run_dir)
     os.chdir(run_dir)
     run_dir_abs = os.path.abspath(os.getcwd())
@@ -327,18 +289,6 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
 
         study.apply_case(cfg, case)
         stem = study.label(case)
-
-        # [PATCH:io-robustness] begin -- isolation par cas.
-        # Avant : cfg.job_name etait fixe UNE FOIS pour tout le chunk,
-        # donc les N cas ecrivaient le meme .stt / .mdl / .prt / .abq /
-        # .pac dans le meme repertoire. Un cas avorte laissait ces
-        # fichiers derriere lui et le cas suivant heritait d'un .stt
-        # orphelin. Chaque cas a desormais son propre nom de job.
-        cfg.job_name = _sanitize_job_name(
-            "%s_%s" % (_base_job_name, stem))
-        _purge_job_artifacts(cfg.job_name)
-        _assert_disk_ok(stem)
-        # [PATCH:io-robustness] end
 
         # A parameter sweep explores corners where Abaqus can legitimately
         # abort (element distortion, contact instability). Without this
@@ -371,24 +321,20 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
             _write_failed_stub(output_subdir, stem, cfg, case_error)
             _keep_failure_artifacts(output_subdir, cfg.job_name, stem)
             # [PATCH:abort-visibility] end
-            # [PATCH:io-robustness] purge complete : l'ancienne boucle
-            # ne couvrait que .sta/.odb/.lck et laissait le
-            # .stt/.mdl/.prt/.abq/.pac polluer le cas suivant.
-            _purge_job_artifacts(cfg.job_name)
+            for ext in (move_exts + (".lck",)):
+                stale = cfg.job_name + ext
+                if os.path.exists(stale):
+                    try:
+                        os.remove(stale)
+                    except OSError:
+                        pass
             continue
 
-        if output_subdir:
+        if output_subdir and stem != cfg.job_name:
             for ext in move_exts:
-                # [PATCH:io-robustness] KEEP_ODB=0 -> l'ODB n'est pas conserve.
-                if ext == ".odb" and not KEEP_ODB:
-                    continue
                 src = cfg.job_name + ext
                 if os.path.exists(src):
                     shutil.move(src, os.path.join(output_subdir, stem + ext))
-
-        # [PATCH:io-robustness] tout artefact restant de ce cas est du poids mort
-        # et une source de collision pour le cas suivant.
-        _purge_job_artifacts(cfg.job_name)
 
         print(">>> [%d/%d] %s -> %s done." % (i, n_total, study.name, stem))
 
@@ -771,7 +717,7 @@ DEFAULT_MESH_SIZES = [
 DEFAULT_MASS_SCALES = [5000, 2000, 1000, 500]
 DEFAULT_DT_SCALES = [30, 40, 80] # NB : For base MS = 500, sqrt(500) = 22, need more than ~20 to make a difference
 DEFAULT_MU_VALUES = [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
-DEFAULT_DEPTHS = [-0.02, -0.03, -0.04] 
+DEFAULT_DEPTHS = [-20e-3, -30e-3, -40e-3] 
 DEFAULT_GSELL_H = [0.0, 0.11, 0.22, 0.33, 0.45] # For running (4-5h)
 DEFAULT_STUDY = "single"
 

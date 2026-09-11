@@ -955,7 +955,7 @@ class Simulation_Config:
                 control_mode=Scratch_Config.DISPLACEMENT,   # "FORCE"  has shown weird results, more work is needed if used
                 scratch_length=2.0,
                 scratch_force=40e-3,
-                scratch_depth=-40e-3,                       # Decision: Set to 40 microns
+                scratch_depth=-20e-3,                       # Decision: Set to 40 microns
                 scratch_time=0.01,                          # Biases in results are acceptable down to a scratch time of 0.01s
                 indentation_time=0.005,
                 unload_time=0.005,                          # Decision: For plastic families, unload time does not have to be important
@@ -1065,6 +1065,32 @@ def ale_remesh_courant(cfg):
     return float(travel / L_min)
 
 # G'Sell-Jonas dense hardening-table generator (used for the yield tables)
+# [calib-knobs-patch] begin
+class GsellTable(tuple):
+    """(sigma, eps) table that carries its own generating parameters.
+
+    A tuple subclass, so it behaves exactly like the plain tuple the rest of
+    the code expects: iteration, indexing, len(), tuple(t), Abaqus keyword
+    writing are all unchanged. The only addition is .gsell, the kwargs dict
+    gsell_jonas_table() was called with.
+
+    Why: a calibration override such as soft_drop=8 has to REBUILD the table,
+    which needs sigma_y0, h, Q, b, eps_soft, eps_max and n_points. Reading
+    them back off the table would need a non-linear fit; duplicating them in
+    a per-family registry would drift from families.py on the first edit.
+    Carrying them is the only single-source option.
+
+    Hand-written tables (glassy_dp) have no .gsell, and the override path
+    says so explicitly instead of guessing.
+    """
+    gsell = None
+
+    def with_kwargs(self, kw):
+        self.gsell = dict(kw)
+        return self
+# [calib-knobs-patch] end
+
+
 def gsell_jonas_table(sigma_y0, h, Q=0.0, b=0.0, soft_drop=0.0, eps_soft=0.05,
                       eps_max=3.0, n_points=100):
     """
@@ -1094,7 +1120,15 @@ def gsell_jonas_table(sigma_y0, h, Q=0.0, b=0.0, soft_drop=0.0, eps_soft=0.05,
            + Q * (1.0 - np.exp(-b * eps))) * np.exp(h * eps ** 2)
     if np.any(sig <= 0.0):
         raise ValueError("gsell_jonas_table produced non-positive stresses; check soft_drop")
-    return tuple((float(round(sv, 4)), float(round(ev, 6))) for sv, ev in zip(sig, eps))
+    # [calib-knobs-patch] original:
+    # return tuple((float(round(sv, 4)), float(round(ev, 6))) for sv, ev in zip(sig, eps))
+    _rows = tuple((float(round(sv, 4)), float(round(ev, 6)))
+                  for sv, ev in zip(sig, eps))
+    return GsellTable(_rows).with_kwargs(
+        {"sigma_y0": float(sigma_y0), "h": float(h), "Q": float(Q),
+         "b": float(b), "soft_drop": float(soft_drop),
+         "eps_soft": float(eps_soft), "eps_max": float(eps_max),
+         "n_points": int(n_points)})
 
 def matched_hyperelastic_set(mu0=2.2, K_mu=55.0,
                              models=("mooney_rivlin", "arruda_boyce", "yeoh", "ogden"),
