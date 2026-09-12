@@ -637,9 +637,157 @@ SAMPLING_DP_UNIFIED = FamilySampling(
 )
 
 
+# ----------------------------------------------------------------------
+# [pmma-calib-patch] PMMA calibration campaign -- PHYSICAL parameters.
+# ----------------------------------------------------------------------
+#
+# Unlike CDP this campaign is NOT normalised. It starts from the real
+# glassy_pmma configuration and moves four physical knobs, leaving E, nu,
+# rho, beta, K, h, eps_soft, eps_max exactly as families.py sets them.
+# A screening box answers "which factor matters"; a calibration box answers
+# "which VALUE matches the lab", and the second question needs the absolute
+# stress scale intact. CDP cannot host it: psi is frozen there, sigma_y0 is
+# normalised to 50 MPa, and (tau0, alpha) are tied to p_ref = 2.8*50 MPa
+# instead of the ~400 MPa scratch pressure of PMMA XT.
+#
+# FACTORS
+#   psi          [deg]  dilation angle. Reads on A_pile/A_groove.
+#   soft_drop    [MPa]  intrinsic softening depth at sigma_y0 fixed. Changes
+#                       the SHAPE of the post-yield branch, so it acts mostly
+#                       on the curvature of w0(d).
+#   tau_split    [-]    index into BRISCOE_SPLITS: (tau0, alpha) pairs that
+#                       all give the same mu_eff at p_ref, so this factor is
+#                       the pressure SENSITIVITY of friction, not its level.
+#   sigma_scale  [-]    multiplies the whole yield table (sigma_y0 AND
+#                       soft_drop together). A pure stress scale: it moves the
+#                       LEVEL of w0(d) without touching its shape, which is
+#                       what makes it separable from soft_drop.
+
+PMMA_CALIB_P_REF_MPA = 400.0     # [MPa] measured PMMA XT scratch pressure at 6 N
+PMMA_CALIB_MU_EFF = 0.22         # [-] lab SCOF minus the ploughing term
+
+# (tau0 [MPa], alpha [-]); alpha = MU_EFF - tau0 / P_REF
+BRISCOE_SPLITS = (
+    (20.0, 0.17),
+    (40.0, 0.12),
+    (60.0, 0.07),
+)
+
+
+def briscoe_split(index):
+    """(tau0, alpha) for a split index. Nearest integer, clipped."""
+    i = int(round(float(index)))
+    i = max(0, min(len(BRISCOE_SPLITS) - 1, i))
+    return BRISCOE_SPLITS[i]
+
+
+PMMA_CALIB_FROZEN = {
+    "baseline_family": "glassy_pmma",
+    "sigma_y0_MPa": 103.0,
+    "h": 0.45,
+    "eps_soft": 0.06,
+    "eps_max": 2.0,
+    "n_points": 60,
+    "friction_angle_deg": 25.0,
+    "flow_stress_ratio": 1.0,
+    "E_MPa": 3300.0,
+    "nu": 0.37,
+    "rho": 1.19e-9,
+    "mu_cap": 0.60,
+    "p_ref_MPa": PMMA_CALIB_P_REF_MPA,
+    "mu_eff_at_p_ref": PMMA_CALIB_MU_EFF,
+    "scratch_depth_mm": -0.020,
+    "note_sigma_scale": "scales sigma_y0 and soft_drop together (pure stress scale)",
+    "note_psi": "the only factor that is FROZEN in CDP; that is why CDP cannot host this study",
+}
+
+PMMA_CALIB_FACTORS = [
+    Factor("psi",         0.0, 10.0, "lin", "deg",
+           "Drucker-Prager dilation angle; reads on A_pile/A_groove"),
+    Factor("soft_drop",   8.0, 25.0, "lin", "MPa",
+           "intrinsic softening depth at sigma_y0 fixed (post-yield SHAPE)"),
+    Factor("tau_split",   0.0, 2.0, "lin", "-",
+           "index into BRISCOE_SPLITS; iso-mu_eff at p_ref, varies the "
+           "pressure sensitivity only"),
+    Factor("sigma_scale", 1.0, 1.6, "lin", "-",
+           "multiplies the whole yield table (post-yield LEVEL)"),
+]
+
+
+def _derive_pmma_calib(g, cfg):
+    F = PMMA_CALIB_FROZEN
+    scale = float(g["sigma_scale"])
+    tau0, alpha = briscoe_split(g["tau_split"])
+    sy = float(F["sigma_y0_MPa"]) * scale
+    drop = float(g["soft_drop"]) * scale
+    if drop >= sy:
+        raise ValueError(
+            "PMMA calib: soft_drop %.3g MPa >= sigma_y0 %.3g MPa -- the yield "
+            "stress would reach zero." % (drop, sy))
+    mu_eff = alpha + tau0 / float(F["p_ref_MPa"])
+    return {
+        "rho": float(F["rho"]), "E": float(F["E_MPa"]), "nu": float(F["nu"]),
+        "sigma_y0": sy, "h": float(F["h"]), "Q": 0.0, "b": 8.0,
+        "soft_drop": drop, "eps_soft": float(F["eps_soft"]),
+        "eps_max": float(F["eps_max"]), "n_points": float(F["n_points"]),
+        "friction_angle": float(F["friction_angle_deg"]),
+        "flow_stress_ratio": float(F["flow_stress_ratio"]),
+        "dilation_angle": float(g["psi"]),
+        "tau0": tau0, "alpha": alpha,
+        "mu_eff": mu_eff,
+        "phi": alpha / max(mu_eff, 1e-12),
+        "p_ref_MPa": float(F["p_ref_MPa"]),
+        "sigma_scale": scale, "tau_split": float(g["tau_split"]),
+        "sigma_y_floor": sy - drop,
+        "attack_angle_deg": attack_angle_deg(cfg),
+    }
+
+
+def _apply_pmma_calib(cfg, p):
+    cfg.material.rho = p["rho"]
+    cfg.material.hyperelastic = LinearElastic_Config(E=p["E"], nu=p["nu"])
+    cfg.material.plasticity = DruckerPrager_Config(
+        friction_angle=p["friction_angle"],
+        flow_stress_ratio=p["flow_stress_ratio"],
+        dilation_angle=p["dilation_angle"],
+        yield_table=gsell_jonas_table(
+            sigma_y0=p["sigma_y0"], h=p["h"], Q=p["Q"], b=p["b"],
+            soft_drop=p["soft_drop"], eps_soft=p["eps_soft"],
+            eps_max=p["eps_max"], n_points=int(p["n_points"])),
+        rate_dependent=None)
+    cfg.material.friction = _friction_from(
+        p["tau0"], p["alpha"], float(PMMA_CALIB_FROZEN["mu_cap"]),
+        p["p_ref_MPa"])
+    # The MATERIAL is glassy_pmma; glassy_pmma_calib is only a campaign host.
+    # Keeping the material tag identical is what lets the calibration runs be
+    # compared to the production glassy_pmma runs in the same collector.
+    cfg.material.family = "glassy_pmma"
+
+
+SAMPLING_PMMA_CALIB = FamilySampling(
+    campaign="PMMA_CALIB_physical",
+    factors=PMMA_CALIB_FACTORS,
+    frozen=PMMA_CALIB_FROZEN,
+    derive=_derive_pmma_calib,
+    apply_fn=_apply_pmma_calib,
+    expects={"plasticity": ("drucker_prager",), "viscoelastic": ("none",),
+             "damage": ("none",)},
+    covers=("glassy_pmma",),
+    label="PMMA XT calibration (physical parameters, 20 um depth)",
+    notes="Absolute stress scale preserved on purpose: this box calibrates a "
+          "real material, it does not screen a normalised one. psi is a "
+          "factor here and frozen in CDP; sigma_y0 is real here and "
+          "normalised to 50 MPa in CDP. Targets: w0(d) for the level, the "
+          "curvature of w0(d) for soft_drop, A_pile/A_groove for psi, and "
+          "SCOF(d) for the Briscoe split.",
+)
+# [pmma-calib-patch] end
+
+
 CAMPAIGNS = {
     "semicrystalline_dp": SAMPLING_DP_UNIFIED,
     "glassy_pc": SAMPLING_DP_UNIFIED,
+    "glassy_pmma_calib": SAMPLING_PMMA_CALIB,   # [pmma-calib-patch]
 }
 
 # Superseded by SAMPLING_DP_UNIFIED but kept importable for the split campaigns.

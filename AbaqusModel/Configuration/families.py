@@ -4,6 +4,7 @@ from .base import (Simulation_Config, Material_Config,
                    DruckerPrager_Config, Prony_Config, Friction_Config,
                    RateDependent_Config, gsell_jonas_table, natural_dt)
 from .sampling import SAMPLING_DP_UNIFIED
+from .sampling import SAMPLING_PMMA_CALIB          # [pmma-calib-patch]
 
 
 
@@ -197,6 +198,18 @@ def _glassy_pmma_config():
     cfg.solver.target_time_increment = 60.0 * natural_dt(cfg.material, cfg.mesh.fine_size_x) 
     return cfg
 
+def _glassy_pmma_calib_config():                       # [pmma-calib-patch]
+    """glassy_pmma, pinned at the 20 um calibration depth.
+
+    Same material as _glassy_pmma_config(): the calibration campaign
+    overwrites the four knobs under study and leaves everything else alone,
+    so this factory only fixes the depth the whole campaign runs at.
+    """
+    cfg = _glassy_pmma_config()
+    cfg.scratch.scratch_depth = -0.020          # [mm] = 20 um
+    return cfg
+
+
 ELASTOMER_MR = PolymerFamily(
     key="elastomer_mr",
     label="Unfilled elastomer (Mooney-Rivlin)",
@@ -270,6 +283,19 @@ GLASSY_PMMA = PolymerFamily(
 )
 
 
+GLASSY_PMMA_CALIB = PolymerFamily(                     # [pmma-calib-patch]
+    key="glassy_pmma_calib",
+    label="PMMA XT calibration host (glassy_pmma at 20 um)",
+    config_factory=_glassy_pmma_calib_config,
+    checks=_GLASSY_CHECKS,
+    sampling=SAMPLING_PMMA_CALIB,
+    description=("Calibration host for glassy_pmma. Factors: psi, soft_drop, "
+                 "Briscoe split (tau0/alpha at iso-mu_eff), sigma_scale. "
+                 "Absolute stress scale preserved, unlike the normalised CDP "
+                 "screening box."),
+)
+
+
 # Registry of all implemented families.
 FAMILIES = {
     ELASTOMER_MR.key: ELASTOMER_MR,
@@ -279,6 +305,7 @@ FAMILIES = {
     GLASSY_DP.key: GLASSY_DP,
     GLASSY_PC.key: GLASSY_PC,
     GLASSY_PMMA.key: GLASSY_PMMA,
+    GLASSY_PMMA_CALIB.key: GLASSY_PMMA_CALIB,      # [pmma-calib-patch]
 }
 
 

@@ -33,10 +33,6 @@ def post_process(job_name, file_name, cfg):
     output_path = os.path.join(output_folder, file_name + "_Results.csv")
 
     #  Surface node coordinates (undeformed)
-    # [PATCH:io-robustness] begin -- diagnostic au lieu d'un KeyError nu.
-    # Une surface absente signifie presque toujours un ODB tronque ou
-    # vide (analyse morte avant l'ecriture des donnees de modele), pas
-    # une faute de nommage. Le message doit le dire.
     _surf_key = names.slave_surface.upper()
     _surfaces = odb.rootAssembly.surfaces
     if _surf_key not in _surfaces.keys():
@@ -52,7 +48,6 @@ def post_process(job_name, file_name, cfg):
             % (_surf_key, odb_path, _size_mb,
                _present or "<none>", _steps or "<none>"))
     all_contact_nodes = _surfaces[_surf_key].nodes[0]
-    # [PATCH:io-robustness] end
     unique_nodes = {node.label: node for node in all_contact_nodes}.values()
 
     undeformed = [    # Get the coordinates in the local substrate base
@@ -91,9 +86,6 @@ def post_process(job_name, file_name, cfg):
         v.nodeLabel: np.array(v.data) for v in disp_subset.values
     }
 
-    # A slave-surface node absent from the displacement subset used to be
-    # written out silently as "not displaced" (y = 0), biasing the residual
-    # profile with no trace. The fallback stays; it is now counted.
     deformed = []
     n_missing_u = 0
     for label, x, y, z in undeformed_sorted:
@@ -112,13 +104,6 @@ def post_process(job_name, file_name, cfg):
     contact_pair_region = None    # Contact-pair force history (CFN/CFS)
     history_step = None
 
-    # Indenter region detection, two priority levels:
-    #   strong -- a 'Node ...' region on the indenter INSTANCE carrying RF keys
-    #             (the reference point of the rigid indenter);
-    #   weak   -- any region with RF-like keys (legacy fallback). The old
-    #             substring test  any("RF" in k)  could latch onto a parasitic
-    #             region (e.g. one created by the contact-pair request) and
-    #             then silently write zero RF2/IndenterU2 columns.
     indenter_strong = None
     indenter_weak = None
     strong_step = weak_step = None
@@ -165,18 +150,6 @@ def post_process(job_name, file_name, cfg):
     if contact_pair_region is None:
         print("Warning: no contact-pair force history region found (CFN*). CFN1-3/CFS1-3 columns will be written as zero. This is expected ")
 
-
-
-
-    #  History data — per-region extraction, each with its OWN time axis.
-    # The indenter/contact force histories are deactivated in the unload and
-    # recovery steps, so their time axes STOP at the end of the scratch; the
-    # energy histories stay alive (low frequency) through unload/recovery.
-    # The MASTER time axis is therefore the LONGEST axis (in practice the
-    # energy one). Previously time_arr came from the indenter region and the
-    # energy series were _align-ed (truncated by SAMPLE COUNT) onto it: the
-    # unload/recovery energy samples were silently dropped, so the settling
-    # check of results_verifier could never see the recovery phase.
     t_ind, force_data = _get_history_multi(odb, indenter_region)
     if t_ind.size == 0:
         odb.close()
@@ -202,22 +175,13 @@ def post_process(job_name, file_name, cfg):
     rf1_raw = _pick(force_data, "RF1", z_ind)
     rf2_raw = _pick(force_data, "RF2", z_ind)
     rf3_raw = _pick(force_data, "RF3", z_ind)
-    u2_raw  = _pick(force_data, "U2",  z_ind)   # indenter penetration trace
+    u2_raw  = _pick(force_data, "U2",  z_ind)   
 
-    # Self-diagnosis: a zero RF2 AND a zero U2 on a moving indenter is
-    # impossible for the true RP region -- dump the ODB history layout into
-    # the job log so the mismatch (wrong region / renamed keys) is visible.
     if (float(np.max(np.abs(rf2_raw))) < 1e-20
             and float(np.max(np.abs(u2_raw))) < 1e-20):
-        print("Warning: RF2 and IndenterU2 both read as zero from region '%s'. "
-              "This region is probably NOT the indenter reference point, or its "
-              "output keys are not named 'RF2'/'U2'. History layout dump follows:"
-              % indenter_region)
+        print("Warning: RF2 and IndenterU2 both read as zero from region '%s'. ")
         _dump_history_layout(odb)
 
-    # Resampling onto the master axis: linear interpolation inside each
-    # region's coverage, BLANK (NaN -> '') beyond it, because the request was
-    # deactivated there and no value must be fabricated for those rows.
     rf1 = _resample(t_ind, rf1_raw, time_arr)
     rf2 = _resample(t_ind, rf2_raw, time_arr)
     rf3 = _resample(t_ind, rf3_raw, time_arr)
@@ -231,18 +195,11 @@ def post_process(job_name, file_name, cfg):
     cfs1 = _resample(t_cp, _pick(contact_data, "CFS1", z_cp), time_arr)
     cfs2 = _resample(t_cp, _pick(contact_data, "CFS2", z_cp), time_arr)
     cfs3 = _resample(t_cp, _pick(contact_data, "CFS3", z_cp), time_arr)
-    # CAREA / CFNM / CFSM were already REQUESTED by
-    # Modelbuilder._request_contact_pair_history but never extracted. With a
-    # Briscoe law  SCOF = alpha + tau0 * A_c / Fn , so the contact area IS the
-    # SCOF: without this column the mesh drift of the SCOF can only be inferred.
+
     cfnm = _resample(t_cp, _pick(contact_data, "CFNM", z_cp), time_arr)
     cfsm = _resample(t_cp, _pick(contact_data, "CFSM", z_cp), time_arr)
     carea = _resample(t_cp, _pick(contact_data, "CAREA", z_cp), time_arr)
 
-    #  History data — substrate energies (deformable body only)
-    # (t_sub / sub_data already extracted above; kept alive at low frequency
-    # through unload/recovery, hence resampled -- NOT truncated -- onto the
-    # master axis.)
     z_sub = np.zeros_like(t_sub)
     ke = _resample(t_sub, _pick(sub_data, "ALLKE", z_sub), time_arr)     # substrate kinetic energy
     ie = _resample(t_sub, _pick(sub_data, "ALLIE", z_sub), time_arr)     # substrate internal energy
@@ -288,17 +245,9 @@ def post_process(job_name, file_name, cfg):
         ts = time_module.strftime("%Y-%m-%d %H:%M:%S", time_module.localtime())
         f.write("# Simulation date and time: %s\n" % ts)
         f.write("# ----------------------------\n")
-        # --- original indenter header (PYRAMID_INDENTER_PATCH) ---
-#         f.write(
-#             "# Indenter type: %s with tip radius %smm and cone angle %s degrees\n"
-#             % (indenter.indenter_type, indenter.tip_radius, indenter.cone_angle)
-#         )
         if getattr(indenter, "indenter_type", "") == "pyramid":
             _pyr = indenter.Pyramid_coords()
             _eqa = indenter.pyramid_equivalent_cone_angle()
-            # "tip radius 0.0mm" + the EQUIVALENT cone angle are written on purpose:
-            # results_verifier._contact_radius(depth, R=0, alpha) then returns
-            # depth*tan(alpha), i.e. the equal-projected-area cone radius.
             f.write(
                 "# Indenter type: pyramid (%d faces, %s-forward), face semi-angle "
                 "%.6g degrees, tip radius 0.0mm and cone angle %.4f degrees "
@@ -332,10 +281,6 @@ def post_process(job_name, file_name, cfg):
         )
         f.write("# WallclockTime=%.2f s\n" % wallclock)
 
-        # --- derived quantities -------------------------------------------
-        # These govern the result but appear in NO config field, so two CSVs
-        # written without them are not comparable. Written one per line as
-        # "# key=value" so results_verifier.parse_results_csv picks them up.
         try:
             from ScratchSimulation.analytic import (
                 mass_scaling_factor, amplitude_smoothing_window,
@@ -362,7 +307,7 @@ def post_process(job_name, file_name, cfg):
         writer.writerow([
             "Time", "RF1", "RF2", "RF3",
             "CFN1", "CFN2", "CFN3", "CFS1", "CFS2", "CFS3",  # contact-pair force (force-driven mode)
-            "CFNM", "CFSM", "CAREA",                     # contact magnitudes + contact AREA
+            "CFNM", "CFSM", "CAREA",                         # contact magnitudes + contact AREA
             "ALLKE", "ALLIE", "ALLAE",                       # substrate (deformable body)
             "WM_ALLKE", "WM_ALLIE", "WM_ALLVD", "WM_ALLFD",  # whole-model balance terms
             "WM_ALLCD", "WM_ALLSE",                          
@@ -438,11 +383,6 @@ def _dump_history_layout(odb):
                 peaks = []
                 for k in keys[:12]:
                     try:
-                        # [PATCH:abort-visibility] original :
-                        # arr = np.array(hrs[rk].historyOutputs[k].data)
-                        # peaks.append("%s(max|v|=%.3g)" % (k, float(np.max(np.abs(arr[:, 1]))) if arr.size else 0.0))
-                        # np.array(None).size vaut 1 : l'ancien garde-fou
-                        # `if arr.size` ne protegeait donc PAS le cas None.
                         _t, _v = _hist_pairs(hrs[rk].historyOutputs[k])
                         peaks.append("%s(n=%d, max|v|=%.3g)"
                                      % (k, _v.size,

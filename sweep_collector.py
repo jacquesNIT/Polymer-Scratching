@@ -1,32 +1,6 @@
-# Aggregate a sweep into a single tidy table (CPython, not Abaqus).
+# Aggregate a sweep into a single tidy table.
 #
-#   python3 sweep_collector.py /path/to/results_dir \
-#           --design designs/glassy_pc_morris.csv \
-#           --out sweep_glassy_pc.csv
-#
-# <results_dir> is walked recursively for *_Results.csv, so it can be any
-# directory name and layout: point it at whatever you created on the cluster.
-#
-# [PATCH:values-backend] the QoI are now produced by results_values.py
-# (extract_values), which replaces results_verifier.py. Two consequences:
-#
-#   1. The QoI names change. Mapping from the previous pipeline:
-#          Fn_half_N          -> F_n          [N]
-#          Ft_half_N          -> F_t          [N]
-#          scof               -> SCOF_mean    [-]   (+ SCOF_std)
-#          residual_depth_mm  -> h_r          [mm]
-#          pile_up_mm         -> h_p          [mm]
-#          (new)                 h_fp         [mm]  frontal pile-up
-#
-#   2. results_values.py returns VALUES, not verdicts. There is therefore no
-#      quality status any more, and NO RUN IS EVER EXCLUDED on a quality
-#      criterion. `status` is now an INTEGRITY flag only:
-#          OK      -- the file was produced and parsed
-#          FAIL    -- the run aborted, the file is a stub, or parsing raised
-#      The energy diagnostics (KE/IE, AE/IE, ETOTAL drift, ALLPW, settling)
-#      are written as plain numeric columns and reported downstream as
-#      INDICATORS. They never gate anything, so coarse-mesh test runs stay
-#      in the table.
+#   python3 sweep_collector.py /path/to/results_dir --design designs/glassy_pc_morris.csv --out sweep_glassy_pc.csv
 
 import argparse
 import csv
@@ -43,22 +17,11 @@ except NameError:
 sys.path.insert(0, os.path.dirname(_HERE))
 sys.path.insert(0, _HERE)
 
-
-# [PATCH:values-backend] STATUS_RANK removed with the verifier: there is no
-# longer a hierarchy of verdicts to aggregate.
-# Original:
-#   QOI_WINDOW_START = 0.90
-#   STATUS_RANK = {"PASS": 0, "INFO": 1, "SKIP": 1, "WARN": 2, "FAIL": 3}
-
-
 def _import_results_values():
     """
     Locate results_values.py.
-
-    [PATCH:values-backend] replaces _import_results_verifier. The module is
-    looked up under its package paths first, then by walking the tree, so the
-    collector keeps working from the cluster layout and from a flat checkout.
     """
+
     candidates = [
         "ScratchSimulation.AbaqusModel.Postprocessing.results_values",
         "ScratchSimulation.AbaqusModel.Verification.results_values",
@@ -89,18 +52,8 @@ def _import_results_values():
 RV = _import_results_values()
 
 
-# ----------------------------------------------------------------------
+
 # Quantities of interest
-# ----------------------------------------------------------------------
-
-# [PATCH:values-backend] the whole compute_qoi / _series / _scratch_window /
-# _contact_radius / _peak / _ratio block is gone: every one of those
-# quantities is now computed inside results_values.py. Keeping a second
-# implementation here is exactly how the two used to drift apart.
-
-# Energy diagnostics emitted by results_values.energy_values. Listed here so
-# the collector can guarantee the columns exist (NaN when a series is
-# missing), and so downstream code has one place to read the names from.
 QUALITY_KEYS = (
     "KE_IE_steady_max",
     "KE_IE_overall_max",
@@ -123,15 +76,12 @@ METADATA_KEYS = (
     "depth_mode",
 )
 
-
 def read_stub_status(path, max_lines=40):
     """
     (run_status, fail_reason) read from the header of a *_Results.csv.
-
-    An aborted run writes a file reduced to a header carrying
-    `# run_status=FAILED`. Reading it BEFORE parsing carries the abort reason
-    into the table instead of an opaque "no time-series rows".
+    An aborted run writes a file reduced to a header carrying `# run_status=FAILED`.
     """
+
     status, reason = "", ""
     try:
         with open(path, "r") as f:
@@ -148,10 +98,8 @@ def read_stub_status(path, max_lines=40):
     return status, reason
 
 
-# ----------------------------------------------------------------------
-# Design join
-# ----------------------------------------------------------------------
 
+# Design join
 def read_design(path):
     rows = {}
     with open(path, "r") as f:
@@ -167,8 +115,6 @@ def _run_id(filename):
         return m.group(1)
     return filename[:-len("_Results.csv")] if filename.endswith("_Results.csv") else filename
 
-
-# ----------------------------------------------------------------------
 
 def main():
     ap = argparse.ArgumentParser(description="Aggregate a sweep into a tidy table.")
@@ -214,10 +160,6 @@ def main():
             continue
 
         try:
-            # [PATCH:values-backend] parse_results_csv is called once for the
-            # header metadata and extract_values once for the QoI. Parsing
-            # twice costs a few ms per file and removes any chance of this
-            # collector drifting away from results_values.extract_values.
             metadata, _timeseries, _nodes = RV.parse_results_csv(path)
             values = RV.extract_values(path, args.z)
 
@@ -235,7 +177,7 @@ def main():
             rec["parse_error"] = ""
         except Exception as exc:
             n_read_err += 1
-            rec["run_status"] = "OK"      # the file exists; the reader failed
+            rec["run_status"] = "OK"      
             rec["parse_error"] = str(exc)[:160]
             rec["status"] = "FAIL"
 
@@ -247,9 +189,7 @@ def main():
             rec["design_missing"] = 1
         records.append(rec)
 
-    # A design point with NO file at all must still exist in the table,
-    # otherwise "never launched" and "aborted" are indistinguishable
-    # downstream and the coverage figure in the report is wrong.
+    # A design point with NO file at all must still exist in the table.
     if design:
         _seen = set(r["id"] for r in records)
         for _rid in sorted(design):

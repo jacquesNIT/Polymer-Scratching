@@ -3,12 +3,10 @@
 from ScratchSimulation.AbaqusModel.abaqus_env import *
 import os
 
-# [PATCH:quota-scratch] begin -- scratch Abaqus et memoire.
 _SCRATCH_ENV_VARS = ("ABQ_SCRATCH", "SLURM_TMPDIR", "SLURM_SCRATCH_DIR", "TMPDIR")
 _SCRATCH_ROOTS = ("/scratch", "/lscratch", "/localscratch", "/local", "/tmp")
 _MIN_SCRATCH_GB = float(os.environ.get("SCRATCHSIM_MIN_SCRATCH_GB", "20"))
-_SCRATCH_CACHE = []          # resolu une seule fois par process
-
+_SCRATCH_CACHE = []          
 
 def _free_gb(path):
     try:
@@ -27,19 +25,9 @@ def _usable(path, min_gb):
 
 def resolve_scratch_dir():
     """
-    Repertoire scratch d'Abaqus, resolu une fois par process.
-
-    L'ancienne ligne etait :
-        scratch=os.environ.get("SLURM_TMPDIR", os.getcwd())
-    SLURM_TMPDIR n'est PAS une variable SLURM standard (elle est propre a
-    certains sites). Quand elle n'existe pas, le repli est le repertoire
-    courant, c'est-a-dire runs/<etude>/ sur le home NFS : tout le trafic
-    disque aleatoire d'Abaqus/Explicit y passe, six chunks en parallele.
-
-    Ordre : $ABQ_SCRATCH / $SLURM_TMPDIR / $SLURM_SCRATCH_DIR / $TMPDIR,
-    puis /scratch, /lscratch, /localscratch, /local, /tmp. Repli sur le cwd
-    avec un avertissement explicite dans le .out SLURM.
+    Abaqus scratch directory, resolved once per process.
     """
+
     if _SCRATCH_CACHE:
         return _SCRATCH_CACHE[0]
 
@@ -67,11 +55,7 @@ def resolve_scratch_dir():
 
     if chosen is None:
         chosen = os.getcwd()
-        print("*** WARNING: aucun scratch local trouve (>= %.0f Go libres). "
-              "Abaqus va utiliser le repertoire de run %s. Sur un home NFS "
-              "partage, c'est la configuration qui produit les echecs "
-              "'.stt / check the disk space'. Definir $ABQ_SCRATCH dans "
-              "submit.sh." % (_MIN_SCRATCH_GB, chosen))
+        print("WARNING: no local scratch found (>= %.0f GB free). ")
     else:
         gb = _free_gb(chosen)
         print(">>> Abaqus scratch: %s (%s Go libres)"
@@ -82,12 +66,6 @@ def resolve_scratch_dir():
 
 
 def abaqus_memory_setting():
-    """
-    memory=90 / PERCENTAGE = 90 % de la RAM PHYSIQUE du noeud, pas de
-    l'allocation SLURM (-m 100). Plusieurs chunks sur un meme noeud
-    sur-souscrivent alors la memoire, ce qui produit du swap : wallclock de
-    plusieurs heures pour quelques secondes de CPU.
-    """
     for var in ("SLURM_MEM_PER_NODE", "SLURM_MEM_PER_CPU"):
         raw = os.environ.get(var)
         if not raw:
@@ -103,10 +81,9 @@ def abaqus_memory_setting():
                 pass
         mb = int(mb * 0.80)
         if mb > 0:
-            print(">>> Abaqus memory: %d Mo (80%% de l'allocation SLURM)." % mb)
+            print(">>> Abaqus memory: %d Mo (80%% of SLURM allocation)." % mb)
             return mb, MEGA_BYTES
     return 90, PERCENTAGE
-# [PATCH:quota-scratch] end
 
 def run_job_and_wait(job_name, cfg):
 
@@ -121,7 +98,7 @@ def run_job_and_wait(job_name, cfg):
     if os.path.exists(lck):
         os.remove(lck)
 
-    _MEM_VALUE, _MEM_UNITS = abaqus_memory_setting()   # [PATCH:quota-scratch]
+    _MEM_VALUE, _MEM_UNITS = abaqus_memory_setting()   
 
     j = mdb.Job(
         activateLoadBalancing=False,
@@ -129,9 +106,8 @@ def run_job_and_wait(job_name, cfg):
         contactPrint=OFF,
         description="",
         echoPrint=OFF,
-        explicitPrecision=DOUBLE,             # Important factor for high number of increments ( SINGLE for small sims, DOUBLE for bigger ones)
+        explicitPrecision=DOUBLE,             
         historyPrint=OFF,
-        # [PATCH:quota-scratch] memory=90/PERCENTAGE portait sur la RAM du noeud.
         memory=_MEM_VALUE,
         memoryUnits=_MEM_UNITS,
         model=cfg.naming.model_name,
@@ -144,8 +120,6 @@ def run_job_and_wait(job_name, cfg):
         parallelizationMethodExplicit=DOMAIN,
         queue=None,
         resultsFormat=ODB,
-        # [PATCH:quota-scratch] original :
-        #   scratch=os.environ.get("SLURM_TMPDIR", os.getcwd()),
         scratch=resolve_scratch_dir(),
         type=ANALYSIS,
         userSubroutine="",
@@ -156,19 +130,11 @@ def run_job_and_wait(job_name, cfg):
     print(">>> Submitting job '%s' ..." % job_name)
     j.submit(consistencyChecking=OFF)
     j.waitForCompletion()
-    # [PATCH:abort-visibility] begin -- le statut n'etait pas verifie.
-    # waitForCompletion() rend la main sur un job AVORTE exactement comme sur
-    # un job reussi. post_process ouvrait alors un ODB tronque et remontait
-    # une IndexError numpy, sans rapport visible avec la vraie cause.
     _check_job_status(j, job_name)
-    # [PATCH:abort-visibility] end
     print(">>> Job '%s' COMPLETED." % job_name)
 
-
-# [PATCH:abort-visibility] begin -- diagnostic d'abandon.
 class JobAbortedError(RuntimeError):
-    """Abaqus a rendu la main avec un statut autre que COMPLETED."""
-
+    """Abaqus returned with a status other than COMPLETED."""
 
 _ABORT_HINTS = (
     "excessively distorted",
@@ -187,7 +153,8 @@ _ABORT_HINTS = (
 
 
 def _tail_reason(job_name, ext, n_lines=400):
-    """Derniere ligne informative d'un .sta / .msg / .log."""
+    """Last informative line of a .sta / .msg / .log."""
+    
     path = job_name + ext
     if not os.path.exists(path):
         return None
@@ -204,7 +171,8 @@ def _tail_reason(job_name, ext, n_lines=400):
 
 
 def _sta_says_success(job_name):
-    """True / False / None (fichier illisible)."""
+    """True / False / None"""
+
     path = job_name + ".sta"
     if not os.path.exists(path):
         return None
@@ -218,14 +186,9 @@ def _sta_says_success(job_name):
 
 def _check_job_status(j, job_name):
     """
-    Leve JobAbortedError si le job n'a pas abouti.
-
-    `j.status` est la source primaire. Certaines versions/soumissions le
-    laissent vide : on retombe alors sur le .sta, qui porte la phrase
-    'THE ANALYSIS HAS COMPLETED SUCCESSFULLY'. Si NI l'un NI l'autre n'est
-    exploitable on n'echoue pas (on avertit), pour ne pas casser une
-    configuration qui fonctionne.
+    Raise JobAbortedError if the job did not complete.
     """
+
     status = ""
     try:
         status = str(j.status).upper()
@@ -247,4 +210,3 @@ def _check_job_status(j, job_name):
     if ok_status is None and ok_sta is None:
         print("Warning: could not determine the status of job '%s' "
               "(j.status empty and no readable .sta). Continuing." % job_name)
-# [PATCH:abort-visibility] end

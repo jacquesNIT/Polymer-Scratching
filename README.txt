@@ -1,5 +1,10 @@
 General Use
 
+To be modified before use
+
+    submit.sh
+    "/home/au824386/bin/subabqpy_mine -p q36 -c 10 -m 100 -t 4-00:00:00 run_parameter_study"
+
 ScratchSimulation
 
     AbaqusModel
