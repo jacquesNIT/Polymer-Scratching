@@ -10,18 +10,18 @@ JOBS = [
 
     # PMMA calibration 
     # base families.py values.
-    #("depth", "glassy_pmma", {"tag": "CAL_BASE", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005, "recovery_time": 0.005, "scratch_depth": -0.020}),
+    ("depth", "glassy_pmma", {"tag": "CAL_BASE", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005, "recovery_time": 0.005, "scratch_depth": -0.020}),
     
-    #("depth", "glassy_pmma", {"tag": "CAL_BETA30", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005, "recovery_time": 0.005, "scratch_depth": -0.020, "beta": 30.0}),
-    #("depth", "glassy_pmma", {"tag": "CAL_BETA30_S13", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005, "recovery_time": 0.005, "scratch_depth": -0.020, "beta": 30.0, "sigma_scale": 1.3}),
+    ("depth", "glassy_pmma", {"tag": "CAL_BETA30", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005, "recovery_time": 0.005, "scratch_depth": -0.020, "beta": 30.0}),
+    ("depth", "glassy_pmma", {"tag": "CAL_BETA30_S13", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005, "recovery_time": 0.005, "scratch_depth": -0.020, "beta": 30.0, "sigma_scale": 1.3}),
 
-    #("depth", "glassy_pmma", {"tag": "CAL_CORNER", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005, "recovery_time": 0.005, "scratch_depth": -0.020, "soft_drop": 25.0, "tau0": 60.0, "alpha": 0.07}),
+    ("depth", "glassy_pmma", {"tag": "CAL_CORNER", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005, "recovery_time": 0.005, "scratch_depth": -0.020, "soft_drop": 25.0, "tau0": 60.0, "alpha": 0.07}),
 
 
     # To launch on 0.01 mesh with freq=20 ALE (~2-4 days)
     #("design", "glassy_pc", {"tag": "Morris7", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
     
-    ("design", "glassy_pmma_calib", {"tag": "pmma_cal", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
+    #("design", "glassy_pmma_calib", {"tag": "pmma_cal", "ALE": True, "scratch_time": 0.01, "distortion": False,"unload_time": 0.005,"recovery_time": 0.005}), 
 
     #("depth", "glassy_pmma", {"tag": "PMMA_3mm_st", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
     #("depth", "glassy_pc", {"tag": "PC_3mm_st", "indenter": "rockwell", "ALE": True, "distortion": False, "scratch_time": 0.01, "unload_time": 0.005,"recovery_time": 0.005}),
