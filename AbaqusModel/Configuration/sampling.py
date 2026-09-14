@@ -695,29 +695,68 @@ PMMA_CALIB_FROZEN = {
     "rho": 1.19e-9,
     "mu_cap": 0.60,
     "p_ref_MPa": PMMA_CALIB_P_REF_MPA,
-    "mu_eff_at_p_ref": PMMA_CALIB_MU_EFF,
+    "mu_eff_at_p_ref": "FACTOR since calib v2 (was frozen at %g)"
+                       % PMMA_CALIB_MU_EFF,
     "scratch_depth_mm": -0.020,
     "note_sigma_scale": "scales sigma_y0 and soft_drop together (pure stress scale)",
     "note_psi": "the only factor that is FROZEN in CDP; that is why CDP cannot host this study",
 }
 
+def briscoe_from_level(mu_eff, phi, p_ref):                # [calib-v2-patch]
+    """(tau0, alpha) from a friction LEVEL and its adhesive split.
+
+        mu_eff = alpha + tau0 / p_ref        level at the reference pressure
+        phi    = alpha / mu_eff              share carried by the pressure-
+                                             independent coefficient
+
+    so alpha = phi mu_eff and tau0 = (1 - phi) mu_eff p_ref. The three
+    BRISCOE_SPLITS of the first campaign are the phi = 0.773 / 0.545 / 0.318
+    points of this parametrisation at mu_eff = 0.22, so nothing is lost --
+    the level simply stops being frozen.
+    """
+    mu_eff = float(mu_eff)
+    phi = float(phi)
+    if mu_eff <= 0.0:
+        raise ValueError("mu_eff must be positive (got %g)" % mu_eff)
+    if not (0.0 <= phi <= 1.0):
+        raise ValueError("phi must lie in [0, 1] (got %g)" % phi)
+    return (1.0 - phi) * mu_eff * float(p_ref), phi * mu_eff
+
+
+# [calib-v2-patch] Windows revised after the first 38-point sweep:
+#   psi         hit its upper bound -- the ranking put every good run at 10
+#               deg and none below, so the box was cut short. Capped at 20
+#               deg: beyond the friction angle beta = 25 deg a non-associated
+#               flow rule stops being physically sensible.
+#   sigma_scale hit its upper bound on the force residual (-4 % at 1.6
+#               against -13 % at 1.0). Extended to 1.8, and the lower end
+#               left at 1.0 so the old runs stay inside the box.
+#   soft_drop   kept, but it is NOT separable at a single commanded depth:
+#               at the representative strain the softening is 80 % complete,
+#               so it enters only through sigma_scale * (sigma_y0 -
+#               soft_drop). Leave it at one level in the design and identify
+#               it with a depth sweep instead.
+#   mu_eff/phi  new. See briscoe_from_level above.
 PMMA_CALIB_FACTORS = [
-    Factor("psi",         0.0, 10.0, "lin", "deg",
+    Factor("psi",         0.0, 20.0, "lin", "deg",
            "Drucker-Prager dilation angle; reads on A_pile/A_groove"),
     Factor("soft_drop",   8.0, 25.0, "lin", "MPa",
            "intrinsic softening depth at sigma_y0 fixed (post-yield SHAPE)"),
-    Factor("tau_split",   0.0, 2.0, "lin", "-",
-           "index into BRISCOE_SPLITS; iso-mu_eff at p_ref, varies the "
-           "pressure sensitivity only"),
-    Factor("sigma_scale", 1.0, 1.6, "lin", "-",
+    Factor("sigma_scale", 1.0, 1.8, "lin", "-",
            "multiplies the whole yield table (post-yield LEVEL)"),
+    Factor("mu_eff",      0.15, 0.45, "lin", "-",
+           "effective friction coefficient at p_ref (friction LEVEL)"),
+    Factor("phi",         0.20, 0.85, "lin", "-",
+           "alpha / mu_eff: share of the friction carried by the pressure-"
+           "independent coefficient (friction SHAPE)"),
 ]
 
 
 def _derive_pmma_calib(g, cfg):
     F = PMMA_CALIB_FROZEN
     scale = float(g["sigma_scale"])
-    tau0, alpha = briscoe_split(g["tau_split"])
+    tau0, alpha = briscoe_from_level(g["mu_eff"], g["phi"],
+                                     F["p_ref_MPa"])        # [calib-v2-patch]
     sy = float(F["sigma_y0_MPa"]) * scale
     drop = float(g["soft_drop"]) * scale
     if drop >= sy:
@@ -737,7 +776,7 @@ def _derive_pmma_calib(g, cfg):
         "mu_eff": mu_eff,
         "phi": alpha / max(mu_eff, 1e-12),
         "p_ref_MPa": float(F["p_ref_MPa"]),
-        "sigma_scale": scale, "tau_split": float(g["tau_split"]),
+        "sigma_scale": scale,
         "sigma_y_floor": sy - drop,
         "attack_angle_deg": attack_angle_deg(cfg),
     }
@@ -764,6 +803,133 @@ def _apply_pmma_calib(cfg, p):
     cfg.material.family = "glassy_pmma"
 
 
+# ----------------------------------------------------------------------
+# [calib-v2-patch] PC calibration campaign -- PHYSICAL parameters.
+# ----------------------------------------------------------------------
+#
+# Same structure as the PMMA box, different anchors, and one difference
+# that is not a matter of degree: p_ref.
+#
+# The 400 MPa of the PMMA box is the measured PMMA XT scratch pressure at
+# 6 N. Reduced laboratory data (4 repeats each, compared at equal residual
+# groove width) give PC 53-61 % of the PMMA normal force for the same w0 --
+# 2.56 N against 4.86 N at w0 = 110 um. The apparent contact pressure
+# follows the same ratio, so PC's reference pressure is about 230 MPa.
+# Since the whole (tau0, alpha) parametrisation is anchored on p_ref,
+# reusing 400 MPa here would define mu_eff at a pressure PC never reaches
+# and make the two campaigns incomparable.
+#
+# The Hossain friction pair (tau0 = 38.32 MPa, alpha = 0.06) sits at
+# mu_eff = 0.227 and phi = 0.265 AT 230 MPa -- near the middle of the
+# window below, which is the sanity check that the anchor is right.
+#
+# PC also recovers far less than PMMA: w0/|h_r| = 13.0 against 18.4. It is
+# the more plastic of the two, so the dilation window is centred lower and
+# starts at the families.py value of 0 deg.
+
+PC_CALIB_P_REF_MPA = 230.0       # [MPa] inferred from the w0-matched force ratio
+
+PC_CALIB_FROZEN = {
+    "baseline_family": "glassy_pc",
+    "sigma_y0_MPa": 70.0,
+    "h": 0.35,
+    "eps_soft": 0.05,
+    "eps_max": 2.5,
+    "n_points": 60,
+    "friction_angle_deg": 27.13,
+    "flow_stress_ratio": 0.85,
+    "E_MPa": 2350.0,
+    "nu": 0.37,
+    "rho": 1.20e-9,
+    "mu_cap": 0.60,
+    "p_ref_MPa": PC_CALIB_P_REF_MPA,
+    "scratch_depth_mm": -0.025,
+    "note_p_ref": "PC reaches the same w0 at 53-61 % of the PMMA force; "
+                  "p_ref scales with that ratio, NOT with the PMMA 400 MPa",
+    "note_hossain": "tau0=38.32 alpha=0.06 -> mu_eff=0.227 phi=0.265 at p_ref",
+}
+
+PC_CALIB_FACTORS = [
+    Factor("psi",         0.0, 15.0, "lin", "deg",
+           "Drucker-Prager dilation angle; families.py PC sits at 0"),
+    Factor("soft_drop",   4.0, 20.0, "lin", "MPa",
+           "intrinsic softening depth at sigma_y0 fixed (post-yield SHAPE)"),
+    Factor("sigma_scale", 0.9, 1.4, "lin", "-",
+           "multiplies the whole yield table; centred on 1 because the PC "
+           "baseline sigma_y0 = 70 MPa already matches the measured force "
+           "ratio to within 10-20 %"),
+    Factor("mu_eff",      0.15, 0.50, "lin", "-",
+           "effective friction coefficient at p_ref (friction LEVEL)"),
+    Factor("phi",         0.20, 0.85, "lin", "-",
+           "alpha / mu_eff (friction SHAPE)"),
+]
+
+
+def _derive_pc_calib(g, cfg):
+    F = PC_CALIB_FROZEN
+    scale = float(g["sigma_scale"])
+    tau0, alpha = briscoe_from_level(g["mu_eff"], g["phi"], F["p_ref_MPa"])
+    sy = float(F["sigma_y0_MPa"]) * scale
+    drop = float(g["soft_drop"]) * scale
+    if drop >= sy:
+        raise ValueError(
+            "PC calib: soft_drop %.3g MPa >= sigma_y0 %.3g MPa -- the yield "
+            "stress would reach zero." % (drop, sy))
+    mu_eff = alpha + tau0 / float(F["p_ref_MPa"])
+    return {
+        "rho": float(F["rho"]), "E": float(F["E_MPa"]), "nu": float(F["nu"]),
+        "sigma_y0": sy, "h": float(F["h"]), "Q": 0.0, "b": 8.0,
+        "soft_drop": drop, "eps_soft": float(F["eps_soft"]),
+        "eps_max": float(F["eps_max"]), "n_points": float(F["n_points"]),
+        "friction_angle": float(F["friction_angle_deg"]),
+        "flow_stress_ratio": float(F["flow_stress_ratio"]),
+        "dilation_angle": float(g["psi"]),
+        "tau0": tau0, "alpha": alpha,
+        "mu_eff": mu_eff,
+        "phi": alpha / max(mu_eff, 1e-12),
+        "p_ref_MPa": float(F["p_ref_MPa"]),
+        "sigma_scale": scale,
+        "sigma_y_floor": sy - drop,
+        "attack_angle_deg": attack_angle_deg(cfg),
+    }
+
+
+def _apply_pc_calib(cfg, p):
+    cfg.material.rho = p["rho"]
+    cfg.material.hyperelastic = LinearElastic_Config(E=p["E"], nu=p["nu"])
+    cfg.material.plasticity = DruckerPrager_Config(
+        friction_angle=p["friction_angle"],
+        flow_stress_ratio=p["flow_stress_ratio"],
+        dilation_angle=p["dilation_angle"],
+        yield_table=gsell_jonas_table(
+            sigma_y0=p["sigma_y0"], h=p["h"], Q=p["Q"], b=p["b"],
+            soft_drop=p["soft_drop"], eps_soft=p["eps_soft"],
+            eps_max=p["eps_max"], n_points=int(p["n_points"])),
+        rate_dependent=None)
+    cfg.material.friction = _friction_from(
+        p["tau0"], p["alpha"], float(PC_CALIB_FROZEN["mu_cap"]),
+        p["p_ref_MPa"])
+    # The MATERIAL stays glassy_pc; glassy_pc_calib is only a campaign host.
+    cfg.material.family = "glassy_pc"
+
+
+SAMPLING_PC_CALIB = FamilySampling(
+    campaign="PC_CALIB_physical",
+    factors=PC_CALIB_FACTORS,
+    frozen=PC_CALIB_FROZEN,
+    derive=_derive_pc_calib,
+    apply_fn=_apply_pc_calib,
+    expects={"plasticity": ("drucker_prager",), "viscoelastic": ("none",),
+             "damage": ("none",)},
+    covers=("glassy_pc",),
+    label="Exolon GP calibration (physical parameters, 25 um depth)",
+    notes="Targets from 4 repeats at 4 N / 1 N per min, compared at equal w0: "
+          "F_n 1.08 -> 3.76 N over w0 71 -> 137 um, SCOF 0.356 -> 0.455, "
+          "A_pile/A_groove 0.94 -> 0.87, w0/|h_r| = 13.0.",
+)
+# [calib-v2-patch] end
+
+
 SAMPLING_PMMA_CALIB = FamilySampling(
     campaign="PMMA_CALIB_physical",
     factors=PMMA_CALIB_FACTORS,
@@ -788,6 +954,7 @@ CAMPAIGNS = {
     "semicrystalline_dp": SAMPLING_DP_UNIFIED,
     "glassy_pc": SAMPLING_DP_UNIFIED,
     "glassy_pmma_calib": SAMPLING_PMMA_CALIB,   # [pmma-calib-patch]
+    "glassy_pc_calib": SAMPLING_PC_CALIB,       # [calib-v2-patch]
 }
 
 # Superseded by SAMPLING_DP_UNIFIED but kept importable for the split campaigns.

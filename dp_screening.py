@@ -512,7 +512,8 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
     A("### Sobol")
     A("")
     A("```bash")
-    A("python3 generate_design.py %s --method sobol --n 1024 \\" % (meta["family"] or "glassy_pc"))
+    A("python3 Generators/generate_design.py %s --method sobol --n 1024 \\"
+      % (meta["family"] or "glassy_pc"))
     A("        --only %s" % (",".join(retained + marginal) if (retained or marginal) else "..."))
     A("```")
     A("")

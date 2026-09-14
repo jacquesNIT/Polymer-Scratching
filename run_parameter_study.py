@@ -542,23 +542,44 @@ def material_study(parameters):
         label=lambda p: "Material_%s" % p["id"],
     )
 
-# Screening / sweep design produced by generate_design.py. Resolved relative to
-# THIS script because run_parameter_study() chdirs into runs/ afterwards.
+# Screening / sweep design produced by the scripts in Generators/. Resolved
+# relative to THIS script, because run_parameter_study() chdirs into runs/
+# afterwards -- which is also why the generators write here rather than next
+# to themselves.
 DEFAULT_DESIGN_DIR = "designs"
+
+
+# Accepted design file names, in priority order. The bare <family>.csv comes
+# first: a factorial calibration design is not a Sobol sequence and must not be
+# named as if it were, so those generators write the plain name. The suffixed
+# forms stay for the sampler designs, where the suffix is true and where two
+# methods for one family can coexist.
+DESIGN_SUFFIXES = ("", "_morris", "_sobol", "_factorial")
 
 
 def _design_path(family_key, csv_path=None):
     if csv_path:
         return csv_path
-    for method in ("morris", "sobol"):
-        p = os.path.join(_HERE, DEFAULT_DESIGN_DIR, "%s_%s.csv" % (family_key, method))
+    found = []
+    for suffix in DESIGN_SUFFIXES:
+        p = os.path.join(_HERE, DEFAULT_DESIGN_DIR,
+                         "%s%s.csv" % (family_key, suffix))
         if os.path.exists(p):
-            return p
+            found.append(p)
+    if found:
+        if len(found) > 1:
+            # Silently taking the first would let a stale file win a race it
+            # should not even be in; say which one is used.
+            print("   several design files for '%s': using %s (ignoring %s)"
+                  % (family_key, os.path.basename(found[0]),
+                     ", ".join(os.path.basename(q) for q in found[1:])))
+        return found[0]
     raise SystemExit(
-        "No design file for family '%s' in %s (expected <family>_morris.csv or "
-        "<family>_sobol.csv). Generate it with:\n"
-        "    python3 generate_design.py %s"
-        % (family_key, os.path.join(_HERE, DEFAULT_DESIGN_DIR), family_key))
+        "No design file for family '%s' in %s (expected %s). Generate it with:\n"
+        "    python3 Generators/generate_design.py %s"
+        % (family_key, os.path.join(_HERE, DEFAULT_DESIGN_DIR),
+           " or ".join("<family>%s.csv" % sfx for sfx in DESIGN_SUFFIXES),
+           family_key))
 
 
 def _load_design(family_key, csv_path=None):
@@ -583,7 +604,7 @@ def _load_design(family_key, csv_path=None):
 
 def design_study(family_key, csv_path=None):
     """
-    Screening / sweep driven by a design generated with generate_design.py.
+    Screening / sweep driven by a design generated in Generators/.
     Every case is applied through the family's own sampling campaign, which
     validates the model form and rebuilds the yield table, the friction model
     and the target time increment. Run it as:

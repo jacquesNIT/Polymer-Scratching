@@ -372,7 +372,7 @@ def main():
     print("The threshold is RELATIVE (mu*_lo / mu*_max >= %.2f): the top factor is "
           "retained by construction and a 'freeze' means SMALL COMPARED TO THE "
           "LARGEST, not null." % args.retain_frac)
-    print("Next: generate_design.py %s --method sobol --n 1024 --only %s"
+    print("Next: Generators/generate_design.py %s --method sobol --n 1024 --only %s"
           % (fam, ",".join(sorted(keep)) or "..."))
 
 

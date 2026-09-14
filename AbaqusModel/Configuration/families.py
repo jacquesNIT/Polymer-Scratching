@@ -5,6 +5,7 @@ from .base import (Simulation_Config, Material_Config,
                    RateDependent_Config, gsell_jonas_table, natural_dt)
 from .sampling import SAMPLING_DP_UNIFIED
 from .sampling import SAMPLING_PMMA_CALIB          # [pmma-calib-patch]
+from .sampling import SAMPLING_PC_CALIB            # [calib-v2-patch]
 
 
 
@@ -283,6 +284,19 @@ GLASSY_PMMA = PolymerFamily(
 )
 
 
+def _glassy_pc_calib_config():                         # [calib-v2-patch]
+    """glassy_pc, pinned at the 25 um calibration depth.
+
+    PC reaches w0 = 137 um in the laboratory against 126 um for PMMA, so the
+    simulated sweep has to run deeper to overlap the measured range. 25 um
+    is still under the 26.8 um sphere/cone tangency, which keeps the contact
+    on the spherical cap and the attack angle depth dependent.
+    """
+    cfg = _glassy_pc_config()
+    cfg.scratch.scratch_depth = -0.025          # [mm] = 25 um
+    return cfg
+
+
 GLASSY_PMMA_CALIB = PolymerFamily(                     # [pmma-calib-patch]
     key="glassy_pmma_calib",
     label="PMMA XT calibration host (glassy_pmma at 20 um)",
@@ -296,6 +310,19 @@ GLASSY_PMMA_CALIB = PolymerFamily(                     # [pmma-calib-patch]
 )
 
 
+GLASSY_PC_CALIB = PolymerFamily(                       # [calib-v2-patch]
+    key="glassy_pc_calib",
+    label="Exolon GP calibration host (glassy_pc at 25 um)",
+    config_factory=_glassy_pc_calib_config,
+    checks=_GLASSY_CHECKS,
+    sampling=SAMPLING_PC_CALIB,
+    description=("Calibration host for glassy_pc. Factors: psi, soft_drop, "
+                 "sigma_scale, mu_eff, phi. p_ref = 230 MPa, inferred from "
+                 "the PC/PMMA force ratio at equal groove width -- NOT the "
+                 "400 MPa of the PMMA box."),
+)
+
+
 # Registry of all implemented families.
 FAMILIES = {
     ELASTOMER_MR.key: ELASTOMER_MR,
@@ -306,6 +333,7 @@ FAMILIES = {
     GLASSY_PC.key: GLASSY_PC,
     GLASSY_PMMA.key: GLASSY_PMMA,
     GLASSY_PMMA_CALIB.key: GLASSY_PMMA_CALIB,      # [pmma-calib-patch]
+    GLASSY_PC_CALIB.key: GLASSY_PC_CALIB,          # [calib-v2-patch]
 }
 
 
