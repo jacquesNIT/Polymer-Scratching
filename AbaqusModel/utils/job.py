@@ -1,4 +1,4 @@
-# Abaqus job submission and wait.
+# Abaqus job submission: scratch and memory setup, submit, wait and status check.
 
 from ScratchSimulation.AbaqusModel.abaqus_env import *
 import os
@@ -24,9 +24,7 @@ def _usable(path, min_gb):
 
 
 def resolve_scratch_dir():
-    """
-    Abaqus scratch directory, resolved once per process.
-    """
+    """Abaqus scratch directory (local node scratch when available), resolved once per process."""
 
     if _SCRATCH_CACHE:
         return _SCRATCH_CACHE[0]
@@ -58,7 +56,7 @@ def resolve_scratch_dir():
         print("WARNING: no local scratch found (>= %.0f GB free). ")
     else:
         gb = _free_gb(chosen)
-        print(">>> Abaqus scratch: %s (%s Go libres)"
+        print(">>> Abaqus scratch: %s (%s GB free)"
               % (chosen, "?" if gb is None else "%.0f" % gb))
 
     _SCRATCH_CACHE.append(chosen)
@@ -81,7 +79,7 @@ def abaqus_memory_setting():
                 pass
         mb = int(mb * 0.80)
         if mb > 0:
-            print(">>> Abaqus memory: %d Mo (80%% of SLURM allocation)." % mb)
+            print(">>> Abaqus memory: %d MB (80%% of SLURM allocation)." % mb)
             return mb, MEGA_BYTES
     return 90, PERCENTAGE
 
@@ -171,7 +169,7 @@ def _tail_reason(job_name, ext, n_lines=400):
 
 
 def _sta_says_success(job_name):
-    """True / False / None"""
+    """True if the .sta reports a successful analysis, False if not, None if unreadable."""
 
     path = job_name + ".sta"
     if not os.path.exists(path):

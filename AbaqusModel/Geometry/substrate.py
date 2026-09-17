@@ -1,8 +1,8 @@
-# Substrate geometry creation, partitioning, and meshing.
+# Substrate block: geometry, partition into mesh zones (fine / C1 / C2), sets and structured hex mesh.
 
 from ScratchSimulation.AbaqusModel.abaqus_env import *
 
-# helper 
+# helper
 def _zone_bounds(cfg):
     sub = cfg.substrate
     # Adjustable fractions for mesh refining
@@ -71,13 +71,13 @@ def mesh_substrate(part, cfg):
     for _lbl, _f in (("x", msh.fine_size_x), ("y", msh.fine_size_y), ("z", msh.fine_size_z)):
         if not (_f < msh.coarse_size_1 < msh.coarse_size_2):
             raise ValueError(
-                "mesh_substrate: il faut fine_size_%s (%g) < coarse_size_1 (%g) "
-                "< coarse_size_2 (%g)." % (_lbl, _f, msh.coarse_size_1, msh.coarse_size_2))
+                "mesh_substrate: fine_size_%s (%g) < coarse_size_1 (%g) "
+                "< coarse_size_2 (%g) is required." % (_lbl, _f, msh.coarse_size_1, msh.coarse_size_2))
 
     all_cells = part.cells
     part.setMeshControls(elemShape=HEX, regions=all_cells, technique=STRUCTURED)
 
-    # Element controls  
+    # Element controls
     if msh.hourglass_control == "ENHANCED":
         hg = ENHANCED
     elif msh.hourglass_control == "RELAX STIFFNESS":
@@ -140,11 +140,11 @@ def mesh_substrate(part, cfg):
     _seed(0, sub.xs1,   zb["fx"],  msh.fine_size_x)
     _seed(0, zb["fx"],  zb["cx"],  msh.coarse_size_1)
     _seed(0, zb["cx"],  sub.xs2,   msh.coarse_size_2)
-    # Y 
+    # Y
     _seed(1, zb["y_fine"], sub.ys2,     msh.fine_size_y)
     _seed(1, zb["y_c1"],   zb["y_fine"],msh.coarse_size_1)
     _seed(1, sub.ys1,      zb["y_c1"],  msh.coarse_size_2)
-    # Z 
+    # Z
     _seed(2, zb["zf1"],    zb["zf2"],   msh.fine_size_z)
     _seed(2, zb["zc_lo"],  zb["zf1"],   msh.coarse_size_1)
     _seed(2, zb["zf2"],    zb["zc_hi"], msh.coarse_size_1)

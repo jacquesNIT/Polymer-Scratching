@@ -313,11 +313,11 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
             failed_cases.append((stem, case_error))
             print(">>> [%d/%d] %s -> %s FAILED, continuing. %s"
                   % (i, n_total, study.name, stem, case_error))
-            # [PATCH:abort-visibility] begin -- un echec ne doit plus etre un silence.
-            # Original : tous les fichiers du job etaient effaces et AUCUN CSV
-            # n'etait ecrit, donc le point de plan disparaissait. Le collecteur
-            # ne pouvait plus distinguer "avorte" de "jamais lance", et le
-            # rapport Morris comptait un point manquant sans motif.
+            # [PATCH:abort-visibility] begin -- a failure must no longer be silent.
+            # Original: all job files were deleted and NO CSV was written,
+            # so the design point simply vanished. The collector could no
+            # longer tell "aborted" from "never launched", and the Morris
+            # report counted a missing point with no reason given.
             _write_failed_stub(output_subdir, stem, cfg, case_error)
             _keep_failure_artifacts(output_subdir, cfg.job_name, stem)
             # [PATCH:abort-visibility] end
@@ -354,19 +354,19 @@ def run_parameter_study(study, base_cfg=None, family=None, job_name=None,
 
 
 
-# [PATCH:abort-visibility] begin -- souche de resultat et conservation des artefacts.
+# [PATCH:abort-visibility] begin -- result stub and preservation of artifacts.
 FAILED_STUB_EXTS = (".sta", ".msg", ".log", ".dat")
 
 
 def _write_failed_stub(output_subdir, stem, cfg, reason):
     """
-    Ecrit `<output_subdir>/<stem>_Results.csv` reduit a un en-tete portant
-    `# run_status=FAILED` et le motif.
+    Writes `<output_subdir>/<stem>_Results.csv` reduced to a header carrying
+    `# run_status=FAILED` and the failure reason.
 
-    Objectif : que sweep_collector.py VOIE le point. Le fichier ne contient
-    aucune ligne de serie temporelle, donc parse_results_csv leve, le
-    collecteur classe le run en status=FAIL et morris_analysis.py l'exclut
-    proprement -- au lieu de le compter comme "jamais lance".
+    Goal: make sweep_collector.py SEE the point. The file contains no
+    time-series rows, so parse_results_csv raises, the collector flags the
+    run as status=FAIL and morris_analysis.py excludes it cleanly -- instead
+    of counting it as "never launched".
     """
     if not output_subdir:
         return
@@ -389,11 +389,11 @@ def _write_failed_stub(output_subdir, stem, cfg, reason):
 
 def _keep_failure_artifacts(output_subdir, job_name, stem):
     """
-    Deplace .sta / .msg / .log / .dat du job avorte vers
-    `<output_subdir>/failed/<stem><ext>`. Le .odb reste supprime par
-    l'appelant (volume). Sans ces fichiers, le motif d'abandon est perdu :
-    le .out SLURM est mutualise sur tout le chunk et ne porte que le
-    message d'exception.
+    Moves the .sta / .msg / .log / .dat files of the aborted job to
+    `<output_subdir>/failed/<stem><ext>`. The .odb is still deleted by the
+    caller (disk volume). Without these files the abort reason is lost:
+    the SLURM .out is shared across the whole chunk and only carries the
+    exception message.
     """
     if not output_subdir:
         return
@@ -663,10 +663,7 @@ def model_study(mu0=2.2, K_mu=55.0):
 def depth_study(depths):
     """
     Scratch-depth sweep: one scratch per prescribed penetration depth.
-    Each case sets cfg.scratch.scratch_depth (in mm; negative = into the
-    surface, matching Scratch_Config). ALE is forced on like the mesh/
-    mass-scale studies, because deeper grooves drive larger element
-    distortion in the contact zone.
+    Each case sets cfg.scratch.scratch_depth . 
     """
     return ParameterStudy(
         name="DepthSweep",
@@ -677,10 +674,8 @@ def depth_study(depths):
     )
 
 
-# Base G'Sell-Jonas parameters held FIXED while h is swept -- only the
-# orientation-hardening term exp(h*eps_p^2) changes between cases. These match
-# the rigid semicrystalline (semicrystalline_j2) calibration; edit them to fit
-# the family you actually run the study on.
+# Base G'Sell-Jonas parameters held FIXED while h is swept, only the
+# orientation-hardening term exp(h*eps_p^2) changes between cases. 
 GSELL_SIGMA_Y0  = 28.0    # initial yield stress [MPa]
 GSELL_Q         = 5.0     # Voce initial-hardening amplitude [MPa]
 GSELL_B         = 8.0     # Voce initial-hardening rate [-]
@@ -698,9 +693,6 @@ def gsell_h_study(h_values):
     varying only the orientation-hardening term exp(h*eps_p^2) -- the term
     Bucaille et al. tie to pile-up and scratch resistance.
 
-    Only meaningful on a family whose plasticity exposes a yield_table
-    (palier 2, e.g. semicrystalline_j2). Run it as:
-        abaqus cae noGUI=run_parameter_study.py -- gsell_h semicrystalline_j2
     """
     def apply(cfg, h):
         pl = cfg.material.plasticity
@@ -736,15 +728,12 @@ DEFAULT_MESH_SIZES = [
     [0.005, 0.005, 0.005],
 ]
 DEFAULT_MASS_SCALES = [5000, 2000, 1000, 500]
-DEFAULT_DT_SCALES = [30, 40, 80] # NB : For base MS = 500, sqrt(500) = 22, need more than ~20 to make a difference
+DEFAULT_DT_SCALES = [30, 40, 80] 
 DEFAULT_MU_VALUES = [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
 DEFAULT_DEPTHS = [-20e-3, -30e-3, -40e-3] 
-DEFAULT_GSELL_H = [0.0, 0.11, 0.22, 0.33, 0.45] # For running (4-5h)
+DEFAULT_GSELL_H = [0.0, 0.11, 0.22, 0.33, 0.45] 
 DEFAULT_STUDY = "single"
 
-# QMC material sweep produced by MR_parameter_sampling.py, loaded from the
-# CSV (no pandas in the Abaqus kernel); resolved relative to THIS script
-# because run_parameter_study() chdirs into runs/ afterwards.
 DEFAULT_SWEEP_CSV = os.path.join("material_parameters",
                                  "polymer_MR_material_parameter_sweep.csv")
 

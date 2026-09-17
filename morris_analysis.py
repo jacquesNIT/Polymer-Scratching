@@ -3,10 +3,6 @@
 #   python3 morris_analysis.py sweep_glassy_pc.csv \
 #           --design designs/glassy_pc_morris.csv \
 #           --out-dir analysis_glassy_pc
-#
-# # [PATCH:no-noise-floor] retention on a RELATIVE threshold: a factor is retained when
-# mu*_lo / mu*_max exceeds --retain-frac on at least one QoI. No absolute
-# noise scale is used anywhere.
 
 import argparse
 import csv
@@ -16,19 +12,10 @@ import re
 
 import numpy as np
 
-
-# [PATCH:no-noise-floor] Ft_half_N (= Fn * scof), H_MPa (aire de contact constante,
-# donc r(H, Fn) = 1 exactement) et pile_up_ratio (sigma/mu* > 1.3 partout)
-# sont retires : redondants ou non exploitables.
-# [PATCH:values-backend] noms issus de results_values.extract_values.
-# Original : DEFAULT_QOI = ["Fn_half_N", "scof", "residual_depth_mm", "pile_up_mm"]
-#   Fn_half_N -> F_n | scof -> SCOF_mean | residual_depth_mm -> h_r
-#   pile_up_mm -> h_p   (F_t et h_fp restent disponibles via --qoi)
 DEFAULT_QOI = ["F_n", "SCOF_mean", "h_r", "h_p"]
 RETAIN_FRAC = 0.20
 N_BOOTSTRAP = 4000
 CI = (5.0, 95.0)
-
 
 def read_design(path):
     meta = {"delta": None, "active": [], "family": None,
@@ -74,43 +61,19 @@ def _num(rec, key):
     except (TypeError, ValueError):
         return float("nan")
 
-
-# [PATCH:screening-fixes] begin -- definition unique de "run exploitable".
-# [PATCH:values-backend] LE CONTROLE QUALITE NE FILTRE PLUS RIEN.
-#
-# Original :
-#     if str(rec.get("status", "")) in drop_status:
-#         return False
-# `status` portait le pire verdict de results_verifier, donc un run
-# parfaitement integre mais dont l'energie artificielle depassait 5 % etait
-# ecarte au meme titre qu'un run jamais produit. Sur la campagne glassy_pc
-# cela retirait 42 runs sur 90 et ramenait le plan a 2 trajectoires
-# completes sur 10 -- pour un biais de quelques pourcents, alors que le
-# biais ALE de 15-20 % sur les forces est deja accepte par ailleurs. Le
-# critere etait aussi incompatible avec les runs de test sur maillage
-# grossier, dont les indicateurs energetiques depassent les seuils par
-# construction.
-#
-# L'exclusion ne porte plus que sur l'INTEGRITE du run :
-#     run_status == MISSING  -- aucun fichier produit
-#     run_status == FAILED   -- job avorte, souche d'echec ecrite
-#     parse_error non vide   -- fichier illisible ou tronque
-# Les indicateurs energetiques restent dans la table et sont reportes par
-# dp_screening.py, sans effet sur la selection.
 UNUSABLE_RUN_STATUS = ("MISSING", "FAILED")
-
 
 def _usable(rec, drop_status=None):
     """
-    Vrai si le run peut alimenter un effet elementaire.
+    True if the run can feed an elementary effect.
 
-    `_coverage` (dp_screening) excluait `parse_error` alors que
-    `elementary_effects` ne l'excluait pas : le nombre de runs annonce en
-    tete du rapport ne correspondait pas a celui reellement utilise. Les
-    deux passent desormais par ici.
+    `_coverage` (dp_screening) excluded `parse_error` whereas
+    `elementary_effects` did not: the run count announced at the top of the
+    report did not match the number actually used. Both now go through
+    this function.
 
-    `drop_status` est conserve pour compatibilite d'appel mais N'EST PLUS
-    UTILISE : aucun critere de qualite ne conditionne l'exploitabilite.
+    `drop_status` is kept for call compatibility but is NO LONGER USED:
+    no quality criterion determines whether a run is usable.
     """
     if rec is None:
         return False
@@ -120,10 +83,6 @@ def _usable(rec, drop_status=None):
         return False
     return True
 
-
-# [PATCH:screening-fixes] end
-# [PATCH:values-backend] drop_status par defaut None : plus de filtre qualite.
-# Original : def elementary_effects(design_rows, table, qoi, delta, drop_status=("FAIL",)):
 def elementary_effects(design_rows, table, qoi, delta, drop_status=None):
     """Return (list of (traj, factor, EE), n_missing)."""
     by_traj = {}
@@ -136,7 +95,6 @@ def elementary_effects(design_rows, table, qoi, delta, drop_status=None):
         values = []
         for rid, _d in ordered:
             rec = table.get(rid)
-            # [PATCH:screening-fixes] original : if rec is None or str(rec.get("status", "")) in drop_status:
             if not _usable(rec, drop_status):
                 values.append(float("nan"))
                 n_missing += 1
@@ -176,8 +134,6 @@ def summarise(effects, factors, n_bootstrap=N_BOOTSTRAP, seed=0, ci_low=None):
                 boot[f].append(np.mean(acc[f]) if acc[f] else np.nan)
 
     lo_pct = CI[0] if ci_low is None else float(ci_low)
-    # [PATCH:screening-fixes] l'intervalle doit etre symetrique du test applique :
-    # hi restait fige a 95 % meme quand lo etait corrige a 0.833 %.
     hi_pct = CI[1] if ci_low is None else (100.0 - float(ci_low))
     out = {}
     for f in factors:
@@ -194,7 +150,6 @@ def summarise(effects, factors, n_bootstrap=N_BOOTSTRAP, seed=0, ci_low=None):
             "mu": float(np.mean(vals)),
             "n_eff": int(vals.size),
             "mu_star_lo": float(np.percentile(b, lo_pct)) if b.size else np.nan,
-            # [PATCH:screening-fixes] original : float(np.percentile(b, CI[1]))
             "mu_star_hi": float(np.percentile(b, hi_pct)) if b.size else np.nan,
         }
     return out
@@ -232,22 +187,14 @@ def main():
     ap.add_argument("table", help="tidy CSV produced by sweep_collector.py")
     ap.add_argument("--design", required=True, help="Morris design CSV")
     ap.add_argument("--qoi", default=None, help="comma-separated QoI columns")
-    # [PATCH:no-noise-floor] --noise-floor / --noise-mode retires.
     ap.add_argument("--retain-frac", type=float, default=RETAIN_FRAC,
                     help="relative retention threshold: keep a factor when "
                          "mu*_lo / mu*_max exceeds this fraction on at least "
                          "one QoI (default %.2f)." % RETAIN_FRAC)
     ap.add_argument("--out-dir", default="analysis")
     ap.add_argument("--bootstrap", type=int, default=N_BOOTSTRAP)
-    # [PATCH:values-backend] no-op conserve pour ne pas casser les lignes de
-    # commande existantes : il n'y a plus de filtre qualite a desactiver.
     ap.add_argument("--keep-failed", action="store_true",
                     help="deprecated no-op: quality never excludes a run any more")
-    # [PATCH:screening-fixes] meme correction de multiplicite que dp_screening.py,
-    # sans quoi les deux scripts rendaient des verdicts differents sur les
-    # memes donnees. La regle 'retenu pour au moins une QoI' est une union
-    # de n_qoi tests ; sans correction le risque de faux positif par facteur
-    # atteint 26 % sur 6 QoI.
     ap.add_argument("--fwer", default="qoi", choices=("qoi", "none"),
                     help="multiplicity correction over the QoI union test. "
                          "'qoi' (default, matches dp_screening.py): bootstrap "
@@ -264,7 +211,6 @@ def main():
     table = read_table(args.table)
     factors = meta["active"]
     delta = meta["delta"]
-    # [PATCH:values-backend] original : drop = () if args.keep_failed else ("FAIL",)
     if args.keep_failed:
         print("Note: --keep-failed is a no-op; quality no longer excludes runs.")
     drop = None
@@ -276,28 +222,21 @@ def main():
     qois = [q for q in qois if q in available]
     if not qois:
         raise SystemExit("None of the requested QoI columns are present in %s" % args.table)
-
-    # [PATCH:no-noise-floor] plus de lecture de plancher de bruit.
-
     if not os.path.isdir(args.out_dir):
         os.makedirs(args.out_dir)
 
-    # [PATCH:screening-fixes] begin -- correction de multiplicite (etait absente ici).
     n_tests = len(qois) if args.fwer == "qoi" else 1
     ci_low = CI[0] / float(n_tests)
     if args.fwer == "qoi" and args.bootstrap * ci_low / 100.0 < 20:
         need = int(np.ceil(20 * 100.0 / ci_low))
-        print("  bootstrap porte a %d pour resoudre le percentile corrige %.3f%%"
+        print("  bootstrap raised to %d to resolve the corrected percentile %.3f%%"
               % (need, ci_low))
         args.bootstrap = need
-    # [PATCH:screening-fixes] end
     rows, retained, marginal = [], set(), set()
     for qoi in qois:
         effects, n_missing = elementary_effects(design_rows, table, qoi, delta, drop)
-        # [PATCH:screening-fixes] original : summarise(effects, factors, n_bootstrap=args.bootstrap)
         summary = summarise(effects, factors, n_bootstrap=args.bootstrap,
                             ci_low=ci_low)
-        # [PATCH:no-noise-floor] verdict sur seuil RELATIF (mu*_lo / mu*_max).
         mu_max = max([summary[f]["mu_star"] for f in factors
                       if np.isfinite(summary[f]["mu_star"])] or [np.nan])
         has_max = bool(mu_max) and np.isfinite(mu_max)
@@ -345,7 +284,6 @@ def main():
         w.writeheader()
         w.writerows(rows)
 
-    # [PATCH:no-noise-floor] marginal ajoute, cles de bruit retirees.
     marginal = marginal - retained
     keep = set(retained) | marginal
     fam = meta["family"] or "unknown"
@@ -365,7 +303,6 @@ def main():
     print("")
     print("Summary -> %s" % summary_path)
     print("Retention -> %s" % json_path)
-    # [PATCH:no-noise-floor] resume sans reference au bruit.
     print("Retained : %s" % (", ".join(sorted(retained)) or "(none)"))
     print("Marginal : %s" % (", ".join(sorted(marginal)) or "(none)"))
     print("Freeze   : %s" % (", ".join(sorted(set(factors) - keep)) or "(none)"))

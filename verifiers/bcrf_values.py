@@ -1,31 +1,7 @@
-# -*- coding: utf-8 -*-
-"""lab_values2.py -- residual depth and pile-up from a TriboSoft .bcrf scan.
+"""Residual depth, pile-up and penetration profiles from a .bcrf scratch scan.
 
-Reads a .bcrf height map of a scratch track and extracts:
-
-    * the residual groove depth  h_r  along the track
-    * the lateral pile-up heights  h_p  on both sides, along the track
-    * the terminal frontal mound left at the lift-off point
-    * transverse sections at N positions, one of which is the deepest point
-    * the groove / pile-up area balance, section by section
-
-Reference surface
------------------
-The form is fitted on lateral reference bands only, well outside the pile-up
-ridges, then extrapolated underneath the track. Fitting on the whole field
-would absorb part of the pile-up into the form and bias h_p low. The fit is
-iterated with sigma clipping so that debris and fringe-order artefacts do not
-drag the reference.
-
-Usage::
-
-    python lab_values2.py Test3_PMMAXT_10N.bcrf
-    python lab_values2.py scan.bcrf --smooth-x 40 --smooth-y 6 --sections 5
-    python lab_values2.py scan.bcrf --outdir figures/ --export profiles/
-
-Dependencies: numpy and matplotlib only.
-
-Units: lengths in um throughout.
+Usage: python bcrf_values.py Test3_PMMAXT_10N.bcrf
+       python bcrf_values.py scans/*.bcrf --material pc --export csv/
 """
 
 from __future__ import annotations
@@ -43,20 +19,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-# ==========================================================================
 # 1. bcrf reader
-# ==========================================================================
-
-_LENGTH_SCALE = {"nm": 1e-3, "um": 1.0, "mm": 1e3}   # -> micrometres
+_LENGTH_SCALE = {"nm": 1e-3, "um": 1.0, "mm": 1e3}   # micrometres
 
 
 def read_bcrf(path):
-    """Return (Z, header) with Z a 2-D float array in the header's zunit.
-
-    Layout: a UTF-16LE text header of `headersize` CHARACTERS, followed by
-    xpixels*ypixels float32 little-endian values, row-major (x fastest).
-    Non-measured pixels carry the `voidpixels` sentinel and are set to NaN.
-    """
+    """Read a .bcrf file and return (Z, header), Z being the 2-D height map."""
     with open(path, "rb") as fh:
         raw = fh.read(4096)
     txt = raw.decode("utf-16-le", errors="replace")
@@ -94,10 +62,7 @@ def pixel_size(hdr):
     return dx, dy
 
 
-# ==========================================================================
 # 2. numerics
-# ==========================================================================
-
 def moving_average(v, win):
     """Centred moving average with edge replication, NaN-tolerant."""
     v = np.asarray(v, dtype=float)
@@ -142,37 +107,8 @@ def robust_sigma(v):
     return 1.4826 * np.median(np.abs(v - np.median(v)))
 
 
-# ==========================================================================
-# 2b. outlier rejection                                     [despike-patch]
-#
-# Dust, debris and fringe-order errors on a transparent polymer show up as
-# compact spikes a few pixels wide and tens of times the noise floor. They
-# are fatal here because h_r and h_p are *extrema* over a band: one bad
-# pixel sets the value of a whole column, and one bad column can be picked
-# as "the deepest section". A moving average cannot fix that -- it spreads
-# the spike instead of removing it. What is needed is rejection.
-#
-# Three levels, from the map to the profiles:
-#     despike_map()   compact outliers in Z  ->  local robust baseline
-#     median_axis()   running median across the track, before the extremum
-#     hampel()        residual outliers on the along-track profiles
-#
-# The baseline used for detection is a running median taken ALONG THE TRACK.
-# That direction is chosen on purpose: groove, ridges and mound vary slowly
-# with x, so a legitimate feature leaves almost no residual, while a blob of
-# limited extent in x stands out whatever its width in y.
-# ==========================================================================
-
 def median_axis(Z, win, axis=0, max_samples=41, block_elems=8_000_000):
-    """Centred running median along one axis, edge replication, NaN-tolerant.
-
-    For a long window the median is evaluated on a regularly decimated subset
-    of the window (at most `max_samples` points). A median of ~40 samples is
-    statistically as good a baseline as a median of 160 and costs four times
-    less; the residual jitter is ~0.2 sigma, far below the rejection
-    threshold. The gather is blocked so that peak memory stays bounded
-    whatever the size of the map.
-    """
+    """Centred running median along one axis, NaN-tolerant."""
     import warnings
 
     Z = np.asarray(Z, dtype=float)
@@ -208,22 +144,6 @@ def median_axis(Z, win, axis=0, max_samples=41, block_elems=8_000_000):
 
 def despike_map(Z, win_x_px, win_y_px, k=5.0, band=None, max_col_frac=0.50):
     """Replace compact outliers of the height map by a robust local baseline.
-
-    Parameters
-    ----------
-    win_x_px, win_y_px : median window along the track / across it, in pixels.
-        win_x_px must be clearly larger than the longest defect and clearly
-        smaller than the length over which the real topography changes.
-    k : rejection threshold, in robust sigma of the residual field.
-    band : row slice of the track CORE, |y - y_c| < half, used by the guard.
-    max_col_frac : a column in which more than this fraction of the core is
-        flagged is left untouched. The discriminator is transverse coherence
-        with respect to the track axis, not size: the frontal mound, the
-        groove start and the lift-off step cover the axis over its full
-        width, a debris patch covers a fraction of it and is usually off
-        axis. Without this guard the despiker flattens the terminal mound,
-        which is the one genuine feature that is compact along x.
-
     Returns (Z_clean, bad_mask, sigma_resid).
     """
     Z = np.asarray(Z, dtype=float)
@@ -255,11 +175,7 @@ def despike_map(Z, win_x_px, win_y_px, k=5.0, band=None, max_col_frac=0.50):
 
 
 def hampel(v, win, k=4.0):
-    """Hampel filter: replace |v - running median| > k * local MAD sigma.
-
-    Self-protecting at a genuine step: the window then straddles both levels,
-    the local MAD is of the order of the step itself, and nothing is rejected.
-    """
+    """Hampel filter: replace outliers of a 1-D profile by the running median."""
     v = np.asarray(v, dtype=float)
     win = int(max(3, win))
     if v.size < 5:
@@ -305,24 +221,10 @@ def polyfit2d(Z, mask, degree=2):
     return form
 
 
-# ==========================================================================
 # 3. geometry of the track
-# ==========================================================================
-
 def locate_track(Z, dy, smooth_y_px, centre_guard=0.25):
-    """Return (row_centre, half_width_px, ridge_outer_px, profile) in pixels.
-
-    Detection only -- these numbers select the reference bands, they are not
-    used as measurements.
-
-    The field is high-pass filtered along y by subtracting a long moving
-    average taken column by column. This removes plate curvature and tilt,
-    which on a transparent polymer can be several times larger than the
-    groove and would otherwise capture the minimum at the edge of the field.
-    The centre is then the minimum of the transverse median, searched in the
-    central part of the field. The groove is delimited by the zero crossings
-    on either side, and the pile-up crests just outside them set the limit of
-    the region excluded from the form fit.
+    """Locate the scratch track in the height map.
+    Returns (row_centre, half_width_px, ridge_outer_px, profile), in pixels.
     """
     ny, nx = Z.shape
 
@@ -332,15 +234,6 @@ def locate_track(Z, dy, smooth_y_px, centre_guard=0.25):
 
     prof = moving_average(np.nanmedian(hp, axis=1), max(3, smooth_y_px))
 
-    # search the centre away from the borders, where the high-pass is biased
-    # [anchor-patch] original: edge_guard = max(3, ny // 10), then the centre
-    # was simply the deepest row. On a material whose pile-up reaches the
-    # reference bands the form fit tilts and leaves a dark band against the
-    # edge of the field, deeper than the groove; the centre locked onto it.
-    # Search the central part of the field only: on these scans the
-    # artefact sits against the edge. The operator centres the scratch in
-    # the field, so restricting the search to the central part is enough and
-    # stays predictable; --centre-guard widens or narrows it.
     edge_guard = max(3, int(round(centre_guard * ny)))
     core = slice(edge_guard, ny - edge_guard)
     c = edge_guard + int(np.nanargmin(prof[core]))
@@ -355,7 +248,7 @@ def locate_track(Z, dy, smooth_y_px, centre_guard=0.25):
     if deep.sum() > 0.05 * nx:
         prof = moving_average(np.nanmean(hp[:, deep], axis=1),
                               max(3, smooth_y_px))
-        c = edge_guard + int(np.nanargmin(prof[core]))    # [anchor-patch]
+        c = edge_guard + int(np.nanargmin(prof[core]))    
 
     prof = prof - np.nanmedian(prof)
 
@@ -378,11 +271,6 @@ def locate_track(Z, dy, smooth_y_px, centre_guard=0.25):
     # exclude out to 1.5 times the ridge offset: far enough to clear the
     # pile-up, close enough to leave usable reference bands on both sides
     outer = int(max(abs(c - r_lo), abs(r_hi - c)) * 1.5) + half
-    # [rough-patch] original: outer = int(np.clip(outer, 2*half+2, 0.40*ny))
-    # 0.40 * ny is a fraction of the FIELD and ignores where the centre sits.
-    # When the track is off-centre it leaves one reference band a few rows
-    # tall, and the form fit then rests on one side only. Clip by the
-    # distance to each edge as well, keeping ny/10 rows on both sides.
     room = min(c, ny - 1 - c) - max(5, ny // 10)
     outer = int(np.clip(outer, 2 * half + 2, max(2 * half + 2,
                                                  min(0.40 * ny, room))))
@@ -391,15 +279,7 @@ def locate_track(Z, dy, smooth_y_px, centre_guard=0.25):
 
 
 def upstream_limit(Z, row_c, half, k=5.0, margin_frac=0.03):
-    """[upstream-patch] Last column before the track disturbs the surface.
-
-    Form-independent: the field is high-passed along y, and each column is
-    given a disturbance level -- the 95th percentile of |Z| across three
-    groove widths. Upstream of the scratch that level is the roughness of
-    the material; it rises as soon as the groove or the pile-up appears.
-    Returns 0 when no quiet zone exists, which is the honest answer on a
-    rough surface.
-    """
+    """Return the last column before the track disturbs the surface (0 if none)."""
     ny, nx = Z.shape
     base = np.apply_along_axis(moving_average, 0, Z, max(9, ny // 3))
     hp = Z - base
@@ -421,15 +301,12 @@ def upstream_limit(Z, row_c, half, k=5.0, margin_frac=0.03):
 
 def flatten(Z, row_c, outer, degree=2, n_iter=3, clip=3.0, up_cols=0):
     """Remove the form, fitted on the lateral reference bands.
-
-    [upstream-patch] When an undisturbed upstream zone exists, its columns
-    are added to the reference over their full height. On a narrow field
-    that is the only support the polynomial has across the middle.
+    Returns (levelled field, reference mask, fit mask, noise sigma).
     """
     ny, nx = Z.shape
     yy = np.arange(ny)[:, None] * np.ones((1, nx))
     ref = np.abs(yy - row_c) > outer
-    if up_cols > 0:                                       # [upstream-patch]
+    if up_cols > 0:                                       
         ref = ref | (np.arange(nx)[None, :] < int(up_cols))
 
     mask = ref & np.isfinite(Z)
@@ -447,54 +324,15 @@ def flatten(Z, row_c, outer, degree=2, n_iter=3, clip=3.0, up_cols=0):
     return resid, ref, mask, sig
 
 
-# ==========================================================================
 # 4. profiles and section values
-# ==========================================================================
-
-def ridge_band_px(half, outer):                     # [consistency-patch]
-    """Outer limit of the lateral pile-up search, in pixels.
-
-    Wide enough for the crest to migrate outward as the load ramps up,
-    narrow enough not to pick up the waviness of a rough surface. Used by
-    build_profiles() and section_values() alike -- they used to disagree.
-    """
+def ridge_band_px(half, outer):                     
+    """Outer limit of the lateral pile-up search, in pixels."""
     return int(max(2 * half, min(outer, 3 * half)))
 
-
-# [penetration-patch] begin -- contact penetration from the residual groove width.
-#
-# The residual groove is the footprint of the indenter at the level of the
-# original surface, so its width carries the penetration -- provided the
-# lateral elastic closure of the flanks is corrected for. Chain:
-#
-#   w0  ->  a_res = w0/2  ->  a_geom = a_res / k(d)  ->  d  (sphere-cone)
-#
-# k(d) is the only modelled link. It is read off the simulations, where the
-# commanded depth and the residual width are both known. Nothing here uses
-# the capacitive depth channel, which is inflated by machine compliance.
 
 TIP_RADIUS_UM = 200.0        # Rockwell C sphere radius [um]
 TIP_HALF_ANGLE_DEG = 60.0    # cone half-angle from the axis [deg]
 
-# [material-k-patch] k(d) = quad*d^2 + slope*d + intercept, evaluated on d clipped to the
-# calibration window [d_lo, d_hi] then clipped to [k_min, k_max]. Clipping the
-# ARGUMENT rather than extrapolating means k saturates outside the window
-# instead of following a parabola back down, which has no physical meaning.
-#
-# "pmma": glassy_pmma sweep (d = 20/30/40 um). Linear, quad = 0 -- identical to
-#         the previous single-material behaviour. Independently confirmed
-#         against the lab: k measured 0.836 vs 0.834 predicted at d = 20 um
-#         (PMMA XT 10 N) and 0.921 vs 0.888 at d = 25.9 um (PMMA XT 15 N).
-# "pc"  : glassy_pc sweep (d = 20/25/30/35/40/45/50 um, 98 z-slices,
-#         5.3 <= d <= 47.4 um). Quadratic: the linear residuals were
-#         structured (-0.024 / +0.012 / -0.029 across the range), the
-#         quadratic leaves |bias| < 0.006 everywhere. Peak k = 0.983 at
-#         d = 40.6 um.
-#
-# PC closes its flanks LESS than PMMA at every depth (0.91 vs 0.83 at 20 um),
-# which is why the PMMA law applied to PC used to hit its 0.95 ceiling and
-# under-report the penetration.
-#
 # format: (quad, slope, intercept, d_lo, d_hi, k_min, k_max)
 K_PRESETS = {
     "pmma": (0.0,          0.00933,  0.6470,  8.0, 38.0, 0.55, 0.95),
@@ -502,19 +340,16 @@ K_PRESETS = {
 }
 DEFAULT_MATERIAL = "pmma"
 
-TIP_RADIUS_UM_ = TIP_RADIUS_UM        # kept for symmetry with the presets
+TIP_RADIUS_UM_ = TIP_RADIUS_UM
 
-# Backwards-compatible module-level defaults: they are the "pmma" preset.
+# Module-level defaults (pmma preset).
 K_QUAD, K_SLOPE, K_INTERCEPT, _KD_LO, _KD_HI, K_MIN, K_MAX = \
     K_PRESETS[DEFAULT_MATERIAL]
 K_VALID_UM = (_KD_LO, _KD_HI)
 
 
-def k_model(material=DEFAULT_MATERIAL, quad=None, slope=None, intercept=None,
-            clip=None, window=None):
-    """Resolve a recovery-factor model. Explicit arguments override the preset;
-    passing slope or intercept without quad forces a linear law, so the old
-    --k-slope / --k-intercept overrides keep behaving as they did."""
+def k_model(material=DEFAULT_MATERIAL, quad=None, slope=None, intercept=None, clip=None, window=None):
+    """Resolve the recovery-factor model k(d) from a material preset and overrides."""
     key = str(material).lower()
     if key not in K_PRESETS:
         raise SystemExit("Unknown material %r for k(d). Known: %s"
@@ -534,7 +369,6 @@ def k_model(material=DEFAULT_MATERIAL, quad=None, slope=None, intercept=None,
         lo, hi = float(window[0]), float(window[1])
     return {"material": key, "quad": q, "slope": s, "intercept": c,
             "d_lo": lo, "d_hi": hi, "k_min": kmin, "k_max": kmax}
-# [material-k-patch] end
 
 
 def tip_tangency(radius=TIP_RADIUS_UM, half_angle_deg=TIP_HALF_ANGLE_DEG):
@@ -563,12 +397,8 @@ def depth_from_radius(a, radius=TIP_RADIUS_UM, half_angle_deg=TIP_HALF_ANGLE_DEG
 
 def recovery_factor(d, slope=K_SLOPE, intercept=K_INTERCEPT,
                     k_min=K_MIN, k_max=K_MAX,
-                    quad=K_QUAD, d_lo=None, d_hi=None):   # [material-k-patch]
-    """k(d) = a_res / a_geom. Rises with depth: the deeper the groove, the
-    larger the plastic share and the less the flanks close back.
-
-    [material-k-patch] the polynomial is evaluated on d clipped to the calibration
-    window, so k saturates outside it rather than extrapolating."""
+                    quad=K_QUAD, d_lo=None, d_hi=None):   
+    """Lateral recovery factor k(d) = a_res / a_geom, clipped to [k_min, k_max]."""
     d = np.asarray(d, dtype=float)
     lo = -np.inf if d_lo is None else d_lo
     hi = np.inf if d_hi is None else d_hi
@@ -580,10 +410,8 @@ def penetration_from_width(w0, radius=TIP_RADIUS_UM,
                            half_angle_deg=TIP_HALF_ANGLE_DEG,
                            slope=K_SLOPE, intercept=K_INTERCEPT,
                            k_min=K_MIN, k_max=K_MAX, n_iter=40, tol=1e-4,
-                           quad=K_QUAD, d_lo=None, d_hi=None):   # [material-k-patch]
-    """Solve a_res = k(d) * a_geom(d) for d. Damped fixed point; the map is
-    monotone and mildly contracting, so 5-10 iterations are enough. Returns
-    d in um, NaN where w0 is not finite or not positive."""
+                           quad=K_QUAD, d_lo=None, d_hi=None):   
+    """Penetration d (um) solving a_res = k(d) * a_geom(d) for a groove width w0."""
     w = np.atleast_1d(np.asarray(w0, dtype=float))
     a_res = 0.5 * w
     out = np.full(w.shape, np.nan)
@@ -593,7 +421,7 @@ def penetration_from_width(w0, radius=TIP_RADIUS_UM,
     d = depth_from_radius(a_res[ok], radius, half_angle_deg)
     for _ in range(n_iter):
         k = recovery_factor(d, slope, intercept, k_min, k_max,
-                            quad, d_lo, d_hi)          # [material-k-patch]
+                            quad, d_lo, d_hi)
         d_new = depth_from_radius(a_res[ok] / k, radius, half_angle_deg)
         step = np.nanmax(np.abs(d_new - d))
         d = 0.5 * d + 0.5 * d_new
@@ -604,8 +432,7 @@ def penetration_from_width(w0, radius=TIP_RADIUS_UM,
 
 
 def _zero_crossing(prof, i_min, step, i_stop, dy):
-    """Distance from pixel i_min to the first z >= 0 in direction step,
-    linearly interpolated on the crossing pixel. NaN if none before i_stop."""
+    """Distance from pixel i_min to the first zero crossing in direction step (NaN if none)."""
     i = i_min
     while (i + step) != i_stop:
         j = i + step
@@ -623,10 +450,7 @@ def _zero_crossing(prof, i_min, step, i_stop, dy):
 
 
 def groove_width(prof_y, i_min, row_c, outer, dy):
-    """w0: transverse distance between the two zero crossings flanking the
-    groove floor, searched no further than the reference band. NaN when
-    either side fails to cross back -- a wide sink-in or a contaminated
-    reference plane, and the value would be meaningless anyway."""
+    """Groove width w0 between the two zero crossings around the groove floor (NaN if undefined)."""
     ny = prof_y.size
     lo = max(-1, row_c - outer - 1)
     hi = min(ny, row_c + outer + 1)
@@ -640,8 +464,7 @@ def groove_width(prof_y, i_min, row_c, outer, dy):
 
 
 def groove_width_profile(Z, row_c, half, outer, dy):
-    """w0 for every column of a levelled field. Same search bands as
-    build_profiles(): floor in the track core, crossings out to `outer`."""
+    """Groove width w0 for every column of a levelled field."""
     ny, nx = Z.shape
     g_lo, g_hi = max(0, row_c - half), min(ny, row_c + half + 1)
     w = np.full(nx, np.nan)
@@ -656,25 +479,17 @@ def groove_width_profile(Z, row_c, half, outer, dy):
     return w
 
 
-# [penetration-patch] end
 def section_values(prof_y, y_um, row_c, half, outer,
-                   tip_radius=TIP_RADIUS_UM,             # [penetration-patch]
+                   tip_radius=TIP_RADIUS_UM,            
                    tip_angle=TIP_HALF_ANGLE_DEG,
                    k_slope=K_SLOPE, k_intercept=K_INTERCEPT,
-                   k_quad=K_QUAD, k_clip=(K_MIN, K_MAX),      # [material-k-patch]
+                   k_quad=K_QUAD, k_clip=(K_MIN, K_MAX),      
                    k_window=K_VALID_UM,
                    penetration=True):
-    """Depth, pile-up heights and areas of one transverse section.
-
-    prof_y is a transverse profile already referenced to zero far from the
-    track. Indices are pixels; areas are returned in um^2.
-    """
+    """Depth, pile-up heights, areas and penetration of one transverse section."""
     ny = prof_y.size
     dy = y_um[1] - y_um[0] if ny > 1 else 1.0
 
-    # [consistency-patch] the areas keep the full band, but the depth and
-    # the crests are now searched exactly where build_profiles() searches
-    # them: the floor in the track core, the ridges out to ridge_band_px.
     lo = max(0, row_c - outer)
     hi = min(ny, row_c + outer + 1)
     win = slice(lo, hi)
@@ -706,13 +521,11 @@ def section_values(prof_y, y_um, row_c, half, outer,
     a_groove = float(-below.sum() * dy)
     a_pileup = float(above.sum() * dy)
 
-    # [penetration-patch] w0 and the penetration it implies. Sign of h_pen follows h_r:
-    # negative = into the material, so |h_pen| >= |h_r| by construction.
     extra = {}
     if penetration:
         w0 = groove_width(prof_y, i_min, row_c, outer, dy)
         if np.isfinite(w0):
-            h_pen = -float(penetration_from_width(       # [material-k-patch]
+            h_pen = -float(penetration_from_width(       
                 w0, tip_radius, tip_angle, k_slope, k_intercept,
                 k_clip[0], k_clip[1], quad=k_quad,
                 d_lo=k_window[0], d_hi=k_window[1]))
@@ -731,66 +544,31 @@ def section_values(prof_y, y_um, row_c, half, outer,
 
 def build_profiles(Zf, x_um, y_um, row_c, half, outer, sigma,
                    depth_threshold=3.0, med_y_px=1, hampel_win_px=0,
-                   hampel_k=4.0, detect_win_px=1,            # [despike-patch]
-                   up_cols=0):                               # [upstream-patch]
-    """Along-track profiles of h_r and of the two lateral pile-up heights.
-
-    [despike-patch] The extrema are taken on a transversally median-filtered
-    copy of the field, and the resulting profiles pass through a Hampel
-    filter. A min over ~1000 rows has no breakdown point at all: the two
-    filters give it one, without touching the definition of h_r and h_p.
-    """
+                   hampel_k=4.0, detect_win_px=1,            
+                   up_cols=0):                               
+    """Along-track profiles of h_r, lateral pile-up heights and w0, plus the groove presence mask."""
     ny, nx = Zf.shape
-    # [rough-patch] original:
-    #   lo, hi = max(0, row_c - outer), min(ny, row_c + outer + 1)
-    # h_r was the minimum over the WHOLE band, up to 240 um off axis. The
-    # expected minimum of N samples of a field of scatter s is about -3s, so
-    # on a wavy surface that alone reads -15 um where there is no groove.
-    # The floor can only be inside the track core; the ridges can only be
-    # just outside it.
     lo, hi = max(0, row_c - half), min(ny, row_c + half + 1)
     g_lo, g_hi = lo, hi
-    # [consistency-patch] original band was min(2*half, outer). Too narrow:
-    # under progressive loading the ridge crest migrates outward, and past
-    # mid-track it leaves the window, so h_p reads a flank instead of the
-    # crest (-5.4 um at x = 2195 um on PC_20N). min(outer, 3*half) keeps the
-    # crest and costs 0.1 um of extra baseline on a rough surface.
     r_lo = max(0, row_c - ridge_band_px(half, outer))
     r_hi = min(ny, row_c + ridge_band_px(half, outer) + 1)
 
     Zq = median_axis(Zf, med_y_px, axis=0) if med_y_px > 1 else Zf
 
     with np.errstate(invalid="ignore"):
-        # [despike-patch] original: extrema taken directly on Zf
-        # h_r = np.nanmin(Zf[lo:hi, :], axis=0)
-        # h_l = np.nanmax(Zf[lo:g_lo, :], axis=0) if g_lo > lo else np.full(nx, np.nan)
-        # h_rt = np.nanmax(Zf[g_hi:hi, :], axis=0) if hi > g_hi else np.full(nx, np.nan)
         h_r = np.nanmin(Zq[lo:hi, :], axis=0)
-        # [rough-patch] ridges searched in half < |y - y_c| < 2*half
         h_l = (np.nanmax(Zq[r_lo:g_lo, :], axis=0) if g_lo > r_lo
                else np.full(nx, np.nan))
         h_rt = (np.nanmax(Zq[g_hi:r_hi, :], axis=0) if r_hi > g_hi
                 else np.full(nx, np.nan))
 
-    if hampel_win_px and hampel_win_px > 2:                  # [despike-patch]
+    if hampel_win_px and hampel_win_px > 2:
         h_r = hampel(h_r, hampel_win_px, hampel_k)
         h_l = hampel(h_l, hampel_win_px, hampel_k)
         h_rt = hampel(h_rt, hampel_win_px, hampel_k)
 
-    # the groove exists where it is deeper than a few times the noise floor,
-    # and over a contiguous stretch rather than a scattering of columns
-    # [rough-patch] The threshold used to be depth_threshold * sigma,
-    # sigma being the scatter of the RAW reference bands. But h_r is not a
-    # sample of the field, it is the minimum of one over ~2*half rows, and
-    # the expected minimum of N samples of scatter s sits near -3s. On a
-    # rough surface that bias is -15 um and the test becomes meaningless.
-    # So run the SAME estimator on unscratched material -- a core-sized band
-    # placed in the reference region on both sides -- and read the bias and
-    # the scatter of h_r directly off it.
-    # [upstream-patch] Prefer the upstream columns: same estimator, same y,
-    # on material the indenter never touched. The lateral placement below is
-    # only a fallback -- on a wide pile-up it lands on the ridge itself and
-    # returns the ridge height as a "bias".
+    # Groove presence: h_r below the bias of the same estimator on unscratched
+    # material (upstream columns, else lateral bands) by depth_threshold * scatter.
     ref_rows = []
     if up_cols > 20:
         ref_rows.append(h_r[:int(up_cols)])
@@ -810,34 +588,26 @@ def build_profiles(Zf, x_um, y_um, row_c, half, outer, sigma,
     else:
         bias_r, scat_r = 0.0, sigma
         thr = -depth_threshold * sigma if np.isfinite(sigma) else -1.0
-    # [measure-field-patch] detection on a smoothed copy, values on the raw
-    # one: h_r is no longer low-passed along x, so a bare threshold test
-    # would latch onto isolated negative excursions far ahead of the groove.
+    # Detection on a smoothed copy of h_r, to ignore isolated dips.
     h_det = moving_average(h_r, detect_win_px) if detect_win_px > 1 else h_r
     present = np.isfinite(h_det) & (h_det < thr)
     present = longest_run(present, close=max(5, nx // 100),
                           min_len=max(5, nx // 50))
 
-    # [penetration-patch] w0 along the whole track. Same levelled field, same bands.
     w0 = groove_width_profile(Zq, row_c, half, outer,
                               (y_um[1] - y_um[0]) if y_um.size > 1 else 1.0)
     if hampel_win_px and hampel_win_px > 2:
         w0 = hampel(w0, hampel_win_px, hampel_k)
     w0 = np.where(present, w0, np.nan)
 
-    return {"bias_r": bias_r, "scatter_r": scat_r,      # [rough-patch]
+    return {"bias_r": bias_r, "scatter_r": scat_r,
             "h_r": h_r, "h_p_left": h_l, "h_p_right": h_rt,
-            "w0": w0,                                   # [penetration-patch]
+            "w0": w0,
             "present": present, "threshold": thr}
 
 
 def longest_run(flag, close=0, min_len=0):
-    """Keep only the longest contiguous True run, after closing small gaps.
-
-    Isolated columns can dip below the detection threshold because of debris
-    or a fringe-order artefact. Requiring a contiguous run avoids reporting a
-    groove that starts hundreds of microns before the real one.
-    """
+    """Keep only the longest contiguous True run, after closing small gaps."""
     f = np.asarray(flag, dtype=bool).copy()
     if not f.any():
         return f
@@ -861,12 +631,7 @@ def longest_run(flag, close=0, min_len=0):
 
 
 def terminal_mound(Zf, x_um, row_c, half, present, tail_frac=0.25):
-    """Height and position of the mound left at the lift-off point.
-
-    Searched inside the track band, downstream of the last point where the
-    groove is still present. If the groove runs to the edge of the field the
-    mound was not scanned and None is returned.
-    """
+    """Height and position of the terminal mound at the lift-off point (None if out of view)."""
     ny, nx = Zf.shape
     if not present.any():
         return None
@@ -874,10 +639,6 @@ def terminal_mound(Zf, x_um, row_c, half, present, tail_frac=0.25):
     if i_end >= nx - 5:
         return None                      # groove leaves the field of view
 
-    # [measure-field-patch] original: band was |y - y_c| < 2 * half, which
-    # reaches the lateral ridges; their crest is comparable to the frontal
-    # mound and can be returned instead of it.
-    # band = Zf[max(0, row_c - 2 * half):min(ny, row_c + 2 * half + 1), :]
     band = Zf[max(0, row_c - half):min(ny, row_c + half + 1), :]
     with np.errstate(invalid="ignore"):
         crest = np.nanmax(band, axis=0)
@@ -892,14 +653,7 @@ def terminal_mound(Zf, x_um, row_c, half, present, tail_frac=0.25):
 
 
 def pick_sections(profiles, x_um, n, deep_margin=0.05, deep_win_px=1):
-    """Return n column indices, anchored on the deepest point of the track.
-
-    [anchor-patch] The first section is the deepest point of the scratch,
-    which under progressive loading is reached near its end. It is searched
-    on a smoothed h_r and away from the edges of the image, where imaging
-    artefacts and the lift-off ramp both live. The other n-1 are stepped
-    uniformly to the LEFT of it, down the loading ramp.
-    """
+    """Return n section column indices: the deepest point of the track and n-1 upstream of it."""
     present = profiles["present"]
     h_r = profiles["h_r"]
     nx = x_um.size
@@ -928,63 +682,7 @@ def pick_sections(profiles, x_um, n, deep_margin=0.05, deep_win_px=1):
     idx = sorted({int(round(v)) for v in np.linspace(left, i_deep, n)})
     return idx
 
-    # ------------------------------------------------------------------
-    # [anchor-patch] original body kept for reference
-    # i_deep = int(np.nanargmin(np.where(present, h_r, np.nan)))
-    # lo = int(np.min(np.nonzero(present)[0]))
-    # hi = int(np.max(np.nonzero(present)[0]))
-
-    # [picksections-patch] The separation is set by the span actually
-    # detected, not by the field width. Asking for n sections spread over the
-    # groove and then forbidding them to sit closer than 3 % of a field ten
-    # times longer is a contradiction, and the old random retry loop below
-    # spun forever whenever it happened.
-    #
-    #   others = np.linspace(lo, hi, n)
-    #   idx = {i_deep}
-    #   for cand in others:
-    #       cand = int(round(cand))
-    #       if all(abs(cand - k) > 0.03 * x_um.size for k in idx):
-    #           idx.add(cand)
-    #       if len(idx) == n:
-    #           break
-    #   while len(idx) < n:                      # <-- unbounded, could not exit
-    #       cand = int(np.random.randint(lo, hi + 1))
-    #       if all(abs(cand - k) > 0.03 * x_um.size for k in idx):
-    #           idx.add(cand)
-    #   return sorted(idx)
-
-    span = max(1, hi - lo)
-    sep = max(1.0, min(0.03 * x_um.size, 0.5 * span / float(max(1, n - 1))))
-
-    idx = {i_deep}
-    for cand in np.linspace(lo, hi, n):
-        cand = int(round(cand))
-        # do not stack a section on top of the deepest one
-        if all(abs(cand - k) > sep for k in idx):
-            idx.add(cand)
-        if len(idx) >= n:
-            break
-
-    # bounded deterministic fill, relaxing the separation once. If n
-    # well-separated positions do not exist, return fewer: analyse() and
-    # plot_all() both work off len(sec_idx).
-    if len(idx) < n:
-        for cand in np.linspace(lo, hi, 8 * n):
-            cand = int(round(cand))
-            if cand in idx:
-                continue
-            if all(abs(cand - k) > max(1.0, 0.5 * sep) for k in idx):
-                idx.add(cand)
-            if len(idx) >= n:
-                break
-
-    return sorted(idx)
-
-
-# ==========================================================================
 # 5. plotting
-# ==========================================================================
 
 def plot_all(res, title, out):
     Zf = res["Zf"]
@@ -999,7 +697,7 @@ def plot_all(res, title, out):
     gs = fig.add_gridspec(3, 2, height_ratios=[1.0, 1.0, 1.0],
                           hspace=0.42, wspace=0.24)
 
-    # --- map --------------------------------------------------------------
+    # map
     a = fig.add_subplot(gs[0, :])
     im = a.imshow(Zf, origin="lower", cmap="RdBu_r", vmin=-v, vmax=v,
                   extent=[x_um[0], x_um[-1], y_um[0], y_um[-1]],
@@ -1014,7 +712,7 @@ def plot_all(res, title, out):
                 "(dashed = reference limit, vertical = sections)")
     fig.colorbar(im, ax=a, label="Z  [um]", fraction=0.022, pad=0.01)
 
-    # --- along-track profiles --------------------------------------------
+    # along-track profiles
     a = fig.add_subplot(gs[1, :])
     a.plot(x_um, prof["h_r_s"], lw=1.6, color="C0", label=r"$h_r$ groove floor")
     a.plot(x_um, prof["h_p_left_s"], lw=1.4, color="C3",
@@ -1024,10 +722,7 @@ def plot_all(res, title, out):
     a.axhline(0, color="k", lw=0.6)
     a.axhline(prof["threshold"], color="0.5", lw=0.8, ls=":",
               label="detection threshold")
-    # [frontal-curve-patch] the groove floor, continued past the lift-off
-    # point on the track axis and recoloured where it becomes the frontal
-    # pile-up. Drawn from the deepest point so that the blue part overlays
-    # h_r and the eye reads one single curve.
+    # Groove floor continued past lift-off on the track axis, recoloured as frontal pile-up.
     ha = prof.get("h_axis")   # unsmoothed: the mound apex must not be flattened
     if ha is not None and prof["present"].any():
         i_d = int(np.nanargmin(np.where(prof["present"], prof["h_r"], np.nan)))
@@ -1054,7 +749,7 @@ def plot_all(res, title, out):
     a.legend(fontsize=8.5, ncol=3)
     a.grid(alpha=0.3)
 
-    # --- transverse sections ---------------------------------------------
+    # transverse sections
     a = fig.add_subplot(gs[2, 0])
     cmap = plt.get_cmap("viridis")
     n = max(1, len(sec_idx) - 1)
@@ -1072,7 +767,7 @@ def plot_all(res, title, out):
     a.legend(fontsize=7.5)
     a.grid(alpha=0.3)
 
-    # --- area balance ------------------------------------------------------
+    # area balance
     a = fig.add_subplot(gs[2, 1])
     xs = [x_um[i] for i in sec_idx]
     ag = [s["area_groove"] if s else np.nan for s in sections]
@@ -1096,32 +791,28 @@ def plot_all(res, title, out):
     return out
 
 
-# ==========================================================================
 # 6. driver
-# ==========================================================================
 
 def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
             depth_threshold=3.0, outer_px=None,
-            despike_k=5.0, despike_x=200.0, despike_y=9.0,   # [despike-patch]
-            despike_col_frac=0.50, median_y=8.0,             # [despike-patch]
-            hampel_len=120.0, hampel_k=4.0,                  # [despike-patch]
-            axial_band=0.0,                         # [frontal-curve-patch]
-            detect_win=25.0, section_win=25.0,             # [no-smooth-patch]
-            locate_win=4.0,                               # [no-smooth-patch]
-            measure_win=0.0,                                   # [rough-patch]
-            centre_guard=0.25, track_y=None,                   # [anchor-patch]
-            deep_margin=0.05, deep_win=100.0,                  # [anchor-patch]
-            upstream=None,                                  # [upstream-patch]
-            section_rezero=True,                       # [consistency-patch]
-            tip_radius=None, tip_angle=None,                 # [penetration-patch]
+            despike_k=5.0, despike_x=200.0, despike_y=9.0,
+            despike_col_frac=0.50, median_y=8.0,
+            hampel_len=120.0, hampel_k=4.0,
+            axial_band=0.0,
+            detect_win=25.0, section_win=25.0,
+            locate_win=4.0,
+            measure_win=0.0,
+            centre_guard=0.25, track_y=None,
+            deep_margin=0.05, deep_win=100.0,
+            upstream=None,
+            section_rezero=True,
+            tip_radius=None, tip_angle=None,
             k_slope=None, k_intercept=None, k_clip=None,
-            material=DEFAULT_MATERIAL, k_quad=None,          # [material-k-patch]
+            material=DEFAULT_MATERIAL, k_quad=None,
             k_window=None,
             penetration=True):
-    # [penetration-patch] resolve the tip / recovery defaults once, then thread them down.
     tip_radius = TIP_RADIUS_UM if tip_radius is None else float(tip_radius)
     tip_angle = TIP_HALF_ANGLE_DEG if tip_angle is None else float(tip_angle)
-    # [material-k-patch] the recovery law now comes from a named material preset.
     _km = k_model(material, quad=k_quad, slope=k_slope,
                   intercept=k_intercept, clip=k_clip, window=k_window)
     k_slope, k_intercept, k_quad = _km["slope"], _km["intercept"], _km["quad"]
@@ -1131,18 +822,14 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
     dx, dy = pixel_size(hdr)
     ny, nx = Z.shape
 
-    # [no-smooth-patch] win_x / win_y are now COSMETIC ONLY. The detection
-    # and the section width have their own windows so that --no-smooth
-    # cannot silently change what is measured.
+    # win_x / win_y only smooth the display; measurements use their own windows.
     win_x = max(1, int(round(smooth_x / dx)))
     win_y = max(1, int(round(smooth_y / dy)))
     win_det = max(1, int(round(detect_win / dx)))
     win_sec = max(1, int(round(section_win / dx)))
     win_loc = max(1, int(round(locate_win / dy)))
 
-    # [despike-patch] reject the compact defects on the RAW map, before the
-    # form fit: a debris patch sitting in a reference band also drags the
-    # polynomial and inflates the noise floor.
+    # Remove compact defects on the raw map, before the form fit.
     Z_raw = Z
     Z, bad, sig_spike = despike_map(
         Z,
@@ -1150,16 +837,14 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
         max(1, int(round(despike_y / dy))),
         k=despike_k, max_col_frac=despike_col_frac)
 
-    # [no-smooth-patch] original: locate_track(Z, dy, win_y)
-    row_c, half, outer, _ = locate_track(Z, dy, win_loc,      # [anchor-patch]
+    row_c, half, outer, _ = locate_track(Z, dy, win_loc,
                                         centre_guard=centre_guard)
-    if track_y is not None:                                  # [anchor-patch]
+    if track_y is not None:
         row_c = int(np.clip(round(track_y / dy), 0, ny - 1))
     if outer_px is not None:
         outer = int(outer_px)
 
-    # [despike-patch] second pass, now that the track band is known, so the
-    # column guard can distinguish a blob from a real transverse event
+    # Second despike pass, now that the track band is known.
     if despike_k > 0:
         Z, bad2, sig_spike = despike_map(
             Z_raw,
@@ -1169,7 +854,7 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
             band=(max(0, row_c - half), min(ny, row_c + half + 1)))
         bad = bad2
 
-    # [upstream-patch] undisturbed columns, before the indenter came down
+    # Undisturbed upstream columns
     if upstream is None:
         up_cols = upstream_limit(Z, row_c, half)
     elif upstream <= 0:
@@ -1178,57 +863,40 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
         up_cols = int(round(upstream / dx))
 
     Zf, ref, mask, sigma = flatten(Z, row_c, outer, degree=degree,
-                                   up_cols=up_cols)         # [upstream-patch]
+                                   up_cols=up_cols)
     Zs = smooth2d(Zf, win_x, win_y)
 
-    # [measure-field-patch] two fields from here on:
-    #   Zs  smoothed along x -- map and display curves ONLY
-    #   Zm  transverse median only -- everything that is measured
-    # The moving average along x is a low-pass on the signal, and h_r, h_p
-    # and the frontal mound are extrema of features whose curvature radius
-    # is of the order of the window. It used to cost 1.2 um on the mound.
+    # Zs: smoothed along x, display only. Zm: transverse median, used for all measurements.
     Zm = median_axis(Zf, max(1, int(round(median_y / dy))), axis=0)
 
-    # [rough-patch] optional along-track average of the MEASUREMENT field.
-    # The waviness of a rough polymer decorrelates over a few tens of um of
-    # x while the groove is invariant over hundreds, so averaging along the
-    # track is the only filter that separates them. Off by default: it
-    # flattens the groove end and the frontal mound, which is why the
-    # measure-field patch took it out of the default path.
+    # Optional along-track average of the measurement field (rough surfaces).
     Zm_raw = Zm
     if measure_win > 0:
         Zm = smooth2d(Zm, max(1, int(round(measure_win / dx))), 1)
-        # The frontal mound is only ~150 um long: the full averaging window
-        # would erase it (22.4 -> 5.1 um, checked on PMMAGS_20N). It keeps a
-        # short window of its own, enough to tame the waviness.
+        # The frontal mound keeps a shorter window (<= 60 um) so that it is not erased.
         Zm_raw = smooth2d(Zm_raw, max(1, int(round(min(measure_win, 60.0) / dx))), 1)
 
     x_um = np.arange(nx) * dx
     y_um = np.arange(ny) * dy
 
-    # [measure-field-patch] original: prof = build_profiles(Zs, ...)
     prof = build_profiles(Zm, x_um, y_um, row_c, half, outer, sigma,
                           depth_threshold=depth_threshold,
                           med_y_px=1,        # already applied on Zm
                           hampel_win_px=int(round(hampel_len / dx)),
                           hampel_k=hampel_k,
-                          detect_win_px=win_det,             # [no-smooth-patch]
-                          up_cols=up_cols)                   # [upstream-patch]
-    # [frontal-curve-patch] axial profile on the track axis: the only
-    # quantity that stays single-valued through the lift-off transition, and
-    # therefore the only one that can carry the frontal mound continuously.
-    # Zm already holds a transverse median, so axial_band = 0 (one row) is
-    # already an average over median_y.
+                          detect_win_px=win_det,
+                          up_cols=up_cols)
+    # Axial profile on the track axis, carries the frontal mound continuously.
     w_ax = max(0, int(round(axial_band / dy)))
     with np.errstate(invalid="ignore"):
-        prof["h_axis"] = np.nanmean(               # [rough-patch] Zm_raw
+        prof["h_axis"] = np.nanmean(
             Zm_raw[row_c - w_ax:row_c + w_ax + 1, :], axis=0)
 
-    # [penetration-patch] along-track penetration, from the along-track w0.
+    # Along-track penetration from w0
     if penetration:
         prof["h_pen"] = -penetration_from_width(
             prof["w0"], tip_radius, tip_angle, k_slope, k_intercept,
-            k_clip[0], k_clip[1], quad=k_quad,             # [material-k-patch]
+            k_clip[0], k_clip[1], quad=k_quad,
             d_lo=k_window[0], d_hi=k_window[1])
     else:
         prof["w0"] = np.full(nx, np.nan)
@@ -1237,11 +905,10 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
     for key in ("h_r", "h_p_left", "h_p_right", "h_axis", "w0", "h_pen"):
         prof[key + "_s"] = moving_average(prof[key], win_x)
 
-    # [measure-field-patch] original: terminal_mound(Zs, ...)
-    mound = terminal_mound(Zm_raw, x_um, row_c, half,   # [rough-patch]
+    mound = terminal_mound(Zm_raw, x_um, row_c, half,
                            prof["present"])
 
-    sec_idx = pick_sections(prof, x_um, n_sections,          # [anchor-patch]
+    sec_idx = pick_sections(prof, x_um, n_sections,
                             deep_margin=deep_margin,
                             deep_win_px=max(1, int(round(deep_win / dx))))
     i_deep = (int(np.nanargmin(np.where(prof["present"], prof["h_r"], np.nan)))
@@ -1249,38 +916,35 @@ def analyse(path, smooth_x=25.0, smooth_y=4.0, degree=2, n_sections=5,
 
     sec_profiles, sections = [], []
     for i in sec_idx:
-        # [no-smooth-patch] original: half-width was win_x // 2
         a, b = max(0, i - win_sec // 2), min(nx, i + win_sec // 2 + 1)
-        # [measure-field-patch] original: p = np.nanmean(Zs[:, a:b], axis=1)
         p = np.nanmean(Zm[:, a:b], axis=1)
-        # re-zero on the CLIPPED reference rows: using the raw bands would
-        # let a debris patch or an artefact drag the whole section
-        if section_rezero:                       # [consistency-patch]
+        # Re-zero on the clipped reference rows
+        if section_rezero:
             sel = mask[:, a:b].any(axis=1)
             if sel.sum() < 10:
                 sel = ref[:, i]
             p = p - np.nanmedian(p[sel])
         sec_profiles.append(p)
         sections.append(section_values(p, y_um, row_c, half, outer,
-                                       tip_radius=tip_radius,   # [penetration-patch]
+                                       tip_radius=tip_radius,
                                        tip_angle=tip_angle,
                                        k_slope=k_slope,
                                        k_intercept=k_intercept,
-                                       k_quad=k_quad,           # [material-k-patch]
+                                       k_quad=k_quad,
                                        k_clip=k_clip,
                                        k_window=k_window,
                                        penetration=penetration))
 
     return {
         "path": path, "hdr": hdr, "Z": Z, "Zf": Zs, "ref": ref,
-        "Z_raw": Z_raw, "bad": bad, "sigma_spike": sig_spike,  # [despike-patch]
-        "Zm": Zm,                                    # [measure-field-patch]
+        "Z_raw": Z_raw, "bad": bad, "sigma_spike": sig_spike,
+        "Zm": Zm,
         "dx": dx, "dy": dy, "x_um": x_um, "y_um": y_um,
         "row_c": row_c, "half": half, "outer": outer, "sigma": sigma,
-        "up_cols": up_cols,                          # [upstream-patch]
+        "up_cols": up_cols,
         "win_x": win_x, "win_y": win_y,
         "profiles": prof, "mound": mound,
-        "k_model": _km,                              # [material-k-patch]
+        "k_model": _km,
         "sec_idx": sec_idx, "sections": sections,
         "sec_profiles": sec_profiles, "i_deep": i_deep,
     }
@@ -1291,7 +955,7 @@ def describe(res):
     out = ["file            : %s" % os.path.basename(res["path"])]
     out.append("field           : %.0f x %.0f um  (%.4f um/px)"
                % (x[-1], res["y_um"][-1], res["dx"]))
-    if res["win_x"] <= 1 and res["win_y"] <= 1:       # [no-smooth-patch]
+    if res["win_x"] <= 1 and res["win_y"] <= 1:
         out.append("smoothing       : off (--no-smooth); nothing measured "
                    "went through it either way")
     else:
@@ -1302,24 +966,24 @@ def describe(res):
     out.append("track centre    : y = %.1f um, half-width %.1f um"
                % (res["row_c"] * res["dy"], res["half"] * res["dy"]))
     out.append("reference bands : |y - yc| > %.1f um" % (res["outer"] * res["dy"]))
-    if res["outer"] < 3 * res["half"]:                        # [anchor-patch]
+    if res["outer"] < 3 * res["half"]:
         out.append("  WARNING       : that is only %.1f groove half-widths "
                    "from the axis. The pile-up probably reaches into the "
                    "reference bands, so the form fit is biased. Widen the "
                    "scan across the track, or set --outer / --track-y."
                    % (res["outer"] / float(max(1, res["half"]))))
-    if res.get("up_cols", 0) > 0:                          # [upstream-patch]
+    if res.get("up_cols", 0) > 0:
         out.append("upstream zone   : x < %.0f um, used as reference over "
                    "the full height" % (res["up_cols"] * res["dx"]))
     else:
         out.append("upstream zone   : none found; reference is the lateral "
                    "bands only")
     out.append("noise floor     : %.2f um (robust sigma on the bands)" % res["sigma"])
-    if "bias_r" in res["profiles"]:                          # [rough-patch]
+    if "bias_r" in res["profiles"]:
         out.append("h_r estimator    : bias %+.2f um, scatter %.2f um, "
                    "measured on unscratched material with the same estimator"
                    % (res["profiles"]["bias_r"], res["profiles"]["scatter_r"]))
-    if "bad" in res:                                          # [despike-patch]
+    if "bad" in res:
         nb = int(res["bad"].sum())
         out.append("defects removed : %d pixels (%.3f %% of the field), "
                    "residual sigma %.3f um"
@@ -1330,7 +994,7 @@ def describe(res):
         i0 = int(np.min(np.nonzero(p["present"])[0]))
         i1 = int(np.max(np.nonzero(p["present"])[0]))
         out.append("groove detected : x = %.0f -> %.0f um" % (x[i0], x[i1]))
-        if (i1 - i0) < 0.2 * x.size:             # [picksections-patch]
+        if (i1 - i0) < 0.2 * x.size:
             out.append("  WARNING       : only %.0f %% of the field. The "
                        "presence test sits at %.2f um, %.1f x the %.2f um "
                        "noise floor -- on a rough surface, lower --threshold."
@@ -1345,7 +1009,7 @@ def describe(res):
         out.append("terminal mound  : %.2f um at x = %.0f um "
                    "(groove ends at %.0f um)"
                    % (m["height"], m["x"], m["x_groove_end"]))
-        if "h_axis" in p:                        # [frontal-curve-patch]
+        if "h_axis" in p:
             i_e = int(np.max(np.nonzero(p["present"])[0]))
             out.append("  on the axis   : %.2f um  (crest over the core band "
                        "is the value above)" % np.nanmax(p["h_axis"][i_e:]))
@@ -1358,13 +1022,12 @@ def describe(res):
                    "sections below are")
         out.append("  evenly spaced fallbacks and their values are noise, "
                    "not measurements.")
-        if res["profiles"].get("scatter_r", 0.0) > 1.5:      # [rough-patch]
+        if res["profiles"].get("scatter_r", 0.0) > 1.5:
             out.append("  The h_r estimator scatters by %.1f um on this "
                        "surface: the waviness is comparable to the scratch. "
                        "Try --rough."
                        % res["profiles"]["scatter_r"])
         out.append("")
-    # [penetration-patch] the two extra columns only exist when the estimator ran.
     _pen = any(s is not None and "h_pen" in s for s in res["sections"])
     if _pen:
         out.append("  %-9s %9s %9s %9s %9s %9s %9s %11s"
@@ -1378,7 +1041,6 @@ def describe(res):
         if s is None:
             continue
         tag = " *" if i == res["i_deep"] else "  "
-        # [penetration-patch] original row kept for the --no-penetration path.
         if _pen:
             out.append("%s%-9.0f %9.2f %9.2f %9.1f %9.2f %9.2f %9.1f %11.2f"
                        % (tag, x[i], s["h_r"], s["h_pen"], s["w0"],
@@ -1389,13 +1051,11 @@ def describe(res):
                        % (tag, x[i], s["h_r"], s["h_p_left"],
                           s["h_p_right"], s["area_groove"], s["area_ratio"]))
     out.append("  (* = deepest section; h in um, areas in um^2)")
-    # [penetration-patch] provenance and validity of the ~h_pen column.
     _d = [-s["h_pen"] for s in res["sections"]
           if s is not None and np.isfinite(s.get("h_pen", np.nan))]
     if _d:
         out.append("  ~h_pen          : contact penetration inverted from w0 via a"
                    " sphere-cone tip")
-        # [material-k-patch] report the preset actually used, not the module default.
         _km = res.get("k_model", {})
         out.append("                    R = %.0f um, half-angle %.0f deg, k(d) = %.6g d^2 + %.5f d + %.4f"
                    % (TIP_RADIUS_UM, TIP_HALF_ANGLE_DEG,
@@ -1424,14 +1084,14 @@ def export(res, stem_dir):
     with open(f1, "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["x_um", "h_r_um", "h_p_left_um", "h_p_right_um",
-                    "h_axis_um",                     # [frontal-curve-patch]
-                    "w0_um", "h_pen_um",             # [penetration-patch]
+                    "h_axis_um",
+                    "w0_um", "h_pen_um",
                     "groove_present"])
         for i in range(x.size):
             w.writerow(["%.4f" % x[i], "%.5g" % p["h_r_s"][i],
                         "%.5g" % p["h_p_left_s"][i], "%.5g" % p["h_p_right_s"][i],
-                        "%.5g" % p["h_axis_s"][i],   # [frontal-curve-patch]
-                        "%.5g" % p["w0_s"][i],       # [penetration-patch]
+                        "%.5g" % p["h_axis_s"][i],
+                        "%.5g" % p["w0_s"][i],
                         "%.5g" % p["h_pen_s"][i],
                         int(p["present"][i])])
 
@@ -1441,7 +1101,7 @@ def export(res, stem_dir):
         w.writerow(["x_um", "is_deepest", "h_r_um", "h_p_left_um",
                     "h_p_right_um", "y_p_left_um", "y_p_right_um",
                     "area_groove_um2", "area_pileup_um2", "area_ratio",
-                    "w0_um", "h_pen_um"])            # [penetration-patch]
+                    "w0_um", "h_pen_um"])
         for i, s in zip(res["sec_idx"], res["sections"]):
             if s is None:
                 continue
@@ -1450,7 +1110,7 @@ def export(res, stem_dir):
                         "%.4f" % s["h_p_right"], "%.2f" % s["y_p_left"],
                         "%.2f" % s["y_p_right"], "%.3f" % s["area_groove"],
                         "%.3f" % s["area_pileup"], "%.4f" % s["area_ratio"],
-                        "%.3f" % s.get("w0", float("nan")),   # [penetration-patch]
+                        "%.3f" % s.get("w0", float("nan")),
                         "%.3f" % s.get("h_pen", float("nan"))])
     return f1, f2
 
@@ -1492,7 +1152,7 @@ def main(argv=None):
                    help="groove detection threshold, in noise sigma (default 3)")
     p.add_argument("--outer", type=int, default=None,
                    help="override the reference-band limit, in pixels")
-    # ---------------- outlier rejection ----------------  [despike-patch]
+    # outlier rejection
     p.add_argument("--despike-k", type=float, default=5.0,
                    help="defect rejection threshold in robust sigma "
                         "(default 5; 0 disables the despiker)")
@@ -1513,7 +1173,7 @@ def main(argv=None):
                         "(default 120; 0 disables it)")
     p.add_argument("--hampel-k", type=float, default=4.0,
                    help="Hampel threshold in local sigma (default 4)")
-    # ------------------ smoothing ------------------  [no-smooth-patch]
+    # smoothing
     g = p.add_mutually_exclusive_group()
     g.add_argument("--smooth", dest="no_smooth", action="store_false",
                    help="smooth the map and the display curves (default)")
@@ -1560,7 +1220,7 @@ def main(argv=None):
     p.add_argument("--locate-win", type=float, default=4.0,
                    help="transverse smoothing used to locate the track, in um "
                         "(default 4)")
-    # [penetration-patch] penetration estimator
+    # penetration estimator
     p.add_argument("--tip-radius", type=float, default=None,
                    help="indenter sphere radius, in um (default 200, "
                         "Rockwell C)")
@@ -1574,7 +1234,7 @@ def main(argv=None):
     p.add_argument("--k-clip", type=float, nargs=2, default=None,
                    metavar=("KMIN", "KMAX"),
                    help="bounds applied to k(d) (default from the preset)")
-    p.add_argument("--material", default=DEFAULT_MATERIAL,      # [material-k-patch]
+    p.add_argument("--material", default=DEFAULT_MATERIAL,
                    choices=sorted(K_PRESETS),
                    help="recovery-factor preset k(d) (default pmma). Use "
                         "pc for polycarbonate: it closes its flanks less, "
@@ -1595,7 +1255,7 @@ def main(argv=None):
                         "transversally median-filtered field)")
     args = p.parse_args(argv)
 
-    if args.measure_win is None:                             # [rough-patch]
+    if args.measure_win is None:
         args.measure_win = 300.0 if args.rough else 0.0
     if args.rough:
         if args.median_y == 8.0:
@@ -1619,36 +1279,36 @@ def main(argv=None):
             print("=" * 70)
         try:
             process(path, outdir=args.outdir, out=args.out,
-                    exportdir=args.export,            # [no-smooth-patch]
+                    exportdir=args.export,
                     smooth_x=0.0 if args.no_smooth else args.smooth_x,
                     smooth_y=0.0 if args.no_smooth else args.smooth_y,
                     detect_win=args.detect_win,
                     section_win=args.section_win,
                     locate_win=args.locate_win,
-                    upstream=args.upstream,               # [upstream-patch]
-                    section_rezero=args.section_rezero,  # [consistency-patch]
-                    centre_guard=args.centre_guard,           # [anchor-patch]
+                    upstream=args.upstream,
+                    section_rezero=args.section_rezero,
+                    centre_guard=args.centre_guard,
                     track_y=args.track_y,
                     deep_margin=args.deep_margin,
                     deep_win=args.deep_win,
-                    measure_win=args.measure_win,                # [rough-patch]
+                    measure_win=args.measure_win,
                     n_sections=args.sections,
                     degree=args.degree, depth_threshold=args.threshold,
                     outer_px=args.outer,
-                    despike_k=args.despike_k,                # [despike-patch]
+                    despike_k=args.despike_k,
                     despike_x=args.despike_x,
                     despike_y=args.despike_y,
                     despike_col_frac=args.despike_col_frac,
                     median_y=args.median_y,
                     hampel_len=args.hampel_len,
                     hampel_k=args.hampel_k,
-                    axial_band=args.axial_band,  # [frontal-curve-patch]
-                    tip_radius=args.tip_radius,          # [penetration-patch]
+                    axial_band=args.axial_band,
+                    tip_radius=args.tip_radius,
                     tip_angle=args.tip_angle,
                     k_slope=args.k_slope,
                     k_intercept=args.k_intercept,
                     k_clip=args.k_clip,
-                    material=args.material,              # [material-k-patch]
+                    material=args.material,
                     k_quad=args.k_quad,
                     k_window=args.k_window,
                     penetration=args.penetration)

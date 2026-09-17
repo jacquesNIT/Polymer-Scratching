@@ -1,4 +1,4 @@
-# Substrate material creation and assignment for polymer scratch simulation.
+# Creates the substrate material from Material_Config, assigns its section and sets the contact friction.
 
 from ScratchSimulation.AbaqusModel.abaqus_env import *
 
@@ -24,7 +24,7 @@ class SubstrateMaterialAssignment:
     _PLASTICITY_BUILDERS   = {"none": "_skip", "mises": "_j2_plasticity", "drucker_prager": "_drucker_prager"}
     _DAMAGE_BUILDERS       = {"none": "_skip"}
 
-    #  Base-elasticity MODELS that are hyperelastic (mutually exclusive with plasticity)
+    # Hyperelastic base models (mutually exclusive with plasticity)
     _HYPERELASTIC_MODELS = ("mooney_rivlin", "neo_hooke", "yeoh", "ogden", "arruda_boyce")
 
 
@@ -41,7 +41,7 @@ class SubstrateMaterialAssignment:
 
         self.mat.Density(table=((mc.rho,),))
 
-        # 2-5. Constitutive blocks, dispatched by their MODEL string
+        # Constitutive blocks, dispatched by their MODEL string
         self._apply_block(mc.hyperelastic, self._HYPERELASTIC_BUILDERS, "hyperelastic")
         self._apply_block(mc.viscoelastic, self._VISCOELASTIC_BUILDERS, "viscoelastic")
         self._apply_block(mc.plasticity,   self._PLASTICITY_BUILDERS,   "plasticity")
@@ -50,8 +50,7 @@ class SubstrateMaterialAssignment:
         return self.mat
     
     def _validate_material(self, mc):
-        # Abaqus forbids combining a hyperelastic base with metal plasticity.
-        # Linear elasticity + plasticity is the valid plastic combo.
+        # Abaqus forbids combining a hyperelastic base with plasticity.
         base = mc.hyperelastic.MODEL
         plast = mc.plasticity.MODEL
         visco = mc.viscoelastic.MODEL
@@ -127,24 +126,9 @@ class SubstrateMaterialAssignment:
 
     #  Friction
     def update_friction(self):
-        # Push the Friction_Config onto the contact property tangential behavior.
-        #
-        # Three supported cases:
-        #   constant Coulomb              -> table = ((mu,),)
-        #   pressure-dependent (Briscoe)  -> table = ((mu, p), ...)  + pressureDependency=ON
-        #   slip-rate-dependent           -> table = ((mu, v), ...)  + slipRateDependency=ON
-        #
-        # Column order follows the Abaqus *FRICTION data line:
-        #     mu, slip rate, contact pressure, temperature, field variables
-        # The dependency flags and the table are set in ONE setValues() call so
-        # Abaqus never sees an inconsistent (flags, table width) pair.
-        #
-        # OLD (Briscoe was configured in families.py but unreachable here):
-        #   if f.pressure_dependent:
-        #       raise NotImplementedError
-        #   else:
-        #       ...setValues(table=((f.mu,),))
-
+        # Push Friction_Config onto the tangential behaviour of the contact property:
+        # constant Coulomb, pressure-dependent (Briscoe) or slip-rate-dependent table.
+     
         f = self.mat_cfg.friction
         tb = self.model.interactionProperties[self.names.contact_property].tangentialBehavior
 

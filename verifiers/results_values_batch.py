@@ -1,21 +1,7 @@
-"""Batch companion to results_values.py -- one campaign folder in, one
-exploratory report out.
+"""Batch companion to results_values.py: one campaign folder in, one report (CSV + figures) out.
 
-    python3 results_values_batch.py <results_dir> [options]
-
-    --design  designs/glassy_pc_morris.csv   join factor levels on the run id
-    --out-dir batch_analysis                 destination of CSV + figures
-    --z       2.0                            extraction plane (mm)
-    --jobs    N                              parallel workers (default: cpu-1)
-    --pattern "*_Results.csv"                glob applied recursively
-    --no-plots                               table + console summary only
-
-Every scalar is computed by results_values.extract_values(): this file adds NO
-new physics, it only walks the folder, catches per-run failures, joins the
-design and plots. Changing a formula in results_values.py changes it here too.
-
-Written for CPython 3 (numpy + scipy + matplotlib). Not Abaqus-safe, and not
-meant to be -- it runs on the retrieved CSVs, off-cluster.
+Usage: python3 results_values_batch.py <results_dir> --design designs/glassy_pc_morris.csv
+       python3 results_values_batch.py <results_dir> --out-dir batch_analysis --no-plots
 """
 
 import argparse
@@ -36,9 +22,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, BoundaryNorm
 
 
-# =====================================================================
-#  Import of the single-file module -- the only source of formulas
-# =====================================================================
+# Import of results_values.py, the only source of formulas
 def load_methods(explicit=None):
     """Import results_values.py from --methods, the CWD or this file's folder."""
     candidates = []
@@ -64,22 +48,14 @@ RV = None          # populated in main(); worker processes reload it themselves
 RV_PATH = None
 
 
-# =====================================================================
-#  Acceptance thresholds -- numerical quality, not physics
-# =====================================================================
-# Each entry: (upper bound, unit, one-line meaning). A run above ANY bound is
-# tagged SUSPECT: its QoI are still written to the table (Morris needs the
-# trajectory) but the run should not be trusted blindly in the ranking.
+# Acceptance thresholds (numerical quality): (upper bound, unit, meaning).
+# A run above any bound is tagged SUSPECT but kept in the table.
 QUALITY_LIMITS = {
     "KE_IE_steady_max":     (5.0,  "%",  "kinetic / internal energy, steady window"),
     "AE_IE_final":          (2.0,  "%",  "hourglass / internal energy, end of active phase"),
     "ETOTAL_drift":         (1.0,  "%",  "energy-balance drift"),
     "ALLPW":                (2.0,  "%",  "contact penalty work"),
-    # KE_final_over_IE_peak is still extracted and written to the table, but it
-    # no longer gates the status: for the plastic families the final frame is
-    # taken after unload + recovery, where IE has already collapsed, so the
-    # ratio is large on almost every run and tags the whole campaign SUSPECT.
-    # "KE_final_over_IE_peak": (2.0, "%", "residual vibration at the final frame"),
+    # KE_final_over_IE_peak is extracted but does not gate the status (IE collapses after recovery).
 }
 
 # QoI actually looked at in the figures, in display order.
@@ -91,9 +67,7 @@ STATUS_COLORS = {
 }
 
 
-# =====================================================================
-#  Collection
-# =====================================================================
+# Collection
 ID_PATTERNS = [
     re.compile(r"Design[_-](\d+)"),      # run_parameter_study label for sweeps
     re.compile(r"(?:^|[_-])(\d{3,})(?:[_-]|$)"),
@@ -135,10 +109,7 @@ def flag_quality(row):
     if row["status"] == "ERROR":
         return row
 
-    # extract_values() does not raise on a truncated or header-only CSV: it
-    # returns the two keys it always sets and nothing else. Without this guard
-    # such a run would enter the table as a perfectly healthy OK with empty
-    # columns.
+    # Guard against truncated or header-only CSVs, which extract_values() does not reject.
     def _present(key):
         try:
             return np.isfinite(float(row[key]))
@@ -157,9 +128,7 @@ def flag_quality(row):
             continue
         if abs(float(v)) > limit:
             breached.append("%s=%.3g%s>%g" % (key, v, unit, limit))
-    # A run whose profile could not be resolved (h_p NaN) carries no pile-up
-    # information: the ValueError of calc_xy_peak_indexes is swallowed upstream
-    # into a NaN, so it has to be caught here or it silently enters the ranking.
+    # A run with an unresolved profile (h_p NaN) carries no pile-up information.
     if row.get("h_p") is not None and not np.isfinite(row.get("h_p", np.nan)):
         breached.append("h_p=NaN (groove not bracketed by 2 peaks)")
     if breached:
@@ -193,14 +162,8 @@ def collect(results_dir, z_value, pattern, jobs, methods_path):
     return rows
 
 
-# =====================================================================
-#  Design join
-# =====================================================================
-# A design file is identified by its FIRST LINE, not by its name, because the
-# per-run result CSVs live in the same tree. Sampler designs announce
-# themselves as a sweep, the calibration generators as a calibration; both are
-# designs. The generic test below catches any future wording, while the run
-# results -- whose first line is "# WallclockTime=..." -- never match it.
+# Design join
+# A design file is identified by its first line, not by its name.
 DESIGN_HINTS = ("# Sweep design", "# Calibration design")
 
 
@@ -214,11 +177,7 @@ def _is_design_header(head):
 
 
 def find_design(results_dir):
-    """Look for the sweep design next to the results, in ./designs and in the CWD.
-
-    A design file is identified by its first line, not by its name: the CSVs of
-    the runs live in the same tree and would otherwise be picked up.
-    """
+    """Look for the sweep design next to the results, in ./designs and in the CWD."""
     seen = []
     roots = [Path(results_dir), Path(results_dir) / "designs",
              Path.cwd(), Path.cwd() / "designs"]
@@ -296,9 +255,7 @@ def join_design(rows, design_rows, factors):
                     except ValueError:
                         r[key] = np.nan
 
-    # Design rows with no CSV at all: they must appear in the campaign map,
-    # otherwise a systematically crashing corner reads as an empty cell rather
-    # than as a failure -- which is exactly the informative-censoring case.
+    # Design rows without a CSV still appear in the campaign map, as failures.
     missing = []
     for rid, rec in design_rows.items():
         if rid in seen:
@@ -322,9 +279,7 @@ def join_design(rows, design_rows, factors):
     return rows
 
 
-# =====================================================================
-#  Table output
-# =====================================================================
+# Table output
 def write_table(rows, out_csv):
     lead = ["id", "status", "traj", "step", "moved", "sign", "file"]
     keys = [k for k in lead if any(k in r for r in rows)]
@@ -343,9 +298,7 @@ def write_table(rows, out_csv):
     print("\nWrote %d row(s) to %s" % (len(rows), out_csv))
 
 
-# =====================================================================
-#  Small numerical helpers
-# =====================================================================
+# Small numerical helpers
 def col(rows, key, statuses=("OK", "SUSPECT")):
     """Column of finite values for the selected statuses, plus the row indices."""
     vals, idx = [], []
@@ -364,8 +317,7 @@ def col(rows, key, statuses=("OK", "SUSPECT")):
 
 
 def _rank(x):
-    """Ranks with ties averaged. Plain argsort-of-argsort breaks ties in index
-    order, which turns two CONSTANT series into a perfect correlation."""
+    """Ranks with ties averaged."""
     order = np.argsort(x, kind="mergesort")
     ranks = np.empty(x.size, dtype=float)
     ranks[order] = np.arange(x.size, dtype=float)
@@ -382,8 +334,7 @@ def _rank(x):
 
 
 def spearman(a, b):
-    """Rank correlation on pairwise-complete data; NaN if fewer than 3 pairs
-    or if either series is constant (no ranking, hence no correlation)."""
+    """Spearman rank correlation on pairwise-complete data (NaN if < 3 pairs or constant series)."""
     m = np.isfinite(a) & np.isfinite(b)
     if m.sum() < 3:
         return np.nan
@@ -409,17 +360,9 @@ def aligned(rows, key_x, key_y):
     return np.array(xs), np.array(ys)
 
 
-# =====================================================================
-#  Figures
-# =====================================================================
+# Figures
 def fig_campaign_map(rows, out_png):
-    """Trajectory x step map of the run status, + failure rate per moved factor.
-
-    This is the first thing to read on a Morris campaign: an elementary effect
-    needs BOTH ends of a step, so a single red cell kills the effect of the
-    factor moved at that step, and a factor whose failures cluster at one level
-    is censored informatively -- its mu* is biased low, not small.
-    """
+    """Trajectory x step map of the run status, plus failure rate per moved factor."""
     have = [r for r in rows if r.get("traj") not in (None, "")]
     if not have:
         return None
@@ -460,9 +403,7 @@ def fig_campaign_map(rows, out_png):
     ax.legend(handles, STATUS_ORDER, ncol=4, loc="upper center",
               bbox_to_anchor=(0.5, -0.16), frameon=False, fontsize=8)
 
-    # Failure rate per moved factor, split by the direction of the move: this
-    # is the censoring diagnostic, a factor that only fails at sign=+1 is at a
-    # boundary of its admissible range.
+    # Failure rate per moved factor, split by move direction (censoring diagnostic).
     per = {}
     for r in have:
         f = str(r.get("moved", "") or "-")
@@ -576,12 +517,7 @@ def fig_distributions(rows, out_png):
 
 
 def fig_qoi_correlation(rows, out_png):
-    """Spearman matrix between QoI -- redundancy check before the ranking.
-
-    Two QoI at |rho| ~ 1 are the same observable: keeping both doubles the
-    weight of one physical response in the consolidated ranking without adding
-    any information.
-    """
+    """Spearman matrix between QoI (redundancy check)."""
     keys = [k for k in QOI_KEYS if k != "wallclock" and col(rows, k)[0].size >= 3]
     if len(keys) < 2:
         return None
@@ -612,13 +548,7 @@ def fig_qoi_correlation(rows, out_png):
 
 
 def fig_qoi_vs_factors(rows, factors, out_png):
-    """QoI (rows) against normalised factor levels (columns).
-
-    A Morris design is not a scatter design: each column mixes trajectories, so
-    a trend here is a MARGINAL trend, not an elementary effect. It is still the
-    fastest way to see monotonicity, saturation, and the corner where a QoI
-    blows up before running morris_analysis.py.
-    """
+    """QoI (rows) against normalised factor levels (columns), with level medians."""
     qois = [k for k in QOI_KEYS if k != "wallclock" and col(rows, k)[0].size >= 3]
     facs = [f for f in factors if col(rows, "u_" + f)[0].size >= 3]
     if not qois or not facs:
@@ -660,9 +590,7 @@ def fig_qoi_vs_factors(rows, factors, out_png):
     return out_png
 
 
-# =====================================================================
-#  Console summary
-# =====================================================================
+# Console summary
 def summarise(rows, factors):
     counts = {s: sum(1 for r in rows if r.get("status") == s) for s in STATUS_ORDER}
     total = len(rows)
@@ -725,9 +653,7 @@ def summarise(rows, factors):
     print()
 
 
-# =====================================================================
-#  Entry point
-# =====================================================================
+# Entry point
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)

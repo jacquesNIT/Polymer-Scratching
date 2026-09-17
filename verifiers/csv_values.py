@@ -1,33 +1,7 @@
-# -*- coding: utf-8 -*-
-"""lab_values.py -- in-situ profiles from a TriboSoft / Rtec MFT scratch export.
+"""In-situ force, SCOF and depth profiles from a TriboSoft / Rtec MFT scratch export.
 
-Reads a scratch CSV produced by the MFT software and plots, along the scratch
-track:
-
-    * normal force  F_n  and tangential force  F_t
-    * scratch coefficient of friction  SCOF
-    * in-situ penetration depth, with automatic detection of capacitive
-      sensor saturation
-    * SCOF and depth versus normal load
-
-File layout expected (TriboSoft export)::
-
-    line 0   recipe metadata keys      (Recipe, LogFrequency, Radius, ...)
-    line 1   recipe metadata values
-    line 2   channel header            (Step, Timestamp, DAQ.Fz (N), ...)
-    line 3+  data rows, then two trailing rows (TotalTime, hh:mm:ss)
-
-Usage::
-
-    python lab_values.py Test2-PP_10N.csv
-    python lab_values.py Test2-PP_10N.csv --out fig.png --export profiles.csv
-    python lab_values.py *.csv --outdir figures/
-
-Dependencies: numpy and matplotlib only. pandas and scipy are deliberately
-not used, because their compiled extensions are blocked by the application
-control policy on the lab workstation.
-
-Units: forces in N, depths in um, distances in mm.
+Usage: python csv_values.py Test2-PP_10N.csv --out fig.png --export profiles.csv
+       python csv_values.py *.csv --outdir figures/
 """
 
 from __future__ import annotations
@@ -45,9 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-# --------------------------------------------------------------------------
 # channel resolution
-# --------------------------------------------------------------------------
 
 # Each entry maps a logical channel to the substrings that identify it.
 # Matching is case-insensitive and ignores units, so "DAQ.Fz (N)" and
@@ -84,9 +56,7 @@ def resolve_columns(columns):
     return found
 
 
-# --------------------------------------------------------------------------
 # reading
-# --------------------------------------------------------------------------
 
 def _to_float(text):
     """Parse a cell, tolerating blanks, commas as decimal marks and junk."""
@@ -103,11 +73,7 @@ def _to_float(text):
 
 
 def read_scratch(path, step=None):
-    """Return (dict of channel arrays, channel map, metadata).
-
-    The trailing summary rows are dropped, all data cells are coerced to
-    float, and only the longest recipe step is kept unless `step` is given.
-    """
+    """Read a scratch export and return (channel arrays, channel map, metadata)."""
     with open(path, "r", newline="", errors="replace") as fh:
         rows = list(csv.reader(fh))
 
@@ -169,12 +135,10 @@ def read_scratch(path, step=None):
     return cols, ch, meta
 
 
-# --------------------------------------------------------------------------
 # numerics
-# --------------------------------------------------------------------------
 
 def moving_average(v, win):
-    """Centred moving average with edge replication (scipy-free)."""
+    """Centred moving average with edge replication, NaN-tolerant."""
     v = np.asarray(v, dtype=float)
     win = int(max(1, win))
     if win <= 1 or v.size == 0:
@@ -207,19 +171,11 @@ def nanptp(v):
     return float(np.nanmax(v) - np.nanmin(v))
 
 
-# --------------------------------------------------------------------------
 # derived quantities
-# --------------------------------------------------------------------------
 
 def build_profiles(cols, smooth_um=12.0, plateau_tol=1.0,
                    plateau_min_frac=0.02):
-    """Compute the along-track profiles and the scalar summary.
-
-    smooth_um        moving-average window, expressed in um of travel
-    plateau_tol      depth window (um) used to detect a saturated CAP sensor
-    plateau_min_frac a plateau shorter than this fraction of the track is
-                     considered a genuine depth plateau, not a sensor limit
-    """
+    """Compute the along-track profiles (forces, SCOF, depth) and the scalar summary."""
     x = cols["x"]
     s = np.abs(x - x[0])                          # travel along the track, mm
 
@@ -231,8 +187,7 @@ def build_profiles(cols, smooth_um=12.0, plateau_tol=1.0,
         with np.errstate(divide="ignore", invalid="ignore"):
             cof = np.where(fn > 1e-9, ft / fn, np.nan)
 
-    # penetration: the capacitive gauge is the primary source, the stage Z
-    # travel the fallback. Sign is resolved from the data, not assumed.
+    # penetration: capacitive gauge first, stage Z travel as fallback.
     pen, pen_src = None, None
     cap = cols.get("cap")
     zdep = cols.get("zdep")
@@ -254,8 +209,7 @@ def build_profiles(cols, smooth_um=12.0, plateau_tol=1.0,
         "smooth": lambda v: moving_average(v, win),
     }
 
-    # SCOF averaged over 10-90 % of the normal-force ramp: this excludes the
-    # initial elastic transient and the unloading tail.
+    # SCOF averaged over 10-90 % of the normal-force ramp
     fmax = np.nanmax(fn)
     band = (fn >= 0.10 * fmax) & (fn <= 0.90 * fmax)
     prof["scof"] = float(np.nanmean(cof[band])) if band.any() else np.nan
@@ -272,9 +226,7 @@ def build_profiles(cols, smooth_um=12.0, plateau_tol=1.0,
     return prof
 
 
-# --------------------------------------------------------------------------
 # plotting
-# --------------------------------------------------------------------------
 
 def plot_profiles(prof, title="", out="scratch_profiles.png"):
     s, fn, ft, cof = prof["s"], prof["fn"], prof["ft"], prof["cof"]
@@ -288,7 +240,7 @@ def plot_profiles(prof, title="", out="scratch_profiles.png"):
         if i_sat is not None:
             a.axvline(s[i_sat], color="k", ls=":", lw=1)
 
-    # --- forces ---------------------------------------------------------
+    # forces
     a = ax[0, 0]
     a.plot(s, fn, lw=0.6, color="0.82")
     a.plot(s, sm(fn), lw=1.6, color="C0", label=r"$F_n$")
@@ -301,7 +253,7 @@ def plot_profiles(prof, title="", out="scratch_profiles.png"):
     a.legend(fontsize=9)
     a.grid(alpha=0.3)
 
-    # --- SCOF -----------------------------------------------------------
+    # SCOF
     a = ax[0, 1]
     a.plot(s, cof, lw=0.6, color="0.82")
     a.plot(s, sm(cof), lw=1.6, color="C2", label="SCOF")
@@ -317,7 +269,7 @@ def plot_profiles(prof, title="", out="scratch_profiles.png"):
     a.legend(fontsize=8.5)
     a.grid(alpha=0.3)
 
-    # --- depth ----------------------------------------------------------
+    # depth
     a = ax[1, 0]
     if pen is None:
         a.text(0.5, 0.5, "no depth channel in this file", ha="center",
@@ -339,7 +291,7 @@ def plot_profiles(prof, title="", out="scratch_profiles.png"):
         a.legend(fontsize=9, loc="upper left")
         a.grid(alpha=0.3)
 
-    # --- versus load ----------------------------------------------------
+    # versus load
     a = ax[1, 1]
     a.plot(fn, sm(cof), lw=1.6, color="C2")
     a.set_xlabel(r"$F_n$  [N]")
@@ -411,9 +363,7 @@ def export_profiles(prof, path):
     return path
 
 
-# --------------------------------------------------------------------------
 # entry point
-# --------------------------------------------------------------------------
 
 def process(path, outdir=None, out=None, export=None, step=None,
             smooth_um=12.0, title=None):

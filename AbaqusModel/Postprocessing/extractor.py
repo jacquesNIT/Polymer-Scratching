@@ -1,5 +1,5 @@
-# Post-processing: extract forces, energies, and surface profiles from the ODB.
-# Produces a single CSV per simulation 
+# Post-processing run in the Abaqus kernel: extracts forces, energies and surface nodes
+# from the ODB and writes one CSV per simulation.
 
 from odbAccess import *
 import numpy as np
@@ -187,7 +187,7 @@ def post_process(job_name, file_name, cfg):
     rf3 = _resample(t_ind, rf3_raw, time_arr)
     ind_u2 = _resample(t_ind, u2_raw, time_arr)
 
-    #  History data — contact-pair force (CFN/CFS). Used in place of RF2 by results_verifier.py when control_mode == "force"
+    # History data: contact-pair force (CFN/CFS), used instead of RF2 in force-control mode
     z_cp = np.zeros_like(t_cp)
     cfn1 = _resample(t_cp, _pick(contact_data, "CFN1", z_cp), time_arr)
     cfn2 = _resample(t_cp, _pick(contact_data, "CFN2", z_cp), time_arr)
@@ -339,15 +339,9 @@ def post_process(job_name, file_name, cfg):
     odb.close()
 
 
-
 #  Helpers
 def _key_matches(key, name):
-    """
-    True when a history-output key IS `name` or contains it as a separate
-    token. Handles verbose ODB keys such as 'RF2 at Node INST.1' or
-    'Reaction force: RF2 PI: ... Node 1', which the exact dict lookup misses
-    while a naive substring test over-matches.
-    """
+    """True when a history-output key is `name` or contains it as a separate token."""
     if key == name:
         return True
     cleaned = key.upper().replace(":", " ").replace(",", " ").replace(";", " ")
@@ -355,10 +349,7 @@ def _key_matches(key, name):
 
 
 def _pick(data, name, default=None):
-    """
-    Robust series lookup: exact key first, else the UNIQUE key matching by
-    token (see _key_matches). Ambiguous (>1 candidate) returns default.
-    """
+    """Series lookup: exact key first, else the unique token match (default if ambiguous)."""
     if name in data:
         return data[name]
     cands = [k for k in data if _key_matches(k, name)]
@@ -368,12 +359,7 @@ def _pick(data, name, default=None):
 
 
 def _dump_history_layout(odb):
-    """
-    Compact diagnostic dump of every history region and its output keys
-    (with peak absolute value), printed into the job log. Zero-cost insurance:
-    whenever the extraction reads suspicious zeros, the next .log tells the
-    whole story without a manual odb_diag run.
-    """
+    """Print every history region and its output keys (with peak values) into the job log."""
     try:
         for sname in odb.steps.keys():
             hrs = odb.steps[sname].historyRegions
@@ -396,19 +382,7 @@ def _dump_history_layout(odb):
 
 
 def _resample(t_src, v_src, t_dst):
-    """
-    Linear resampling of a history series onto the master time axis t_dst.
-
-    Inside the source coverage: np.interp on (t_src, v_src). Beyond the last
-    source sample: NaN, written as a BLANK CSV cell by _cell -- the output
-    request was deactivated there (e.g. forces in unload/recovery), so no
-    value is fabricated.
-
-    Replaces _align in post_process: _align padded/truncated by SAMPLE COUNT,
-    which silently dropped the low-frequency unload/recovery samples of the
-    energy regions whenever the master axis came from the (shorter, force)
-    indenter region -- the settling check then never saw the recovery phase.
-    """
+    """Linear resampling of a history series onto t_dst, NaN beyond the source coverage."""
     t_dst = np.asarray(t_dst, dtype=float)
     t_src = np.asarray(t_src, dtype=float)
     v = np.asarray(v_src, dtype=float)
@@ -430,12 +404,7 @@ def _cell(v):
 
 
 def _align(arr, n):
-    """
-    Pad (with the last value) or truncate so arr has exactly n samples.
-    Guards against a (rare) frame-count mismatch between the indenter and
-    contact-pair history regions, even though both share the same
-    timeInterval/step -- avoids a silent row misalignment in the CSV.
-    """
+    """Pad (with the last value) or truncate arr to exactly n samples."""
 
     arr = np.asarray(arr, dtype=float)
     if arr.size == n:
@@ -445,27 +414,8 @@ def _align(arr, n):
     pad_value = arr[-1] if arr.size > 0 else 0.0
     return np.concatenate([arr, np.full(n - arr.size, pad_value)])
 
-# [PATCH:abort-visibility] begin -- lecture robuste d'un historyOutput.
 def _hist_pairs(hout, where=""):
-    """
-    (time, value) arrays of ONE historyOutput, robust to an ODB written by an
-    aborted or truncated analysis.
-
-    Abaqus returns ``.data = None`` for a history request that was declared
-    but never written -- typically a step that opened and then aborted before
-    the first output interval. ``np.array(None)`` is a 0-D object array, so
-    the historical expression
-
-        np.array(hout.data).T[0, :]
-
-    raised "too many indices for array: array is 0-dimensional, but 2 were
-    indexed". That IndexError short-circuited the ``if t.size == 0`` guard
-    placed right after it and masked the real cause: the job aborted.
-
-    Returns two EMPTY arrays instead, and names the offending
-    step / region / key in the job log so the .sta no longer has to be read
-    by hand.
-    """
+    """(time, value) arrays of one historyOutput; empty arrays if the analysis aborted before writing it."""
     raw = getattr(hout, "data", None)
     if raw is None:
         if where:
@@ -480,25 +430,17 @@ def _hist_pairs(hout, where=""):
                   "Skipped." % (where, arr.shape))
         return np.array([]), np.array([])
     return arr[:, 0], arr[:, 1]
-# [PATCH:abort-visibility] end
 
 
 def _get_history(odb, step_name, region_name):
-    """Extract time + history-output dict from a given history region.
-    (Legacy single-step helper, kept for compatibility; post_process now
-    uses _get_history_multi.)"""
+    """Time + history-output dict of one region in one step (legacy single-step helper)."""
     hr = odb.steps[step_name].historyRegions[region_name]
     keys = list(hr.historyOutputs.keys())
     # Time is stored as the first column of every output — use the first key
-    # [PATCH:abort-visibility] original :
-    # time_arr = np.array(hr.historyOutputs[keys[0]].data).T[0, :]
     time_arr, _ = _hist_pairs(hr.historyOutputs[keys[0]],
                               "%s / %s / %s" % (step_name, region_name, keys[0]))
     data = {}
     for key in keys:
-        # [PATCH:abort-visibility] original :
-        # out = np.array(hr.historyOutputs[key].data).T
-        # data[key] = out[1, :]
         _t, _v = _hist_pairs(hr.historyOutputs[key],
                              "%s / %s / %s" % (step_name, region_name, key))
         data[key] = _v
@@ -506,15 +448,7 @@ def _get_history(odb, step_name, region_name):
 
 
 def _get_history_multi(odb, region_name):
-    """
-    Extract time + history-output dict for a region, concatenated across ALL
-    ODB steps, with time rebasing when a step stores step-time (axis restarts
-    near 0) instead of total time. Duplicated boundary samples are dropped.
-
-    Rationale: single-step extraction reads only the first step holding the
-    region -- in constant depth_mode that is IndentationStep, so the scratch
-    phase was silently missing from the CSV.
-    """
+    """Time + history-output dict of one region, concatenated across all ODB steps."""
     step_names = list(odb.steps.keys())
 
     # Union of output keys over the steps that contain the region (a request
@@ -541,8 +475,6 @@ def _get_history_multi(odb, region_name):
         keys = list(hr.historyOutputs.keys())
         if not keys:
             continue
-        # [PATCH:abort-visibility] original :
-        # t = np.array(hr.historyOutputs[keys[0]].data).T[0, :]
         t, _t_vals = _hist_pairs(hr.historyOutputs[keys[0]],
                                  "%s / %s / %s" % (sname, region_name, keys[0]))
         if t.size == 0:
@@ -563,11 +495,6 @@ def _get_history_multi(odb, region_name):
         time_parts.append(t[start:])
         for key in all_keys:
             if key in keys:
-                # [PATCH:abort-visibility] original :
-                # col = np.array(hr.historyOutputs[key].data).T[1, :][start:]
-                # _align recadre en plus sur t.size : une cle dont la region a
-                # ete tronquee a un echantillon de moins que la cle de temps
-                # produisait un decalage silencieux de colonne.
                 _tk, _vk = _hist_pairs(hr.historyOutputs[key],
                                        "%s / %s / %s" % (sname, region_name, key))
                 col = _align(_vk, t.size)[start:] if _vk.size else np.zeros(n)

@@ -1,58 +1,7 @@
-"""Stage 2 of the calibration: score every sweep point against the laboratory.
+"""Score every calibration sweep point against the laboratory, compared at equal groove width w0.
 
-    python calib_fit.py --sim sweep_calib_curves.csv \
-                        --design designs/glassy_pmma_calib.csv \
-                        --lab "PMMAXT_6N_1Nm*" --material pmma \
-                        --out-dir calib_pmma
-
-WHY w0 IS THE ABSCISSA
-    The simulation is displacement driven (depth ramps from 0 to 20 um over
-    the 2 mm travel); the laboratory is load driven (0.1 N to F_max over the
-    same travel). Neither z nor the commanded depth is therefore a quantity
-    the two sides share. The residual groove width w0 is: both sides measure
-    it with the same estimator, on the same kind of levelled transverse
-    profile, with no constitutive model in between.
-
-    So everything is re-expressed as a function of w0, and the comparison is
-    made at EQUAL CONTACT SIZE:
-
-        F_n(w0)        carries the flow-stress LEVEL      -> sigma_scale
-        A_pile/A_groove(w0)  carries the plastic volume balance -> psi
-        SCOF(w0)       carries the friction law            -> tau_split
-        h_r(w0)        reported, NOT scored (see below)
-
-ONE OBSERVABLE PER PHENOMENON
-    F_n, hardness and w0 are the same information at fixed depth: on this
-    campaign r(H, F_n) = 1 by construction because the contact radius is a
-    function of w0 alone. Scoring all of them would triple the weight of the
-    stress level against the pile-up and the friction. The combined score
-    therefore uses exactly three terms -- level, volume balance, friction --
-    and h_r is carried through to the tables as a diagnostic only.
-
-WHAT THIS FILE DOES NOT DO
-    It does not optimise. It scores the 38 points that were actually run,
-    reads the marginal effect of each factor, and reports which factors the
-    data separates and which it does not. At a single commanded depth
-    sigma_scale and soft_drop enter the yield table only through their
-    product at the representative strain, so they are expected to trade off
-    along a ridge; the script measures that ridge instead of hiding it
-    behind a single "best" point.
-
-LABORATORY SIDE
-    Force files are TriboSoft exports (Step, Timestamp, Fz, CAP, Fx, COF,
-    stage coordinates). CAP is ignored on purpose: it is inflated by machine
-    compliance. The along-track abscissa comes from the X stage position.
-
-    Scans are read through bcrf_values.analyse() unchanged. The areas, which
-    bcrf_values computes on its five picked sections, are computed here on
-    every column with the same section_values estimator -- the same extension
-    sim_values makes on the simulation side.
-
-    The scan and the force file live in different coordinate systems, so the
-    two are anchored on the END of the scratch: the last column where the
-    groove is detected corresponds to z = scratch_length, i.e. to F_max.
-    --anchor and --anchor-shift expose that choice, which is the only
-    arbitrary step in the whole chain.
+Example: python .\calib_fit.py --sim sweep_calib_curves_pc1 --design ..\designs\glassy_pc_calib.csv
+             --lab '..\Lab results\Main_Batch\PC\4N\PC_4N_1Nm*' --material pc
 """
 
 import argparse
@@ -68,9 +17,7 @@ from pathlib import Path
 import numpy as np
 
 
-# =====================================================================
-#  Imports of the source modules
-# =====================================================================
+# Imports of the source modules
 def _load_module(name, filenames):
     try:
         return importlib.import_module(name)
@@ -103,29 +50,19 @@ OBSERVABLES = [
 ]
 SCORED = [k for k, _, _, s in OBSERVABLES if s]
 
-# Relative floor on the laboratory scatter. Four repeats give a std with
-# about 40 % of its own uncertainty, and a point where the four happen to
-# agree to 0.1 % would otherwise dominate the chi-square on its own.
+# Relative floor on the laboratory scatter
 SIGMA_REL_FLOOR = 0.02
 
 DEFAULT_SCRATCH_LENGTH = 2.0        # mm
 DEFAULT_N_GRID = 25
 
 
-# =====================================================================
-#  Laboratory: force files
-# =====================================================================
+# Laboratory: force files
 _FORCE_COLS = {"z": 7, "Fz": 3, "Fx": 5, "CAP": 4, "t": 1}
 
 
 def read_force_csv(path):
-    """TriboSoft export -> (z [mm], F_n [N], F_t [N]).
-
-    The abscissa is the X stage coordinate referred to its value at the
-    first sample, so the scratch starts at z = 0 whatever the absolute
-    position of the sample on the stage. Only the magnitude is kept: the
-    travel direction is a machine convention.
-    """
+    """Read a TriboSoft force export and return (z [mm], F_n [N], F_t [N])."""
     raw = open(path, encoding="latin-1").read()
     raw = raw.replace("\r\n", "\n").replace("\r", "\n")
     lines = raw.split("\n")
@@ -141,17 +78,9 @@ def read_force_csv(path):
     return z[ok], fn[ok], ft[ok]
 
 
-# =====================================================================
-#  Laboratory: scans
-# =====================================================================
+# Laboratory: scans
 def scan_area_profile(res, rezero=True):
-    """A_groove and A_pile for every column of a levelled scan.
-
-    bcrf_values computes the areas on the sections it picks for its figure;
-    the calibration needs them along the whole track. The estimator is
-    bv.section_values, called unchanged, with the same re-zeroing on the
-    reference rows that bcrf_values.analyse() applies to its own sections.
-    """
+    """A_groove and A_pile for every column of a levelled scan."""
     Zm, ref = res["Zm"], res["ref"]
     row_c, half, outer = res["row_c"], res["half"], res["outer"]
     y_um = res["y_um"]
@@ -177,15 +106,8 @@ def scan_area_profile(res, rezero=True):
 
 
 def anchor_index(res, mode="groove_end"):
-    """Column index of the scan that corresponds to z = scratch_length.
-
-    groove_end  last column where the groove is detected -- the tip's final
-                position, and the most direct reading of the end of travel
-    mound       centre of the terminal frontal mound, which sits just ahead
-                of that position
-    deepest     deepest column; under a load ramp it is close to the end but
-                the depth is still rising there, so it reads a few tens of
-                um short
+    """Column index of the scan matching z = scratch_length.
+    anchor: 'groove_end', 'mound' or 'deepest'.
     """
     prof = res["profiles"]
     present = prof["present"]
@@ -215,9 +137,7 @@ def read_scan(path, material, anchor="groove_end", shift_um=0.0,
         ratio = np.where(a_g > 0, a_p / a_g, np.nan)
     h_p = np.nanmean(np.vstack([prof["h_p_left"], prof["h_p_right"]]), axis=0)
 
-    # Trim at the deepest column: past it the tip is lifting off, w0 collapses
-    # over ~150 um and the frontal mound takes over. Keeping that tail would
-    # feed a descending branch into a curve that must be monotone.
+    # Trim at the deepest column: past it the tip lifts off and w0 collapses.
     m = prof["present"].copy()
     i_deep = int(res["i_deep"])
     m[i_deep + 1:] = False
@@ -231,9 +151,7 @@ def read_scan(path, material, anchor="groove_end", shift_um=0.0,
     }
 
 
-# =====================================================================
-#  Laboratory: reduction of the repeats
-# =====================================================================
+# Laboratory: reduction of the repeats
 def _resample(x_src, y_src, x_dst):
     """Monotonic interpolation, NaN outside the support -- no extrapolation."""
     x_src = np.asarray(x_src, dtype=float)
@@ -254,15 +172,7 @@ def _resample(x_src, y_src, x_dst):
 
 
 def isotonic(y, w=None):
-    """Pool-adjacent-violators: nearest non-decreasing sequence to y.
-
-    w0 rises with the load by construction, so every descending step in a
-    measured w0(z) is noise. Inverting a noisy w0(z) point by point scrambles
-    the abscissa -- two columns hundreds of um apart get the same w0 and are
-    averaged together. Imposing monotonicity first is the minimum assumption
-    that makes the inversion single valued, and it assumes nothing about the
-    SHAPE of the curve, which is what the calibration is about to measure.
-    """
+    """Pool-adjacent-violators: nearest non-decreasing sequence to y."""
     y = np.asarray(y, dtype=float)
     n = y.size
     if n == 0:
@@ -289,11 +199,7 @@ def isotonic(y, w=None):
 
 
 def monotone_axis(z, w0, min_step=1e-6):
-    """Strictly increasing w0(z), and the mask of the points kept.
-
-    isotonic() leaves flat plateaus where the raw curve descended; those
-    cannot be inverted, so one point per plateau is kept.
-    """
+    """Strictly increasing w0(z) and the mask of the points kept (one per plateau)."""
     ok = np.isfinite(z) & np.isfinite(w0)
     z, w0 = np.asarray(z, float)[ok], np.asarray(w0, float)[ok]
     order = np.argsort(z)
@@ -307,13 +213,7 @@ def monotone_axis(z, w0, min_step=1e-6):
 def reduce_lab(force_paths, scan_paths, material, w0_grid=None,
                n_grid=DEFAULT_N_GRID, anchor="groove_end", shift_um=0.0,
                scratch_length=DEFAULT_SCRATCH_LENGTH, scan_kw=None):
-    """Average the repeats and return the laboratory reference on w0.
-
-    Each repeat is reduced on its own -- its own scan, its own force file,
-    its own anchor -- and only then are the repeats averaged. Averaging the
-    raw curves first would smear the anchor jitter into the curves instead
-    of leaving it in the scatter, where it belongs and where it can be read.
-    """
+    """Reduce each repeat separately, then average them into the laboratory reference on w0."""
     scan_kw = scan_kw or {}
     scans = [read_scan(p, material, anchor=anchor, shift_um=shift_um,
                        scratch_length=scratch_length, **scan_kw)
@@ -325,11 +225,7 @@ def reduce_lab(force_paths, scan_paths, material, w0_grid=None,
               % (len(scans), len(forces)))
     n_rep = min(len(scans), len(forces))
 
-    # Everything is first put on a common z grid, where the abscissa is
-    # monotone by construction. Only then is w0(z) made monotone and
-    # inverted. Sorting the raw curves by w0 instead would pair columns
-    # hundreds of um apart whenever the measured w0 dips, which is about
-    # half the columns on these scans.
+    # Put everything on a common z grid first, then make w0(z) monotone and invert it.
     z_lo = max(np.nanmin(s["z"]) for s in scans[:n_rep])
     z_hi = min(np.nanmax(s["z"]) for s in scans[:n_rep])
     n_z = max(4 * n_grid, 100)
@@ -377,17 +273,7 @@ def reduce_lab(force_paths, scan_paths, material, w0_grid=None,
     lab["z_sd"] = np.full(w0_grid.size, np.nan)
     lab["z_n"] = np.full(w0_grid.size, float(n_rep))
 
-    # Uncertainty at FIXED w0 has two parts, and the second one dominates.
-    # The repeats agree on the force ramp to better than 1 %, so the direct
-    # scatter of F_n is nearly zero -- but the repeats do NOT agree on which
-    # w0 that force produced. The scatter of w0 between repeats (which also
-    # carries the anchor jitter, each repeat being anchored on its own scan)
-    # therefore has to be propagated through the slope of each curve:
-    #
-    #     sigma^2(Y | w0) = sigma_direct^2(Y) + (dY/dw0)^2 sigma^2(w0)
-    #
-    # Without this term a 1 % force repeatability would be read as a 1 %
-    # tolerance on F_n(w0) and the chi-square would be meaningless.
+    # Uncertainty at fixed w0: sigma^2(Y|w0) = sigma_direct^2(Y) + (dY/dw0)^2 sigma^2(w0)
     lab["w0_sd"] = _resample(z_grid, sd_z["w0"], z_of_w0)
     for k, _n, _u, _s in OBSERVABLES:
         y = lab[k]
@@ -402,13 +288,7 @@ def reduce_lab(force_paths, scan_paths, material, w0_grid=None,
     return lab
 
 def lab_sigma(lab, key, rel_floor=SIGMA_REL_FLOOR):
-    """Uncertainty used to weight the chi-square.
-
-    The scatter of the repeats, floored at a fraction of the value itself.
-    Four repeats give a std that is itself uncertain to about 40 %, so a
-    point where they happen to agree to 0.1 % would otherwise carry the
-    whole fit.
-    """
+    """Uncertainty used to weight the chi-square: repeat scatter, floored at a fraction of the value."""
     sd = np.asarray(lab.get(key + "_sd"), dtype=float)
     val = np.abs(np.asarray(lab[key], dtype=float))
     floor = rel_floor * val
@@ -416,9 +296,7 @@ def lab_sigma(lab, key, rel_floor=SIGMA_REL_FLOOR):
     return np.where(out > 0, out, np.nan)
 
 
-# =====================================================================
-#  Simulation side
-# =====================================================================
+# Simulation side
 _ID_RE = re.compile(r"Design[_-](\d+)")
 
 
@@ -455,9 +333,7 @@ def read_sim_curves(path):
             "h_p": np.array([num(r, "h_p [um]") for r in rows]),
             "d_cmd": np.array([num(r, "d_cmd [um]") for r in rows]),
         }
-        # Same monotone treatment as the laboratory side: the simulated w0 is
-        # quantised by the mesh across the track, so it also steps backwards
-        # here and there. Trimmed at the deepest column for the same reason.
+        # Same monotone treatment and trimming as on the laboratory side.
         z = np.array([num(r, "z [mm]") for r in rows])
         order = np.argsort(z)
         for k in list(cur):
@@ -514,21 +390,10 @@ def read_design(path):
     return rows, factors, meta
 
 
-# =====================================================================
-#  Scoring
-# =====================================================================
+# Scoring
 def score_runs(sim, lab, design_rows, factors, rel_floor=SIGMA_REL_FLOOR,
                min_overlap=5):
-    """Chi-square of every run against the laboratory reference.
-
-    Per observable:  chi2 = mean over the common w0 points of
-                            ((sim - lab) / sigma_lab)^2
-    Combined:        mean of the scored observables, so a run that only
-                     overlaps on part of the grid is not rewarded for it.
-
-    The signed relative bias is kept next to the chi-square: it is what says
-    WHICH WAY to move a factor, and a ranking alone does not.
-    """
+    """Chi-square and signed relative bias of every run against the laboratory reference."""
     w0 = lab["w0"]
     sig = {k: lab_sigma(lab, k, rel_floor) for k, _, _, _ in OBSERVABLES}
 
@@ -571,13 +436,7 @@ def score_runs(sim, lab, design_rows, factors, rel_floor=SIGMA_REL_FLOOR,
 
 
 def factor_marginals(results, factors):
-    """Median score and median bias at each level of each factor.
-
-    On a factorial design the marginal median over a factor's levels IS its
-    main effect, with the other factors averaged out. Reading it next to the
-    signed bias tells which factor moves which residual, and in which
-    direction -- which is the whole content of a sequential calibration.
-    """
+    """Median score and median bias at each level of each factor (main effects)."""
     out = []
     for f in factors:
         col = np.array([r.get("g_" + f, np.nan) for r in results], dtype=float)
@@ -596,14 +455,7 @@ def factor_marginals(results, factors):
 
 
 def ridge_report(results, factors, top_frac=0.25):
-    """Spread of each factor among the best runs: the identifiability read.
-
-    A factor the data constrains collapses to one or two levels at the top of
-    the ranking. A factor that stays spread over its whole range at the top
-    is not identified by these observables -- which is a result, not a
-    failure, provided it is reported instead of being resolved by taking the
-    single lowest chi-square.
-    """
+    """Spread of each factor among the best runs, to show which factors the data identifies."""
     ok = [r for r in results if np.isfinite(r.get("chi2", np.nan))]
     if not ok:
         return []
@@ -625,9 +477,7 @@ def ridge_report(results, factors, top_frac=0.25):
     return out
 
 
-# =====================================================================
-#  Outputs
-# =====================================================================
+# Outputs
 def write_lab_csv(lab, path):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     keys = ["z"] + [k for k, _, _, _ in OBSERVABLES]
@@ -756,9 +606,7 @@ def plot_lab_repeats(lab, out_png):
     print("Wrote %s" % out_png)
 
 
-# =====================================================================
-#  Console report
-# =====================================================================
+# Console report
 def report(lab, results, marginals, ridge, factors, n_show=8):
     w0 = lab["w0"]
     print("\n" + "=" * 74)
@@ -823,9 +671,7 @@ def report(lab, results, marginals, ridge, factors, n_show=8):
                  verdict))
 
 
-# =====================================================================
-#  CLI
-# =====================================================================
+# CLI
 def main(argv=None):
     p = argparse.ArgumentParser(
         description="Score a simulation sweep against averaged laboratory "

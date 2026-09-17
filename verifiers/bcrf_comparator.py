@@ -1,36 +1,16 @@
 # -*- coding: utf-8 -*-
 """bcrf_comparator.py -- overlay several .bcrf scans on common figures.
 
-Reads every .bcrf of a directory, runs on each of them EXACTLY the analysis of
-bcrf_values.py (the "verifier"), and draws two comparison figures:
+Reads every .bcrf of a directory, runs on each of them the exact analysis of bcrf_values.py and draws:
 
-    <prefix>_track.png     residual depth h_r and lateral pile-up h_p of every
-                           file, smoothed exactly as the verifier smooths them
-                           for display (moving_average over --smooth-x)
+    <prefix>_track.png     residual depth h_r and lateral pile-up h_p of every file
 
-    <prefix>_sections.png  the transverse section at the DEEPEST point of each
-                           file, built exactly as the verifier builds its
-                           sections (mean of the measurement field Zm over
-                           --section-win, re-zeroed on the clipped reference
-                           rows)
+    <prefix>_sections.png  the transverse section at the deepest point of each file
 
-Nothing is recomputed here. The module bcrf_values.py is imported and its
-analyse() does all the work, so the curves are bit-for-bit those of the
-verifier; this file only collects them and puts them on shared axes. Any
-option that changes a measurement is passed through with the same name and the
-same default as in bcrf_values.py.
-
-Usage::
+Usage:
 
     python bcrf_comparator.py scans/
     python bcrf_comparator.py scans/ --material pc --outdir figures/
-    python bcrf_comparator.py scans/ --align deepest --sections-xlim -150 150
-    python bcrf_comparator.py scans/ --pattern "PC_*.bcrf" --recursive
-
-Dependencies: numpy, matplotlib, and bcrf_values.py (same directory, or
---verifier /path/to/bcrf_values.py).
-
-Units: lengths in um throughout.
 """
 
 from __future__ import annotations
@@ -49,14 +29,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-# ==========================================================================
-# 1. load the verifier module
-# ==========================================================================
 
+# 1. load the verifier module
 def load_verifier(path=None):
-    """Import bcrf_values.py. The whole point of this script is to call it,
-    so a missing module is a fatal, explicit error rather than a fallback on
-    a re-implementation that would drift from it."""
+    """Import bcrf_values.py"""
     if path:
         spec = importlib.util.spec_from_file_location("bcrf_values", path)
         if spec is None or spec.loader is None:
@@ -78,21 +54,14 @@ def load_verifier(path=None):
                      "pass it with --verifier /path/to/bcrf_values.py")
 
 
-# ==========================================================================
-# 2. per-file analysis
-# ==========================================================================
 
+# 2. per-file analysis
 def deepest_section(bv, res, section_win, section_rezero, degree):
     """Transverse profile at res['i_deep'], built by the verifier's own recipe.
 
     pick_sections() anchors its last section on the deepest point of a
-    SMOOTHED h_r, while res['i_deep'] is the minimum of the raw h_r over the
-    detected groove; the two usually coincide but not always. When they do,
-    the section already computed by analyse() is returned untouched. When they
-    do not, the section is rebuilt here with the same three lines analyse()
-    uses -- mean of Zm over win_sec columns, then re-zeroing on the clipped
-    reference rows -- so the curve is the one the verifier would have drawn
-    had it been asked for that column.
+    smoothed h_r, while res['i_deep'] is the minimum of the raw h_r over the
+    detected groove (usually coincide). 
     """
     i_deep = res["i_deep"]
     if i_deep in res["sec_idx"]:
@@ -106,8 +75,6 @@ def deepest_section(bv, res, section_win, section_rezero, degree):
     p = np.nanmean(Zm[:, a:b], axis=1)
 
     if section_rezero:
-        # analyse() keeps the sigma-clipped fit mask; it is not returned, so
-        # rebuild it with the same deterministic call on the same inputs.
         _, ref, mask, _ = bv.flatten(res["Z"], res["row_c"], res["outer"],
                                      degree=degree, up_cols=res["up_cols"])
         sel = mask[:, a:b].any(axis=1)
@@ -157,10 +124,8 @@ def x_shift(rec, align):
     return 0.0
 
 
-# ==========================================================================
-# 3. figures
-# ==========================================================================
 
+# 3. figures
 def plot_track(records, out, align="none", mask_absent=False,
                show_threshold=False, title=None):
     """h_r and the two lateral pile-up profiles of every file, one colour per
@@ -241,10 +206,8 @@ def plot_sections(records, out, centre_y=True, xlim=None, title=None):
     return out
 
 
-# ==========================================================================
-# 4. summary table
-# ==========================================================================
 
+# 4. summary table
 _SUMMARY_COLS = ["file", "x_deep_um", "h_r_um", "h_pen_um", "w0_um",
                  "h_p_left_um", "h_p_right_um", "area_groove_um2",
                  "area_pileup_um2", "area_ratio", "mound_um"]
@@ -310,10 +273,8 @@ def write_summary(rows, path):
     return path
 
 
-# ==========================================================================
-# 5. CLI
-# ==========================================================================
 
+# 5. CLI
 def collect(folder, pattern="*.bcrf", recursive=False):
     if os.path.isfile(folder):
         return [folder]

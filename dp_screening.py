@@ -4,9 +4,6 @@
 #           --design designs/glassy_pc_morris.csv \
 #           --out-dir screening_dp
 #
-# [PATCH:no-noise-floor] retention relies on a RELATIVE threshold
-# (mu*_lo / mu*_max >= --retain-frac), not on an absolute noise floor.
-#
 # Runs the whole chain -- collect, elementary effects on every QoI, consolidated
 # ranking -- and writes SCREENING_REPORT.md plus the figures next to it.
 # Collection is skipped if --table points at an already collected tidy CSV.
@@ -28,17 +25,6 @@ sys.path.insert(0, _HERE)
 
 import morris_analysis as MA
 
-
-# [PATCH:no-noise-floor] H_MPa, Ft_half_N and pile_up_ratio removed:
-#   H_MPa           : contact_radius_mm is constant over the whole campaign, so
-#                     H = Fn / fixed area and r(H, Fn) = 1.000000. Keeping it
-#                     counted the same signal twice and inflated the
-#                     multiplicity correction with a duplicate.
-#   Ft_half_N       : Ft = Fn * scof, redundant with the two kept QoI.
-#   pile_up_ratio   : sigma/mu* between 1.3 and 2.3 across all eight factors,
-#                     the estimator is not usable at this number of EEs.
-# [PATCH:values-backend] names now come from results_values.extract_values.
-# Original:
 #   ("Fn_half_N", ...), ("scof", ...), ("residual_depth_mm", ...), ("pile_up_mm", ...)
 DEFAULT_QOI = [
     ("F_n", "Normal force (half-model)", "N"),
@@ -50,14 +36,6 @@ DEFAULT_QOI = [
 SIGMA_RATIO_INTERACTION = 1.0    # sigma/mu* above this => interaction-dominated
 RETAIN_FRAC = 0.10               # minimal mu*_lo / mu*_max to retain a factor
 
-# [PATCH:values-backend] begin -- quality is an INDICATOR, never a filter.
-#
-# results_values.py returns values, not verdicts, and no run is excluded on a
-# quality criterion any more. These limits are reported so a systematic drift
-# stays visible -- in particular on deliberately coarse test meshes, where
-# exceeding them is expected rather than alarming.
-#
-# Edit the numbers freely: nothing downstream depends on them.
 QUALITY_LIMITS = [
     ("KE_IE_steady_max",      5.0, "kinetic / internal energy, steady window"),
     ("AE_IE_final",           5.0, "artificial (hourglass) / internal energy"),
@@ -65,7 +43,6 @@ QUALITY_LIMITS = [
     ("ALLPW",                 5.0, "contact penalty work / E_ref"),
     ("KE_final_over_IE_peak", 1.0, "residual vibration at the final frame"),
 ]
-
 
 def _quality_summary(table, limits=QUALITY_LIMITS):
     """
@@ -98,10 +75,6 @@ def _quality_summary(table, limits=QUALITY_LIMITS):
             "worst_ids": [rid for _v, rid in over[:8]],
         })
     return out
-# [PATCH:values-backend] end
-
-
-# ----------------------------------------------------------------------
 
 def _collect(results_dir, design, out_csv):
     cmd = [sys.executable, os.path.join(_HERE, "sweep_collector.py"), results_dir,
@@ -115,20 +88,11 @@ def _collect(results_dir, design, out_csv):
 
 def _coverage(design_rows, table):
     ids = set(design_rows)
-    # [PATCH:screening-fixes] original (duplicated definition, diverged from
-    # elementary_effects which ignored parse_error):
-    # have = set(k for k, v in table.items()
-    #            if k in ids and not v.get("parse_error") and v.get("status") != "FAIL")
     have = set(k for k, v in table.items() if k in ids and MA._usable(v))
     per_traj = {}
     for rid, d in design_rows.items():
         per_traj.setdefault(int(d["traj"]), []).append(rid)
     complete = sum(1 for t, r in per_traj.items() if all(x in have for x in r))
-    # [PATCH:values-backend] the unusable set is now split by CAUSE. The old
-    # report said "missing or failed", which lumped together a design point
-    # that was never launched, a job that aborted, and a run whose results
-    # were complete but failed a quality check. Only the first two are real
-    # losses; the third no longer exists.
     absent, aborted, unreadable = [], [], []
     for rid in sorted(ids - have):
         rec = table.get(rid)
@@ -144,23 +108,6 @@ def _coverage(design_rows, table):
             "absent": absent, "aborted": aborted, "unreadable": unreadable,
             "n_traj": len(per_traj), "n_traj_complete": complete}
 
-
-# [PATCH:no-noise-floor] decision without a noise floor.
-#
-# The old rule tested mu*_lo against mu*_null = sqrt(2/pi) * sqrt(2)/Delta * sigma_num,
-# i.e. against an ABSOLUTE noise scale. Without a floor, no verdict was ever
-# rendered. The rule that replaces it is RELATIVE:
-#
-#     rel_lo = mu*_lo / mu*_max      (per QoI)
-#     RETAIN   if rel_lo >= retain_frac
-#     RETAIN?  if rel    >= retain_frac but rel_lo < retain_frac
-#     freeze   otherwise
-#
-# It keeps the bootstrap lower bound, so it stays sensitive to censoring: a
-# factor with fewer surviving runs gets a wider interval and a lower rel_lo.
-# But it ranks against the dominant factor of each QoI, it does not test
-# against zero -- the top factor is retained by construction, and a 'freeze'
-# means 'small compared to the largest', not 'null'.
 def _analyse(design_rows, table, factors, delta, qoi_keys,
              bootstrap, ci_low, retain_frac=RETAIN_FRAC):
     out = {}
@@ -189,10 +136,7 @@ def _analyse(design_rows, table, factors, delta, qoi_keys,
                   "mu_max": mu_max, "retain_frac": retain_frac}
     return out
 
-
-# [PATCH:screening-fixes] begin -- points 5 and 6.
 CONFOUND_THRESHOLD = 0.55        # confounding index above which a warning is raised
-
 
 def _confounding(per_qoi, factors):
     """
@@ -229,8 +173,6 @@ def _confounding(per_qoi, factors):
     out.sort(key=lambda r: -r["index"])
     return out
 
-
-# [PATCH:no-noise-floor] _structural_floor removed (noise floor).
 def _consolidate(per_qoi, factors):
     rows = []
     for f in factors:
@@ -244,7 +186,6 @@ def _consolidate(per_qoi, factors):
                 ranks.append(order.index(f) + 1)
             if np.isfinite(s["sigma_ratio"]):
                 sig_ratio.append(s["sigma_ratio"])
-            # [PATCH:no-noise-floor] margin -> rel_lo.
             if s["verdict"].startswith("RETAIN"):
                 retained_in.append(q)
                 margins.append(s.get("rel_lo", np.nan))
@@ -257,7 +198,6 @@ def _consolidate(per_qoi, factors):
             "sigma_ratio_max": max(sig_ratio) if sig_ratio else np.nan,
             "retained_in": retained_in,
             "n_retained": len(retained_in),
-            # [PATCH:no-noise-floor] margin (mu*/noise threshold) -> rel_lo_best.
             "rel_lo_best": max([m for m in margins if np.isfinite(m)] or [np.nan]),
             "verdict": ("RETAIN" if retained_in else
                         ("RETAIN?" if any(
@@ -268,9 +208,7 @@ def _consolidate(per_qoi, factors):
     return rows
 
 
-# ----------------------------------------------------------------------
 # Figures
-# ----------------------------------------------------------------------
 
 def _mpl():
     try:
@@ -347,7 +285,6 @@ def _fig_mu_sigma(blk, factors, qoi, path):
                     textcoords="offset points", xytext=(6, 4), fontsize=9)
     lim = blk["mu_max"] if np.isfinite(blk["mu_max"]) else 1.0
     ax.plot([0, lim], [0, lim], ls="--", lw=0.8, color="0.6")
-    # [PATCH:no-noise-floor] the vertical line marks the RELATIVE threshold, not a noise level.
     thr = blk.get("retain_frac")
     if thr and np.isfinite(lim):
         ax.axvline(thr * lim, ls=":", lw=1.0, color="#b3261e")
@@ -362,9 +299,7 @@ def _fig_mu_sigma(blk, factors, qoi, path):
     return True
 
 
-# ----------------------------------------------------------------------
 # Report
-# ----------------------------------------------------------------------
 
 def _fmt(v, n=4):
     if v is None or (isinstance(v, float) and not np.isfinite(v)):
@@ -374,8 +309,6 @@ def _fmt(v, n=4):
 
 def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
                  extra=None):
-    # [PATCH:screening-fixes] `extra` carries the blocks of points 5 and 6; defaults
-    # to None so existing calls are not broken.
     L = []
     A = L.append
     keys = [q for q, _, _ in qoi_meta if q in per_qoi]
@@ -394,7 +327,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
     A("| Step Delta | %s |" % _fmt(meta["delta"], 6))
     A("| Planned / usable runs | %d / %d |" % (cov["n_design"], cov["n_usable"]))
     A("| Complete trajectories | %d / %d |" % (cov["n_traj_complete"], cov["n_traj"]))
-    # [PATCH:no-noise-floor] 'noise floor' line replaced by the relative threshold.
     A("| Retention rule | mu*_lo / mu*_max >= %.2f (relative threshold) |"
       % args.retain_frac)
     A("| QoI analysed | %d |" % len(keys))
@@ -403,9 +335,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
          if args.fwer == "qoi" else "none (5%% per test)"))
     A("")
 
-    # [PATCH:values-backend] begin -- causes separated, quality removed.
-    # Original:
-    #   A("> **%d missing or failed run(s).** ... Affected ids: %s")
     if cov["n_missing"]:
         A("> **%d unusable run(s).** Each missing point destroys two elementary "
           "effects. Quality is NOT a cause: no run is excluded on an energy "
@@ -419,7 +348,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
                   % (len(ids_), label, ", ".join(ids_[:20]),
                      " ..." if len(ids_) > 20 else ""))
         A("")
-    # [PATCH:values-backend] end
 
     A("## 1. Consolidated ranking")
     A("")
@@ -434,7 +362,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
       "No multiplicity correction is applied: over %d QoI, the per-factor false "
       "positive risk reaches %.0f%%." % (len(keys), 100 * (1 - 0.95 ** len(keys))))
     A("")
-    # [PATCH:no-noise-floor] mu*/threshold column -> rel_lo.
     A("| Factor | mu* max | mu* mean | best rank | mean rank | sigma/mu* max | rel_lo max | deciding QoI | Verdict |")
     A("|---|---|---|---|---|---|---|---|---|")
     for r in cons:
@@ -465,7 +392,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
         blk = per_qoi[q]
         A("### `%s` -- %s [%s]" % (q, lab, unit))
         A("")
-        # [PATCH:no-noise-floor] no more noise threshold; the relative threshold is shown instead.
         A("%d elementary effects%s. Retention threshold: mu* >= %s "
           "(%.0f%% of the maximal mu* for this QoI)."
           % (blk["n_effects"],
@@ -489,7 +415,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
 
     A("## 3. Decision")
     A("")
-    # [PATCH:no-noise-floor] decision based on the relative threshold.
     A("**Retained (%d):** %s" % (len(retained), ", ".join("`%s`" % f for f in retained) or "none"))
     A("")
     A("**Retained but marginal (%d):** %s" % (len(marginal),
@@ -521,7 +446,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
       "frozen at mid-range. Going from %d to %d factors is what makes 1024 "
       "points enough." % (len(factors), len(retained) + len(marginal)))
     A("")
-    # [PATCH:screening-fixes] begin -- sections added (points 5 and 6).
     extra = extra or {}
     conf = extra.get("confounding") or []
     hot = [c for c in conf if c["index"] >= CONFOUND_THRESHOLD]
@@ -548,9 +472,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
             A("| `%s` / `%s` | %s | %d |"
               % (c["pair"][0], c["pair"][1], _fmt(c["index"], 3), c["n_qoi"]))
         A("")
-    # [PATCH:no-noise-floor] 'structural noise floor' section removed.
-    # [PATCH:screening-fixes] end
-    # [PATCH:values-backend] begin -- section 3ter: indicators, not gates.
     qual = (extra or {}).get("quality") or []
     A("## 3ter. Numerical quality indicators")
     A("")
@@ -582,7 +503,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
           "action is to change the setting or to document the bias, never to "
           "drop the runs.")
         A("")
-    # [PATCH:values-backend] end
     A("## 4. Caveats")
     A("")
     A("- The ranking holds for the **Drucker-Prager class**, not for any single "
@@ -593,7 +513,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
       "interaction.")
     A("- `h` enters via `exp(h*eps^2)` evaluated up to eps_max: strong "
       "non-linearity on this factor is expected by construction of the model.")
-    # [PATCH:values-backend] caveat updated: phi is capped below 1 in sampling.py.
     A("- `phi` is capped below 1 in the sampling box precisely because "
       "`phi = 1` switches the friction model from a tabulated Briscoe table "
       "to constant Coulomb -- a change of model class, not a variation of a "
@@ -609,8 +528,6 @@ def write_report(path, meta, cov, per_qoi, cons, factors, qoi_meta, args, figs,
     return retained, marginal, frozen
 
 
-# ----------------------------------------------------------------------
-
 def main():
     ap = argparse.ArgumentParser(description="Consolidated Morris screening report (DP).")
     ap.add_argument("results_dir", nargs="?", default=None,
@@ -618,7 +535,6 @@ def main():
     ap.add_argument("--design", required=True)
     ap.add_argument("--table", default=None,
                     help="tidy CSV already produced by sweep_collector.py (skips collection)")
-    # [PATCH:no-noise-floor] --noise-floor / --noise-mode / --gates removed.
     ap.add_argument("--qoi", default=None, help="comma-separated QoI subset")
     ap.add_argument("--out-dir", default="screening_dp")
     ap.add_argument("--bootstrap", type=int, default=4000)
@@ -653,7 +569,6 @@ def main():
     cov = _coverage(design_rows, table)
     print("Coverage: %d/%d usable runs, %d/%d complete trajectories"
           % (cov["n_usable"], cov["n_design"], cov["n_traj_complete"], cov["n_traj"]))
-    # [PATCH:values-backend] quality is never a cause of exclusion any more.
     print("  unusable: %d absent, %d aborted, %d unreadable (0 on quality)"
           % (len(cov.get("absent") or []), len(cov.get("aborted") or []),
              len(cov.get("unreadable") or [])))
@@ -671,7 +586,6 @@ def main():
     if not qoi_meta:
         raise SystemExit("None of the requested QoI are present in %s" % table_path)
 
-    # [PATCH:no-noise-floor] no more noise-floor reading.
     n_tests = len(qoi_meta) if args.fwer == "qoi" else 1
     ci_low = MA.CI[0] / float(n_tests)
     if args.fwer == "qoi" and args.bootstrap * ci_low / 100.0 < 20:
@@ -700,7 +614,6 @@ def main():
     csv_path = os.path.join(args.out_dir, "morris_summary.csv")
     with open(csv_path, "w") as f:
         w = csv.writer(f)
-        # [PATCH:no-noise-floor] mu_star_null / mu_star_mde columns removed.
         w.writerow(["qoi", "factor", "mu_star", "mu_star_lo", "mu_star_hi", "sigma",
                     "sigma_ratio", "rel", "rel_lo", "mu_signed", "n_eff",
                     "mu_star_threshold", "verdict"])
@@ -723,15 +636,12 @@ def main():
                         r["rank_mean"], r["sigma_ratio_max"], r["rel_lo_best"],
                         r["n_retained"], ";".join(r["retained_in"]), r["verdict"]])
 
-    # [PATCH:no-noise-floor] the 'structural' block (noise floor) is removed.
-    # [PATCH:values-backend] quality indicators computed for the report only.
     extra = {"confounding": _confounding(per_qoi, factors),
              "quality": _quality_summary(table)}
     for c in extra["confounding"][:1]:
         if c["index"] >= CONFOUND_THRESHOLD:
             print("  WARNING probable confounding: %s / %s (index %.3f)"
                   % (c["pair"][0], c["pair"][1], c["index"]))
-    # [PATCH:screening-fixes] end
     md_path = os.path.join(args.out_dir, "SCREENING_REPORT.md")
     retained, marginal, frozen = write_report(md_path, meta, cov, per_qoi, cons,
                                     factors, qoi_meta, args, figs, extra=extra)

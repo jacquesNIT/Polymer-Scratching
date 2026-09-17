@@ -1,8 +1,8 @@
-# Scratch test model builder for polymer simulation.
-#Orchestrates geometry creation, assembly, step definition, boundary conditions, contact modelling, and output requests.
+# Builds the full Abaqus/Explicit scratch model: geometry, assembly, steps, BCs,
+# loading, contact, output requests and ALE.
 
 from ScratchSimulation.AbaqusModel.abaqus_env import *
-from ScratchSimulation.AbaqusModel.Geometry.indenter import create_indenter, place_indenter   # PYRAMID_INDENTER_PATCH
+from ScratchSimulation.AbaqusModel.Geometry.indenter import create_indenter, place_indenter
 from ScratchSimulation.AbaqusModel.Geometry.substrate import create_substrate, mesh_substrate
 
 def build_scratch_model(cfg):
@@ -31,9 +31,6 @@ def build_scratch_model(cfg):
     sub_inst = asm.instances[names.substrate_instance]
 
     # Position indenter: tip at top surface of substrate, at z = dpo_z
-    # --- original placement (PYRAMID_INDENTER_PATCH) ---
-#     asm.translate(instanceList=(names.indenter_instance,), vector=(0.0, sub.ys2, 0.0))
-#     asm.translate(instanceList=(names.indenter_instance,), vector=(0.0, 0.0, sub.dpo_z))
     place_indenter(asm, cfg)      # rotation + translation, indenter-type aware
 
     #  3. Steps (needs asm: mass scaling is scoped to the substrate instance set)
@@ -67,11 +64,7 @@ def _create_steps(model, asm, cfg):
     solver = cfg.solver
     names = cfg.naming
 
-    # Mass scaling tuple (shared by all active steps).
-    # Scoped to the SUBSTRATE element set only: MODEL scope also multiplies the
-    # rigid indenter's point mass by the scaling factor, which (i) makes the
-    # indenter inertia-dominated in force-controlled mode (zero-penetration
-    # failure) and (ii) inflates the WM_ALLKE baseline of the energy balance.
+    # Mass scaling scoped to the substrate set only (MODEL scope would also scale the indenter mass).
     ms_region = asm.instances[names.substrate_instance].sets[names.substrate_set]
     use_variable = solver.target_time_increment > 0.0
     ms_tuple = (
@@ -94,7 +87,7 @@ def _create_steps(model, asm, cfg):
     }
     previous = "Initial"
 
-    # Indentation step (constant depth mode only) 
+    # Indentation step (constant depth mode only)
     if scratch.depth_mode == scratch.CONSTANT:
         name = names.step_indent
         model.ExplicitDynamicsStep(
@@ -112,7 +105,7 @@ def _create_steps(model, asm, cfg):
         steps["all"].append(name)
         previous = name
 
-    # Scratch step (always) 
+    # Scratch step (always)
     name = names.step_scratch
     model.ExplicitDynamicsStep(
         improvedDtMethod=ON,
@@ -129,7 +122,7 @@ def _create_steps(model, asm, cfg):
     steps["all"].append(name)
     previous = name
 
-    # Unload step (always) 
+    # Unload step (always)
     name = names.step_unload
     model.ExplicitDynamicsStep(
         improvedDtMethod=ON,
@@ -141,7 +134,7 @@ def _create_steps(model, asm, cfg):
     steps["all"].append(name)
     previous = name
 
-    # Recovery step (optional) 
+    # Recovery step (optional)
     if scratch.has_recovery_step:
         name = names.step_recovery
         model.ExplicitDynamicsStep(
@@ -159,7 +152,6 @@ def _create_steps(model, asm, cfg):
     return steps
 
 
-
 #  Loading
 def _apply_loading(model, ind_inst, cfg, first_step):
     # Create amplitude tables and displacement BCs on the indenter.
@@ -168,18 +160,15 @@ def _apply_loading(model, ind_inst, cfg, first_step):
     names = cfg.naming
     region = ind_inst.sets[names.indenter_set]
 
-    # Tabular-amplitude smoothing: rounds the velocity discontinuities at the
-    # amplitude kinks (t1/t2/t3) -- the main source of inertial ringing in
-    # explicit quasi-static loading -- while keeping constant velocity in the
-    # middle of each segment. None -> solver default.
+    # Tabular-amplitude smoothing, limits inertial ringing at the amplitude kinks (None -> solver default).
     smooth_val = getattr(scratch, "amplitude_smoothing", None)
     if smooth_val is None:
         smooth_val = SOLVER_DEFAULT
 
     if scratch.is_force_controlled:
 
-        # U2 is force-driven,a ConcentratedForce (cf2) is applied below. 
-        # U3 is displacement-driven, scratch speed is imposed
+        # U2 is force-driven: a ConcentratedForce (cf2) is applied below.
+        # U3 is displacement-driven: the scratch speed is imposed.
         model.TabularAmplitude(
             data=scratch.length_amplitude(),
             name=names.amp_length,
@@ -206,8 +195,7 @@ def _apply_loading(model, ind_inst, cfg, first_step):
             timeSpan=TOTAL,
         )
 
-        # Half-symmetry model: scratch_force is halved (same convention used on the RF2/Hertz checks)
-        # Cf2 has to be negative
+        # Half-symmetry model: scratch_force is halved, and cf2 must be negative.
         model.ConcentratedForce(
             amplitude=names.amp_force,
             cf2=-(scratch.scratch_force / 2.0),
@@ -286,7 +274,6 @@ def _apply_loading(model, ind_inst, cfg, first_step):
     )
 
 
-
 #  Boundary conditions
 def _apply_boundary_conditions(model, asm, ind_inst, sub_inst, cfg, first_step):
 
@@ -330,7 +317,6 @@ def _apply_boundary_conditions(model, asm, ind_inst, sub_inst, cfg, first_step):
     )
 
 
-
 #  Output requests
 def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
 
@@ -347,7 +333,7 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
     # The first active step (indent or scratch) gets all outputs
     first_active = steps["all_active"][0]
 
-    # History outputs (forces + energies during active steps) 
+    # History outputs (forces + energies during active steps)
     model.HistoryOutputRequest(
         createStepName=first_active, name=names.out_reaction,
         rebar=EXCLUDE,
@@ -357,12 +343,7 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
         variables=out.history_force_variables,
     )
 
-    # Contact-pair force history (CFN/CFS).
-    # In force-driven scratches RF2 ~ 0 (u2 carries no displacement BC), so the
-    # normal force must be read from the contact pair (CFN2). The exact
-    # variable identifiers / domain form depend on the Abaqus version (flagged
-    # for CAE verification), so the request is created defensively: a rejected
-    # request prints a warning instead of breaking displacement-driven builds.
+    # Contact-pair force history (CFN/CFS), needed in force-driven mode where RF2 ~ 0.
     contact_pair_ok = _request_contact_pair_history(model, asm, cfg, first_active)
 
     model.HistoryOutputRequest(
@@ -374,8 +355,7 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
         variables=getattr(out, "history_disp_variables", ("U1", "U2", "U3")),
     )
 
-    # Substrate-only energies (ALLKE, ALLIE, ALLAE) -> quasi-static & hourglass
-    # checks. The rigid driver must NOT enter these, hence region=substrate.
+    # Substrate-only energies (ALLKE, ALLIE, ALLAE), for the quasi-static and hourglass checks.
     model.HistoryOutputRequest(
         createStepName=first_active, name=names.out_energy_substrate,
         region=sub_inst.sets[names.substrate_set],
@@ -384,16 +364,13 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
     )
 
     # Whole-model energy balance (all components + ETOTAL), no region argument.
-    # The driver's kinetic energy legitimately appears here as a ~constant
-    # baseline; the balance must share this scope to be reconstructable.
-    # (Abaqus also silently writes zeros for ETOTAL if requested on a set.)
     model.HistoryOutputRequest(
         createStepName=first_active, name=names.out_energy_whole,
         timeInterval=scratch.history_interval,
         variables=out.history_energy_whole,
     )
 
-    # Field outputs 
+    # Field outputs
     model.FieldOutputRequest(
         createStepName=first_active, name=names.out_field,
         region=sub_inst.sets[names.substrate_set],
@@ -409,7 +386,7 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
     )
 
 
-    # Adjust output frequency per step 
+    # Adjust output frequency per step
 
     # Indentation step (if exists): fewer field frames
     if steps["indent"] is not None:
@@ -424,8 +401,6 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
         timeInterval=scratch.field_interval_unload,
     )
     model.fieldOutputRequests[names.out_contact].deactivate(steps["unload"])
-    #model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["unload"])
-    #model.historyOutputRequests[names.out_energy_whole].deactivate(steps["unload"])
     _low_freq = max(float(scratch.unload_time), float(scratch.recovery_time)) / 10.0
     model.historyOutputRequests[names.out_energy_substrate].setValuesInStep(stepName=steps["unload"], timeInterval=_low_freq)
     model.historyOutputRequests[names.out_energy_whole].setValuesInStep(stepName=steps["unload"], timeInterval=_low_freq)
@@ -441,8 +416,6 @@ def _setup_output_requests(model, asm, ind_inst, sub_inst, cfg, steps):
             timeInterval=scratch.field_interval_recovery,
         )
         model.fieldOutputRequests[names.out_contact].deactivate(steps["recovery"])
-        #model.historyOutputRequests[names.out_energy_substrate].deactivate(steps["recovery"])
-        #model.historyOutputRequests[names.out_energy_whole].deactivate(steps["recovery"])
         model.historyOutputRequests[names.out_energy_substrate].setValuesInStep(
             stepName=steps["recovery"], timeInterval=_low_freq)
         model.historyOutputRequests[names.out_energy_whole].setValuesInStep(
@@ -519,25 +492,11 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
         pressureOverclosure=HARD,
     )
 
-    # Surfaces 
-    # --- original master surface (PYRAMID_INDENTER_PATCH) ---
-#     rc = cfg.indenter.Rockwell_coords()
-
-#     asm.Surface(
-#         name=names.master_surface,
-#         side1Faces=ind_inst.faces.findAt(
-#             ((sub.xs1, sub.ys2, sub.zs1 + sub.dpo_z),),
-#             ((sub.xs1 + rc["xl2"], sub.ys2 + rc["yl2"], sub.zs1 + sub.dpo_z),),
-#         ),
-#     )
+    # Surfaces
 
     if cfg.indenter.indenter_type == cfg.indenter.PYRAMID:
-        # One probe point per lateral face, taken at mid-height of the pyramid.
-        # Rigid-element surfaces are double-sided in Abaqus/Explicit general
-        # contact, so side1Faces is sufficient here.
-        # (PYRAMID_TIP_CONTACT_PATCH) the FLAT TIP face must be part of the master surface:
-        # without it the truncated indenter has a hole at its lowest point,
-        # exactly where every slave node passes underneath.
+        # One probe point per lateral face at mid-height, plus the flat tip face
+        # (without it the truncated pyramid has a hole at its lowest point).
         _pyr_pts = cfg.indenter.pyramid_face_points(sub.ys2, sub.zs1 + sub.dpo_z)
         _pyr_pts = list(_pyr_pts) + list(
             cfg.indenter.pyramid_tip_face_point(sub.ys2, sub.zs1 + sub.dpo_z))
@@ -562,7 +521,7 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
         ),
     )
 
-    # General contact 
+    # General contact
     model.ContactExp(createStepName="Initial", name=names.contact_interaction)
     model.interactions[names.contact_interaction].includedPairs.setValuesInStep(
         addPairs=((
@@ -577,9 +536,7 @@ def _setup_contact(model, asm, ind_inst, sub_inst, cfg, first_step):
         stepName="Initial",
     )
 
-    # (PYRAMID_TIP_CONTACT_PATCH) optional control of the feature edges used by edge-to-edge
-    # general contact. Opt-in via Indenter_Config.feature_edge_criterion; the
-    # call is guarded because its signature could not be verified offline.
+    # Optional feature-edge criterion for edge-to-edge general contact (opt-in, guarded call).
     _fec = getattr(cfg.indenter, "feature_edge_criterion", None)
     if _fec is not None:
         _crit = {"NONE": NONE, "PERIMETER": PERIMETER, "ALL": ALL}.get(
@@ -659,7 +616,7 @@ def _setup_ale(model, asm, sub_inst, cfg, steps):
             region=asm.sets[names.ale_domain_set],
         )
 
-    # Unload / recovery: ALE suppressed by default 
+    # Unload / recovery: ALE suppressed by default
     passive_steps = [steps["unload"]]
     if steps["recovery"] is not None:
         passive_steps.append(steps["recovery"])

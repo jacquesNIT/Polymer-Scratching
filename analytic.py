@@ -10,21 +10,11 @@ Every function answers one question that no simulation output answers on its
 own: what mass factor is ACTUALLY applied, how wide is the contact, how many
 elements resolve it, and how much of the scratch step is eaten by amplitude
 smoothing. Two CSVs written without these numbers are not comparable.
-
-Location note: this module lives at the ScratchSimulation package root,
-alongside launch_cluster_jobs.py and results_values.py. natural_dt is
-imported from AbaqusModel/Configuration/base.py through a tolerant chain so
-the module works whether it is reached as a package member, as a top-level
-module, or by direct path execution.
 """
 
 import numpy as np
 
-
-# --------------------------------------------------------------------------
 # natural_dt import: tolerant to the execution environment
-# --------------------------------------------------------------------------
-
 def _import_natural_dt():
     """Resolve base.natural_dt across the kernel / CPython / script paths."""
     try:
@@ -47,10 +37,8 @@ def _import_natural_dt():
     return natural_dt
 
 
-# --------------------------------------------------------------------------
-# Mass scaling
-# --------------------------------------------------------------------------
 
+# Mass scaling
 def mass_scaling_factor(cfg, L_min=None):
     """
     Mass factor f ACTUALLY applied by the solver, and the resulting increment.
@@ -97,10 +85,8 @@ def contact_impedance_force(rho, E, f, area, v_normal):
     return float(float(rho) * c0 * np.sqrt(max(float(f), 1.0)) * float(area) * float(v_normal))
 
 
-# --------------------------------------------------------------------------
-# Contact geometry
-# --------------------------------------------------------------------------
 
+# Contact geometry
 def contact_radius_rockwell(depth, R, cone_angle):
     """
     Contact radius a(depth) [mm] of the Rockwell C tip: spherical cap below
@@ -112,11 +98,6 @@ def contact_radius_rockwell(depth, R, cone_angle):
 
     Convention: cone_angle is the HALF-apex angle measured from the axis
     (60 deg here, i.e. 120 deg included), matching Indenter_Config.cone_angle.
-    Do NOT divide by 2: an earlier convention treated it as the full apex
-    angle and reported delta* = 0.100 mm instead of 0.027 mm at R = 0.2 mm.
-
-    Past the transition the conical formula is what matters: at 40 um the
-    contact is 0.123 mm wide, not the 0.089 mm the sphere formula returns.
     """
     depth = float(depth)
     R = float(R)
@@ -141,10 +122,7 @@ def elements_per_contact_radius(a, h_mesh):
     return float(a) / float(h_mesh)
 
 
-# --------------------------------------------------------------------------
 # Amplitude smoothing
-# --------------------------------------------------------------------------
-
 def amplitude_smoothing_window(cfg):
     """
     Absolute half-width of the SMOOTH window that Abaqus applies at the
@@ -154,14 +132,6 @@ def amplitude_smoothing_window(cfg):
         w = smooth * min(dt_before, dt_after)
           = smooth * min(scratch_time, unload_time)
         w_rel = w / scratch_time
-
-    Why this matters: unload_time is a FIXED 0.01 s in polymer_default while
-    scratch_time is swept. w_rel therefore GROWS as scratch_time shrinks
-    (5 % at T=0.05, 10 % at T=0.025, 25 % at T=0.01) -- a displacement-path
-    difference between the three runs of the scratch-time comparison, i.e. a
-    confound that is NOT inertial and would bias a perfectly quasi-static,
-    rate-independent material. Verify against the IndenterU2 trace before
-    interpreting any scratch-time sensitivity.
     """
     sm = getattr(cfg.scratch, "amplitude_smoothing", None)
     if sm is None:

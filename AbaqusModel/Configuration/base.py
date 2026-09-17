@@ -99,8 +99,7 @@ class Indenter_Config:
         """
         One probe point per lateral face, in GLOBAL coordinates, for
         ind_inst.faces.findAt(). h_frac is the relative height above the flat
-        tip: r = a_tip + h * tan(theta) (identical to the sharp-apex formula
-        when tip_flat = 0).
+        tip: r = a_tip + h * tan(theta).
         """
         pc = self.Pyramid_coords()
         h = float(h_frac) * pc["H_frustum"]
@@ -110,8 +109,7 @@ class Indenter_Config:
 
     def pyramid_tip_face_point(self, y_tip, z_tip, x_tip=0.0):
         """
-        Probe point on the flat tip face, in GLOBAL coordinates. Returns [] for
-        a sharp apex (there is no tip face to select).
+        Probe point on the flat tip face, in GLOBAL coordinates. 
         """
         pc = self.Pyramid_coords()
         if pc["a_tip"] <= 0.0:
@@ -121,7 +119,7 @@ class Indenter_Config:
     def pyramid_edge_points(self, s=0.35):
         """
         One probe point per lateral (corner) edge, in PART LOCAL coordinates.
-        The lateral edges run from the base vertex to the top (frustum) vertex,
+        The lateral edges run from the base vertex to the top vertex,
         so the radial scaling is not simply (1 - s).
         """
         pc = self.Pyramid_coords()
@@ -131,7 +129,7 @@ class Indenter_Config:
 
     def pyramid_equivalent_cone_angle(self):
         """
-        Half-apex angle of the CONE with the same projected contact area vs depth:
+        Half-apex angle of the cone with the same projected contact area vs depth:
 
             pi * a_eq^2 = n * (h tan(theta))^2 * tan(pi/n)
 
@@ -146,7 +144,7 @@ class Substrate_Config:
     """Dimensions and partitioning of the substrate block."""
 
     def __init__(self,
-                 xs1=0.0, ys1=0.0, zs1=0.0,             # Substrate box origin
+                 xs1=0.0, ys1=0.0, zs1=0.0,              # Substrate box origin
                  xs2=0.6, ys2=0.5, zs2=3.0,              # Width, height and depth of the box [mm] (z is the scratch direction)
                  dpo_x=0.25, dpo_y=0.15, dpo_z=0.25):    # Partition offsets (from edges of refined zone)
 
@@ -167,7 +165,7 @@ class Mesh_Config:
     def __init__(self,
                  fine_size_x=0.010, fine_size_y=0.010, fine_size_z=0.010,      # Fine mesh sizes in the refined contact zone
                  coarse_size_0=0.00, coarse_size_1=0.03, coarse_size_2=0.06,   # Coarse mesh (transition away from contact zone)
-                 hourglass_control="ENHANCED",                                 # "ENHANCED" for Plastic families, "RELAX STIFNESS" for visco-elastic ones
+                 hourglass_control="ENHANCED",                                 
                  distortion_control="DEFAULT",                                 # "OFF" decided
                  max_degradation=0.9,
                  element_deletion=False,                                       # False to capture the recovery phenomenon
@@ -236,9 +234,6 @@ class Yeoh_Model_Config:
     """
     W = sum_{i=1..3} Ci0 * (I1_bar - 3)^i + sum_{i=1..3} (1/Di) * (J_el - 1)^(2i)
     Abaqus table order: (C10, C20, C30, D1, D2, D3).
-    I1-only: cheap and stable up to large strains; C20 < 0 reproduces the
-    mid-strain softening of filled rubbers, C30 > 0 the final upturn.
-    Initial shear modulus mu_0 = 2*C10 (C20/C30 do not contribute at I1=3).
     """
 
     MODEL = "yeoh"
@@ -258,11 +253,6 @@ class Ogden_Model_Config:
     """
     W = sum_{i=1..N} 2*mu_i/alpha_i^2 * (lam1_bar^alpha_i + lam2_bar^alpha_i + lam3_bar^alpha_i - 3)
         + sum_{i=1..N} (1/Di) * (J_el - 1)^(2i)
-    Abaqus N=2 table order: (mu1, alpha1, mu2, alpha2, D1, D2).
-    In the Abaqus convention the initial shear modulus is mu_0 = sum(mu_i)
-    regardless of the alpha_i. Principal-stretch formulation: the only one of
-    the four that is NOT a pure I1/I2 function -- discriminates in
-    non-equibiaxial states like the scratch bow-wave.
     """
 
     MODEL = "ogden"
@@ -329,7 +319,7 @@ class J2Plasticity_Config:
 
     def __init__(self,
                  yield_table=((10.0, 0.0), (14.0, 0.2), (18.0, 0.6)),   # (yield_stress [MPa], plastic_strain [-])
-                 rate_dependent=None):                                 # RateDependent_Config or None
+                 rate_dependent=None):                                  # RateDependent_Config or None
         self.yield_table = tuple(tuple(pt) for pt in yield_table)
         self.rate_dependent = rate_dependent
 

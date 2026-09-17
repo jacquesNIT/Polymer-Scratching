@@ -1,59 +1,7 @@
-"""Along-track curves for a simulated scratch: SCOF, w0, A_pile, A_groove.
+"""Along-track SCOF, w0, A_pile and A_groove curves for simulated scratches (*_Results.csv).
 
-    python sim_values.py <folder_or_csv> [options]
-
-Options
-    --csv <file>        write the sampled curves (one row per z sample)
-    --png <file>        save the main figure
-    --sections <file>   save the transverse-section figure
-    --smooth <mm>       gaussian smoothing length of the plotted SCOF, in mm
-    --smooth-x <um>     along-track moving average of the topography curves
-    --rows / --cols     resampling grid of the topography field
-    --no-show           do not open a window (useful on the cluster)
-    --no-plot           compute and export only
-
-WHAT THIS MODULE IS
-    `scof.py` kept the point-by-point SCOF that `results_values.py` collapses
-    into a band average. This module does the same for the topography: it
-    keeps the whole along-track curve of every quantity the laboratory
-    measures on a .bcrf scan, so that a simulation and a scan can be compared
-    curve against curve rather than scalar against scalar.
-
-SINGLE SOURCE OF TRUTH
-    Nothing is reimplemented here. Two modules are imported and used as they
-    are:
-
-      results_values.py  parsing, time masks, RF2/CFN2 choice, node cloud to
-                         regular grid, SCOF band bounds
-      bcrf_values.py     track location, form removal, along-track profiles,
-                         zero-crossing groove width, section areas
-
-    Every topographic estimator is the LABORATORY estimator, called on the
-    simulated field. A correction made in either module propagates here with
-    no intervention. The only thing this file adds is the adaptation of the
-    simulated node cloud to the array layout bcrf_values expects, plus the
-    commanded-depth axis, which has no laboratory equivalent.
-
-AXES AND UNITS
-    The simulation works in mm; bcrf_values works in um. The field handed to
-    the laboratory estimators is therefore in um, laid out exactly like a
-    scan:
-
-        field[i, j]   i = across the track (model x), j = along it (model z)
-
-    Curves are reported against z in mm, the abscissa convention of scof.py
-    and force_values: on the ACTIVE window z advances linearly from 0 to
-    scratch_length. The half-model factor 2 cancels in the RF3/RF2 ratio; it
-    is applied to the plotted forces only.
-
-WHAT IS DELIBERATELY NOT COPIED FROM THE LABORATORY PIPELINE
-    The despiking, Hampel and transverse-median stages of bcrf_values exist
-    to survive dust, debris and surface roughness. A simulated field has
-    none of those, and each of these filters costs a fraction of a um on the
-    extrema of a feature whose curvature radius is of the order of the
-    window. They are therefore OFF by default and exposed as options, so the
-    same filters can be switched on when the point is to measure the bias
-    the filters themselves introduce on the laboratory side.
+Example: python .\sim_values.py ..\runs\Calib\sweep_calib_pc1\ --csv .\sweep_calib_curves_pc1.csv
+         python .\sim_values.py run_001_Results.csv --png curves.png --no-show
 """
 
 import argparse
@@ -66,12 +14,9 @@ from pathlib import Path
 
 import numpy as np
 
-
-# =====================================================================
-#  Imports of the two source modules
-# =====================================================================
+# Imports of the two source modules
 def _load_module(name, filenames):
-    """Import `name`, first through sys.path then by explicit file search."""
+    """Import `name`, falling back on the given file names next to this script."""
     try:
         return importlib.import_module(name)
     except ImportError:
@@ -102,36 +47,19 @@ bv = _load_module("bcrf_values", ["bcrf_values.py"])
 SCOF_LO_FRAC = rv.SCOF_LO_FRAC
 SCOF_HI_FRAC = rv.SCOF_HI_FRAC
 
-# Resampling grid of the node cloud. results_values uses TARGET_SHAPE =
-# (80, 420), i.e. 7.6 um across the track: a 120 um groove is then 16 pixels
-# wide and its two zero crossings are resolved to 6 % of w0 each. That is
-# enough for a scalar h_r and far too coarse for an area. The default here is
-# five times finer across the track; the cost is one griddata call.
+# Resampling grid of the node cloud.
 DEFAULT_ROWS = 401           # across the track (model x)
 DEFAULT_COLS = 420           # along the track (model z)
 
-# Minimum |h_r| for a column to count as grooved, in um. bcrf_values derives
-# its threshold from the scatter of the reference bands, which is a few nm on
-# a simulated field: without a floor, the elastic sink-in ahead of the
-# indenter would register as a groove.
+# Minimum |h_r| for a column to count as grooved, in um.
 DEFAULT_MIN_DEPTH_UM = 0.20
 
 # Cosmetic along-track window, same default as bcrf_values.analyse().
 DEFAULT_SMOOTH_X_UM = 25.0
 
-
-# =====================================================================
-#  Indenter geometry
-# =====================================================================
+# Indenter geometry
 def sphere_cone_transition_depth(metadata):
-    """Depth h_t (mm) at which contact leaves the spherical cap.
-
-    For a cone of half-angle theta measured from the axis, tangentially
-    blended into a sphere of radius R, tangency is reached at
-    h_t = R (1 - sin theta). Rockwell C (R = 0.2 mm, theta = 60 deg) gives
-    h_t = 26.8 um. Returns None when the geometry cannot be read from the
-    header.
-    """
+    """Depth h_t = R (1 - sin theta) (mm) at which contact leaves the spherical cap."""
     R = metadata.get("tip_radius")
     theta = metadata.get("cone_angle")
     if R is None or theta is None:
@@ -147,13 +75,7 @@ def sphere_cone_transition_depth(metadata):
 
 
 def sphere_cone_transition_z(metadata, scratch_length):
-    """Abscissa z (mm) of the sphere -> cone transition, progressive mode only.
-
-    In depth_mode=progressive the depth command rises linearly with travel,
-    so z_t = L * h_t / depth_max. In depth_mode=constant the depth is reached
-    before the scratch starts, the transition has no abscissa along the
-    groove, and the function returns None.
-    """
+    """Abscissa z (mm) of the sphere -> cone transition, progressive mode only."""
     if str(metadata.get("depth_mode", "")).lower().startswith("prog") is False:
         return None
     h_t = sphere_cone_transition_depth(metadata)
@@ -167,19 +89,7 @@ def sphere_cone_transition_z(metadata, scratch_length):
 
 
 def commanded_depth(metadata, z_mm, scratch_length):
-    """Commanded penetration (um, positive) at abscissa z.
-
-    This is the one quantity the laboratory does not have: on a scan the
-    depth has to be inverted from w0 through the recovery factor k(d),
-    whereas here it is a boundary condition. Progressive mode gives
-    d(z) = depth_max * z / L, clipped to the travel; constant mode gives the
-    same depth everywhere the groove exists.
-
-    Returned so that the simulated curves can be read against depth directly,
-    and so that k(d) = a_res / a_geom can be recomputed -- which is exactly
-    how the laboratory preset in bcrf_values was calibrated in the first
-    place.
-    """
+    """Commanded penetration (um, positive) at abscissa z."""
     depth = metadata.get("scratch_depth")
     if depth is None:
         return None
@@ -193,16 +103,9 @@ def commanded_depth(metadata, z_mm, scratch_length):
     return np.full(z.shape, d_max)
 
 
-# =====================================================================
-#  Forces and SCOF -- unchanged transcription of scof.py
-# =====================================================================
+# Forces and SCOF
 def _interactive_backend():
-    """Try to restore an interactive backend before showing a figure.
-
-    bcrf_values sets matplotlib to "Agg" at import time, which is right for a
-    batch tool but silently turns plt.show() into a no-op here. Returns True
-    when a window can actually be opened.
-    """
+    """Try to restore an interactive backend before showing a figure."""
     import matplotlib
     if not matplotlib.get_backend().lower().startswith("agg"):
         return True
@@ -234,18 +137,7 @@ def _nan_gaussian(y, sigma):
 
 
 def scof_curve(timeseries, metadata, smooth_mm=0.0):
-    """Point-by-point SCOF along the groove.
-
-    Returns a dict:
-        z         (n,) abscissa along the scratch [mm]
-        scof      (n,) |RF3| / |RF2|, NaN where RF2 vanishes
-        scof_smooth (n,) same series smoothed when smooth_mm > 0
-        F_n, F_t  (n,) FULL-model forces (factor 2) [N]
-        in_load   (n,) bool, sample before the peak of the command
-        in_band   (n,) bool, sample kept by the results_values average
-        z_t       sphere -> cone transition [mm] or None
-        SCOF_mean, SCOF_std, SCOF_n   band average, identical to scof_values
-    """
+    """Point-by-point SCOF and full-model forces along the groove, plus the band-averaged SCOF."""
     rf3 = timeseries.get("RF3")
     rf2, rf2_src = rv._normal_force_series(timeseries, metadata)
     if rf2 is None or rf3 is None:
@@ -320,25 +212,10 @@ def scof_curve(timeseries, metadata, smooth_mm=0.0):
     return out
 
 
-# =====================================================================
-#  Topography field
-# =====================================================================
+# Topography field
 def build_field(nodes, rows=DEFAULT_ROWS, cols=DEFAULT_COLS, method="linear"):
-    """Node cloud -> levelling-ready field, laid out like a .bcrf map.
-
-    Returns (field_um, along_um, across_um, z_mm) where
-
-        field_um[i, j]   height in um, i across the track, j along it
-        along_um         along-track abscissa in um, starting at 0
-        across_um        across-track abscissa in um, starting at 0
-        z_mm             along-track abscissa in mm, in model coordinates
-
-    The heavy lifting is rv.map_coords_to_new_grid(): mirroring of the half
-    model about x = 0, and interpolation of the DEFORMED coordinates onto a
-    regular grid, i.e. a eulerian topographic map. Only the axis naming and
-    the mm -> um conversion happen here, so that the array handed to
-    bcrf_values has the same meaning as a scan: rows across the track,
-    columns along it, heights referenced to the far field.
+    """Node cloud -> height field in um, laid out like a .bcrf map (rows across the track).
+    Returns (field_um, along_um, across_um, z_mm).
     """
     undef, deform = nodes["undeformed"], nodes["deformed"]
     if len(deform) == 0:
@@ -349,9 +226,7 @@ def build_field(nodes, rows=DEFAULT_ROWS, cols=DEFAULT_COLS, method="linear"):
 
     field_um = np.asarray(Y, dtype=float) * 1e3        # mm -> um
 
-    # bcrf_values indexes with y_um = arange(ny)*dy, i.e. an axis starting at
-    # zero. The model axis is centred on the symmetry plane, so it is shifted
-    # here and the offset kept for display only.
+    # Shift the across axis to start at zero, as bcrf_values expects.
     across_model = np.asarray(X[:, 0], dtype=float) * 1e3
     across_um = across_model - across_model[0]
     z_mm = np.asarray(Z[0, :], dtype=float)
@@ -361,14 +236,7 @@ def build_field(nodes, rows=DEFAULT_ROWS, cols=DEFAULT_COLS, method="linear"):
 
 
 def _section_areas(profile, y_um, row_c, half, outer, ref_rows, rezero=True):
-    """Areas of one transverse column, through the laboratory estimator.
-
-    bcrf_values computes areas on the few sections it picks for the figure;
-    the calibration needs them on every column. The estimator is unchanged --
-    bv.section_values is called as is -- and the re-zeroing on the clipped
-    reference rows is the one bcrf_values.analyse() applies to its own
-    sections (section_rezero=True).
-    """
+    """Groove and pile-up areas of one transverse column, through bcrf_values.section_values."""
     p = np.asarray(profile, dtype=float)
     if rezero and ref_rows is not None and np.any(ref_rows):
         base = np.nanmedian(p[ref_rows])
@@ -387,17 +255,7 @@ def topography_curves(field_um, along_um, across_um, metadata, z_mm,
                       median_y=0.0, hampel_len=0.0, hampel_k=4.0,
                       upstream=None, n_sections=5, section_win=25.0,
                       section_rezero=True):
-    """Along-track curves of w0, h_r, h_p, A_groove, A_pile and their ratio.
-
-    The chain is bcrf_values.analyse() with the instrument-artefact stages
-    made optional:
-
-        locate_track  -> flatten  -> [median / hampel] -> build_profiles
-                      -> section_values on every column
-
-    Returns a dict of arrays indexed by grid column, plus the detection
-    geometry (row_c, half, outer) and the picked sections.
-    """
+    """Along-track curves of w0, h_r, h_p, A_groove, A_pile and their ratio, plus picked sections."""
     ny, nx = field_um.shape
     dy = float(across_um[1] - across_um[0]) if ny > 1 else 1.0
     dx = float(along_um[1] - along_um[0]) if nx > 1 else 1.0
@@ -407,10 +265,7 @@ def topography_curves(field_um, along_um, across_um, metadata, z_mm,
     win_loc = max(1, int(round(locate_win / dy)))
     win_sec = max(1, int(round(section_win / dx)))
 
-    # --- track geometry. On a half model the centre is known exactly, but it
-    # is detected the same way as on a scan so that any asymmetry introduced
-    # by the interpolation shows up as a measurable offset rather than being
-    # assumed away. The offset is reported; --track-x forces the plane.
+    # Track geometry, detected as on a scan; --track-x forces the plane.
     row_sym = int(round(0.5 * (ny - 1)))     # mirror plane, model x = 0
     row_c, half, outer, _ = bv.locate_track(field_um, dy, win_loc,
                                             centre_guard=centre_guard)
@@ -421,11 +276,7 @@ def topography_curves(field_um, along_um, across_um, metadata, z_mm,
         outer = int(outer_px)
     centre_offset_um = (row_c - row_sym) * dy
 
-    # --- form removal. On a simulated field the far surface is flat by
-    # construction, so the polynomial comes out near zero; the step is kept
-    # because it is what DEFINES the zero from which the crossings of w0 and
-    # the sign split of the areas are taken. Skipping it would silently give
-    # the two sides different references.
+    # Form removal: defines the zero of the w0 crossings and of the area split.
     if upstream is None:
         up_cols = bv.upstream_limit(field_um, row_c, half)
     elif upstream <= 0:
@@ -436,7 +287,7 @@ def topography_curves(field_um, along_um, across_um, metadata, z_mm,
     Zf, ref, mask, sigma = bv.flatten(field_um, row_c, outer, degree=degree,
                                       up_cols=up_cols)
 
-    # --- optional laboratory filters, off by default (see the module header)
+    # Optional laboratory filters, off by default
     Zm = Zf
     if median_y > 0:
         Zm = bv.median_axis(Zf, max(1, int(round(median_y / dy))), axis=0)
@@ -447,9 +298,7 @@ def topography_curves(field_um, along_um, across_um, metadata, z_mm,
         hampel_win_px=int(round(hampel_len / dx)) if hampel_len > 0 else 0,
         hampel_k=hampel_k, detect_win_px=win_det, up_cols=up_cols)
 
-    # --- absolute depth floor on the presence flag. build_profiles scales its
-    # threshold on the scatter of the reference bands; that scatter is a few
-    # nm here, so the flag would follow the elastic sink-in ahead of the tip.
+    # Absolute depth floor on the presence flag (reference scatter is only a few nm here).
     if min_depth_um > 0:
         keep = prof["present"] & (prof["h_r"] < -abs(min_depth_um))
         prof["present"] = bv.longest_run(keep, close=max(5, nx // 100),
@@ -470,10 +319,7 @@ def topography_curves(field_um, along_um, across_um, metadata, z_mm,
     with np.errstate(divide="ignore", invalid="ignore"):
         ratio = np.where(a_groove > 0, a_pileup / a_groove, np.nan)
 
-    # --- commanded depth and the lateral recovery factor it implies.
-    # k = a_res / a_geom is the quantity the bcrf_values presets encode; on a
-    # simulation both terms are known, so the preset can be regenerated from
-    # here instead of being trusted.
+    # Commanded depth and the lateral recovery factor k = a_res / a_geom it implies.
     L = metadata.get("scratch_length")
     try:
         L = float(L)
@@ -548,18 +394,10 @@ def topography_curves(field_um, along_um, across_um, metadata, z_mm,
     return out
 
 
-# =====================================================================
-#  One file in, one result dict out
-# =====================================================================
+# One file in, one result dict out
 def analyse(filepath, smooth_mm=0.0, rows=DEFAULT_ROWS, cols=DEFAULT_COLS,
             method="linear", **topo_kw):
-    """Read a *_Results.csv and return forces, SCOF and topography curves.
-
-    The force series and the topography live on different samplings -- one
-    per written frame, one per grid column -- so the forces are projected
-    onto the topography abscissa. That projection is what makes SCOF and w0
-    readable at the SAME depth, which is the whole point of the exercise.
-    """
+    """Read a *_Results.csv and return forces, SCOF and topography curves on the same z grid."""
     metadata, timeseries, nodes = rv.parse_results_csv(str(filepath))
     curve = scof_curve(timeseries, metadata, smooth_mm=smooth_mm)
 
@@ -583,9 +421,7 @@ def analyse(filepath, smooth_mm=0.0, rows=DEFAULT_ROWS, cols=DEFAULT_COLS,
     return res
 
 
-# =====================================================================
-#  Outputs
-# =====================================================================
+# Outputs
 _CURVE_COLUMNS = [
     ("z [mm]", "z_mm"),
     ("d_cmd [um]", "d_cmd_um"),
@@ -768,11 +604,7 @@ def plot_curves(results, png=None, show=True):
 
 
 def plot_sections(results, png=None, show=True):
-    """Transverse profiles at the picked sections, centred on the track.
-
-    Same layout as the laboratory section figure, so a scan and a simulation
-    can be laid side by side without re-centring anything by hand.
-    """
+    """Transverse profiles at the picked sections, centred on the track."""
     import matplotlib
     if show:
         show = _interactive_backend()
@@ -843,9 +675,7 @@ def describe(res):
           % (topo["centre_offset_um"], topo["half"], topo["outer"]))
 
 
-# =====================================================================
-#  CLI
-# =====================================================================
+# CLI
 def main(argv=None):
     p = argparse.ArgumentParser(
         description="SCOF, w0, A_pile and A_groove curves along a simulated "

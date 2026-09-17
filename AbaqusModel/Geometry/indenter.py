@@ -1,4 +1,4 @@
-# Generation of the rigid Rockwell indenter geometry
+# Rigid indenter geometry (Rockwell sphere-cone or pyramid) and its placement on the substrate.
 
 from ScratchSimulation.AbaqusModel.abaqus_env import *
 
@@ -9,7 +9,7 @@ def create_indenter(model, cfg):
 
     if ind.indenter_type == ind.ROCKWELL:
         return create_rockwell(model, cfg)
-    elif ind.indenter_type == ind.PYRAMID:            # PYRAMID_INDENTER_PATCH
+    elif ind.indenter_type == ind.PYRAMID:
         return create_pyramid(model, cfg)
     else:
         raise ValueError("Unknown indenter type: %s" % ind.indenter_type)
@@ -22,7 +22,7 @@ def create_rockwell(model, cfg):
     names = cfg.naming
     rc = ind.Rockwell_coords()
 
-    # Sketch 
+    # Sketch
     model.ConstrainedSketch(name="__profile__", sheetSize=cfg.sheet_size)
     sk = model.sketches["__profile__"]
 
@@ -61,7 +61,7 @@ def create_rockwell(model, cfg):
         entity2=sk.vertices.findAt((rc["xc2"], rc["yc2"])),
     )
 
-    # Revolve into analytic rigid surface 
+    # Revolve into analytic rigid surface
     sk.sketchOptions.setValues(constructionGeometry=ON)
     sk.assignCenterline(line=sk.geometry.findAt((0.0, 1.0)))
 
@@ -71,13 +71,13 @@ def create_rockwell(model, cfg):
 
     part = model.parts[names.indenter_name]
 
-    # Reference point & inertia 
+    # Reference point & inertia
     part.ReferencePoint(point=part.vertices.findAt((rc["xc1"], rc["yc1"], 0.0)))
     part.Set(name=names.indenter_set, referencePoints=(part.referencePoints[2],))
 
     part.engineeringFeatures.PointMassInertia(
         alpha=0.0, composite=0.0,
-        i11=0.0, i22=0.0, i33=0.0, mass=1e-6,     # For force driven tests, indenter mass must be adjusted to mass scaling, for now just use 1e-6
+        i11=0.0, i22=0.0, i33=0.0, mass=1e-6,  # to be adjusted to mass scaling for force-driven tests
         name=names.inertia_name,
         region=part.sets[names.indenter_set],
     )
@@ -90,7 +90,7 @@ def create_pyramid(model, cfg):
     names = cfg.naming
     pc = ind.Pyramid_coords()
     H = pc["H"]                    # virtual apex height
-    Hf = pc["H_frustum"]           # actual height of the truncated pyramid (PYRAMID_TIP_CONTACT_PATCH)
+    Hf = pc["H_frustum"]  # actual height of the truncated pyramid
 
     # Geometric sanity check: the pyramid must be tall enough for the prescribed depth
     depth = abs(float(getattr(cfg.scratch, "scratch_depth", 0.0) or 0.0))
@@ -106,10 +106,6 @@ def create_pyramid(model, cfg):
     for i in range(pc["n"]):
         sk.Line(point1=verts[i], point2=verts[(i + 1) % pc["n"]])
 
-    # Solid extrusion with a NEGATIVE draft angle: the section shrinks along +z.
-    # (PYRAMID_TIP_CONTACT_PATCH) the depth is now exactly H_frustum, which leaves a flat tip of
-    # apothem a_tip instead of a singular apex -- and removes the previous
-    # over-extrusion, whose clipping behaviour at the apex was not guaranteed.
     if ind.extrude_depth:
         depths = [float(ind.extrude_depth)]
     elif pc["a_tip"] > 0.0:
@@ -140,17 +136,11 @@ def create_pyramid(model, cfg):
     # Solid -> rigid shell: dropping the cell keeps all the faces
     part.RemoveCells(cellList=part.cells[0:len(part.cells)])
 
-    # Reference point at the LOWEST POINT of the indenter (PYRAMID_TIP_CONTACT_PATCH).
-    # For a truncated tip this is the centre of the flat, NOT the virtual apex,
-    # so that the prescribed scratch_depth stays the true penetration depth.
+    # Reference point at the lowest point of the indenter
     rp = part.ReferencePoint(point=(0.0, 0.0, Hf))
     part.Set(name=names.indenter_set,
              referencePoints=(part.referencePoints[rp.id],))
 
-    # A DISCRETE rigid body has element nodes, unlike the analytic Rockwell tip:
-    # Abaqus builds the general-contact penalties from its mass properties, and
-    # a null rotary inertia is what triggers the "sufficient mass" warning on the
-    # feature edges. Kinematics are unaffected (displacement-controlled RP).
     _m = float(ind.rigid_mass)
     _i = ind.rigid_inertia
     if _i is None:
@@ -164,19 +154,13 @@ def create_pyramid(model, cfg):
     )
 
     # Mesh: R3D4 / R3D3 rigid elements, no contribution to the stable increment.
-    # (PYRAMID_TIP_CONTACT_PATCH) default is now 1.0x the substrate fine size, not 0.5x: the faces
-    # of a pyramid are PLANAR, so facet size introduces no geometric error at all
-    # (unlike a sphere). A master surface finer than the slave only multiplies the
-    # contact entities and the edge-to-edge pairs that trigger the deep-penetration
-    # warning.
     ms = ind.mesh_size
     if not ms:
         ms = min(cfg.mesh.fine_size_x, cfg.mesh.fine_size_z)
     part.seedPart(size=ms, deviationFactor=0.1, minSizeFactor=0.1)
 
     if ind.tip_bias:
-        # Optional refinement towards the apex. CHECK THE BIAS DIRECTION IN CAE:
-        # which vertex Abaqus calls "end 2" depends on the edge parametrisation.
+        # Optional refinement towards the apex (check the bias direction in CAE).
         ms_min = ind.mesh_min_size or 0.25 * ms
         edge_pts = tuple([(p,) for p in ind.pyramid_edge_points(s=0.35)])
         part.seedEdgeByBias(
@@ -190,7 +174,7 @@ def create_pyramid(model, cfg):
     return part
 
 
-#  Placement of the indenter instance (PYRAMID_INDENTER_PATCH)
+# Placement of the indenter instance
 def place_indenter(asm, cfg):
     # Brings the tip/apex onto the substrate top surface at z = zs1 + dpo_z.
 
@@ -199,10 +183,6 @@ def place_indenter(asm, cfg):
     sub = cfg.substrate
 
     if ind.indenter_type == ind.PYRAMID:
-        # +90 deg about x maps the part +z onto the global -y: the apex points
-        # down and the sketch y axis becomes the global scratch direction z.
-        # (PYRAMID_TIP_CONTACT_PATCH) H_frustum, so the FLAT TIP -- the lowest point of the
-        # indenter -- lands on the substrate top surface.
         Hf = ind.Pyramid_coords()["H_frustum"]
         asm.rotate(instanceList=(names.indenter_instance,),
                    axisPoint=(0.0, 0.0, 0.0), axisDirection=(1.0, 0.0, 0.0),
